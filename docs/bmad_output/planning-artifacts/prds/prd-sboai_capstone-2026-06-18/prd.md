@@ -1,3 +1,9 @@
+---
+title: AI-Powered Prepaid Billing System
+status: final
+created: 2026-06-18
+updated: 2026-06-18
+---
 
 # 1. PRD: AI-Powered Prepaid Billing System
 
@@ -106,6 +112,9 @@ The outcome: maximise ARPU, minimise churn, and reduce operational cost through 
 - **PII** — Personally Identifiable Information; includes MSISDN, name, address, and financial data.
 - **PCI-DSS** — Payment Card Industry Data Security Standard; governs secure handling of payment card data.
 - **TRAI** — Telecom Regulatory Authority of India; the regulatory body whose mandates govern billing, data localisation, and customer identity verification.
+- **Rule Induction Agent** — An LLM-powered agent that generalises per-customer segment labels (produced by LLM labelling) into interpretable KPI-predicate rules, which are persisted to the database for reuse in deterministic classification of the full subscriber pool.
+- **Root Cause Analysis Agent** — An LLM-powered agent that assists engineering teams in diagnosing billing discrepancies and failed recharges, using audit logs, CDR data, and a synthetic Standard Operating Procedure knowledge base as grounding.
+- **Dead-Letter Queue** — A secondary message queue that captures CDR events that failed to process successfully, preventing data loss and enabling reprocessing after root cause remediation.
 
 ---
 
@@ -309,13 +318,13 @@ A subscriber can view a list of failed recharge transactions. Actual refund proc
 
 #### FR-18: Low Balance Alert
 
-The system sends a simulated SMS and push notification when a subscriber's Wallet Balance drops below a configured threshold.
+The system sends a simulated SMS and push notification when a subscriber's Wallet Balance drops below ₹10. The threshold is stored in a database configuration record; changing the record changes the threshold system-wide.
 
 **Consequences (testable):**
 
-- Notification is triggered within one CDR processing cycle after balance crosses the threshold.
-- Threshold value is configurable per subscriber or globally.
-- The notification message includes current balance and a recharge link/prompt.
+- Notification is triggered within one CDR processing cycle after Wallet Balance crosses the ₹10 threshold.
+- The threshold value is read from a database configuration record (not hardcoded).
+- The notification message includes the current balance and a recharge prompt.
 
 #### FR-19: Balance Depletion Alert
 
@@ -323,16 +332,16 @@ The system sends a simulated SMS and push notification when a subscriber's Walle
 
 **Consequences (testable):**
 
-- Alert fires when balance ≤ configured near-zero value (e.g. ₹0.00–₹5.00).
+- Alert fires when balance ≤ ₹0.00.
 - Alert is sent only once per depletion event (not repeatedly while balance remains at zero).
 
 #### FR-20: Plan Expiry Reminder
 
-The system sends a simulated SMS and push notification N days before a subscriber's active plan expires.
+The system sends a simulated SMS and push notification 3 days before a subscriber's active plan expires. The lead-time value is stored in a database configuration record.
 
 **Consequences (testable):**
 
-- Notification is sent at a configurable number of days before expiry (e.g. 3 days, 1 day).
+- Notification is sent exactly 3 days before plan expiry (configurable via database record).
 - Notification includes the plan name, expiry date, and a recharge prompt.
 
 #### FR-21: Contextual Top-Up Nudge
@@ -444,7 +453,7 @@ The Support Agent queries the Balance Management Agent for wallet-related querie
 
 #### FR-32: Plan Recommendation Tool
 
-The Support Agent offers a plan recommendation using a hybrid search combining plan attribute matching, semantic retrieval, and subscriber usage signals.
+The Support Agent offers a plan recommendation using a hybrid search combining plan attribute matching, semantic retrieval, and subscriber usage signals. The exact implementation of the hybrid search (embedding model, vector index type, attribute matching rules, usage signal source, and score fusion method) is TBD and will be specified in the architecture document.
 
 **Consequences (testable):**
 
@@ -452,14 +461,18 @@ The Support Agent offers a plan recommendation using a hybrid search combining p
 - Recommendation rationale is surfaced to the subscriber in natural language.
 - Recommendation outcomes are logged to the feedback loop (FR-33).
 
+**[NOTE FOR ARCHITECTURE]:** Specify embedding model, vector index, attribute matching logic, subscriber usage signals source (CDR aggregates vs. live balance), and score fusion strategy for the hybrid search.
+
 #### FR-33: Recommendation Feedback Loop
 
-Plan recommendation outcomes (accepted, dismissed, converted) are logged to refine future suggestions.
+When a subscriber explicitly selects a recommended plan, the system logs the acceptance and responds with a message: "One of our agents will reach out to you to finalise your request shortly." Dismissals (no explicit action) are also logged.
 
 **Consequences (testable):**
 
-- On each recommendation interaction, the outcome is persisted to a feedback store.
-- The feedback data is accessible for future model fine-tuning or prompt engineering.
+- Acceptance is triggered by an explicit subscriber action (button/selection), not inferred from recharge behaviour.
+- On acceptance, the system responds with the defined handoff message and logs the outcome with status `accepted`.
+- On session end without an explicit acceptance action, the recommendation is logged with status `dismissed`.
+- Both accepted and dismissed outcomes are persisted to a feedback store accessible for future refinement.
 
 #### FR-34: Conclusion Agent — Session Learning and Notification Trigger
 
@@ -482,12 +495,12 @@ The Notification Agent, upon receiving a conversation summary from the Conclusio
 
 #### FR-36: Rate Limiting and Throttling
 
-The system enforces request rate limits per subscriber across API, USSD, and chatbot channels.
+The system enforces a limit of 100 requests per minute (RPM) per subscriber across API, USSD, and chatbot channels.
 
 **Consequences (testable):**
 
-- Subscribers exceeding the configured rate limit per channel receive an HTTP 429 / USSD rate-limit message.
-- Rate limit thresholds are configurable.
+- Subscribers exceeding 100 RPM on any channel receive an HTTP 429 response (API/chatbot) or a rate-limit text message (USSD).
+- The 100 RPM threshold is configurable via a database configuration record.
 
 ---
 
@@ -588,11 +601,12 @@ The system provides demand forecasting per plan for marketing targeting.
 
 #### FR-46: Target Base Builder (Upsell Segmentation)
 
-A marketing team member can define a subscriber candidate pool by applying composable filter criteria on pre-defined KPIs.
+A marketing team member can define a subscriber candidate pool by applying composable filter criteria on KPIs sourced from the columns of a materialised database view. The available KPIs are data-driven — derived from the view schema — and are not hardcoded in the UI. Metadata records can help inform what the columns mean and how they should be labelled to the user.
 
 **Consequences (testable):**
 
-- Filter criteria support AND/OR composition across at least: plan type, usage tier, balance range, activation recency.
+- Available filter dimensions are dynamically sourced from the columns of the designated materialised subscriber KPI view.
+- Filter criteria support AND/OR composition across the available KPI columns.
 - Filtered pool count is shown before proceeding to LLM labelling.
 
 #### FR-47: Pool Preview and Statistics
@@ -641,7 +655,7 @@ An LLM agent generates a textual upsell strategy per identified subscriber segme
 
 - Strategy output covers: optimal outreach timing and what the segment is likely interested in.
 - No catalogue-plan mapping is generated in MVP — strategy is descriptive only. [NON-GOAL for MVP]
-- Strategy recommendation outcomes are logged to the feedback loop (reusing Conclusion Agent mechanism).
+- Strategy recommendation outcomes are logged to a dedicated upsell feedback store for future refinement. The Conclusion Agent (chatbot session agent) is not involved in the upsell feedback loop.
 
 #### FR-52: Ops Dashboard Observability
 
@@ -738,6 +752,7 @@ Every billing, authentication, and administrative action is recorded in an immut
 
 - Audit entries cannot be modified or deleted after creation.
 - Each entry contains: action type, actor (subscriber MSISDN or system component), timestamp, and relevant reference ID.
+- Billing records are retained for a minimum of 6 years per TRAI mandate.
 - Audit log is queryable by MSISDN and time range.
 
 ---
@@ -818,12 +833,15 @@ The system adheres to TRAI regulations for billing, data handling, and subscribe
 
 #### FR-66: Account Takeover Prevention
 
-The system implements authentication hardening and integrates SIM swap detection with the login flow.
+The system implements authentication hardening and integrates SIM swap detection with the login flow. On confirmed SIM swap risk, the account is blacklisted via a dedicated blacklist table, the account is disabled at the API gateway, and any active JWTs are revoked through the API gateway.
 
 **Consequences (testable):**
 
-- SIM swap signals detected in the fraud pipeline are propagated to the auth layer by blacklisting the account (at the Gateway level)
-- The user is asked to speak with a Telecom Kiosk agent to login. If already logged in, an auth alert is sent and the user is logged out
+- When the Fraud Detection Agent emits a confirmed SIM swap verdict for a subscriber, the system writes a blacklist record (MSISDN, reason, timestamp) to the blacklist table.
+- The API gateway disables the subscriber account: subsequent API requests return HTTP 403.
+- Active JWTs for the subscriber are revoked; requests using a revoked token return HTTP 401.
+- A subscriber attempting login after blacklisting receives the message: "Your account has been restricted. Please visit a Telecom Kiosk to restore access."
+- If the subscriber is already in an active session when blacklisted, they receive an in-session alert notification and are logged out within one session-check cycle.
 
 #### FR-67: JWT-Based Auth and Session Management
 
@@ -894,7 +912,7 @@ The system includes scripts to generate a synthetic dataset of sufficient scale 
 
 ### 1.5.14. Evaluation, Observability & Quality
 
-**Description:** Evaluation and observability infrastructure for AI/ML components. LangFuse provides agentic workflow tracing. DeepEval and LLM-as-Judge provide offline and sampled online quality gates for chatbot responses and plan recommendations. A Root Cause Analysis Agent supports engineering investigation of billing discrepancies.
+**Description:** Evaluation and observability infrastructure for AI/ML components. LangFuse provides agentic workflow tracing. DeepEval and LLM-as-Judge provide offline and sampled online quality scores for chatbot responses and plan recommendations.
 
 **Functional Requirements:**
 
@@ -929,12 +947,14 @@ DeepEval is integrated for chatbot quality metrics and prediction accuracy evalu
 
 #### FR-75: Root Cause Analysis Agent
 
-An LLM-powered Root Cause Analysis Agent assists engineering teams in diagnosing billing discrepancies and failed recharges.
+An LLM-powered Root Cause Analysis Agent assists engineering teams in diagnosing billing discrepancies and failed recharges. The agent uses a Standard Operating Procedure (SOP) knowledge base — synthetically generated — as its primary grounding source alongside audit logs and CDR data. The same predefined SOP rules used to build the SOP knowledge base must also be used to generate synthetic CDR records with embedded internal notes, enabling the agent's diagnoses to be validated against known scenarios.
 
 **Consequences (testable):**
 
 - The agent accepts a case description (subscriber MSISDN, transaction reference, observed vs. expected outcome) and returns a structured root cause analysis.
-- Analysis is grounded in audit log and CDR data for the relevant subscriber and time window.
+- Analysis is grounded in the SOP knowledge base, audit log, and CDR data for the relevant subscriber and time window.
+- For each predefined SOP rule scenario, a corresponding synthetic CDR record with internal notes exists in the dataset; the agent's diagnosis for that CDR matches the expected SOP-defined root cause.
+- The SOP knowledge base is versioned and queryable independently of the agent.
 
 #### FR-76: Distributed Trace ID Propagation
 
@@ -1037,34 +1057,36 @@ Every microservice exposes `/health` and `/ready` endpoints.
 
 ## 1.10. Assumptions Index
 
-| #    | Assumption                                                                                                                                                 | Tagged in            |
-| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
-| A-1  | CDR is the pipeline entry point; pre-CDR charging and rating are out of scope (per discussion with Vijay)                                                  | §1, FR-57            |
-| A-2  | Plans include both unlimited-bundle and Talktime Balance types; prepaid only                                                                               | §3 (Glossary), FR-58 |
-| A-3  | USSD handling is inbound-only: receive `{msisdn, button_pressed, session_id}` callbacks; the telecom operator's gateway manages the GSM session            | §4.6, FR-37          |
-| A-4  | 4.5Agents are NOT in the synchronous balance deduction path due to latency constraints; fraud agent escalation runs asynchronously after balance deduction | §4.10, FR-61         |
-| A-5  | Multi-agent framework (e.g. LangGraph) is an architecture decision; PRD is framework-agnostic                                                              | §4.5                 |
-| A-6  | Pre-activation OTP is sent to the alternate mobile number provided during registration                                                                     | FR-4                 |
-| A-7  | SIM activation order fulfilment is simulated on the UI; no real provisioning system integration                                                            | FR-2                 |
-| A-8  | RAG knowledge base covers both general telecom FAQs and plan/billing queries                                                                               | FR-26                |
-| A-9  | SMS and push notifications share the same simulated delivery pipeline (Notification Portal)                                                                | §4.4                 |
-| A-10 | Fraud agent analysis is asynchronous to the balance deduction to protect the <200ms SLA                                                                    | FR-61                |
-| A-11 | USSD recharge initiation via USSD menu triggers the intent; full payment completion may redirect to the web flow or is simulated                           | FR-40                |
-| A-12 | SIM swap detection rule parameters (e.g. geographic distance threshold, time window) are implementation decisions                                          | FR-55                |
-| A-13 | Account takeover additional auth challenge mechanism is an implementation decision                                                                         | FR-66                |
-| A-14 | Simulator dashboard is accessible to authenticated developer/admin users only; not subscriber-facing                                                       | §4.12                |
-| A-15 | TRAI CAF is submitted digitally; physical document handling is out of scope                                                                                | FR-3                 |
+| #    | Assumption                                                                                                                                              | Tagged in            |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| A-1  | CDR is the pipeline entry point; pre-CDR charging and rating are out of scope (per discussion with Vijay)                                               | §1, FR-57            |
+| A-2  | Plans include both unlimited-bundle and Talktime Balance types; prepaid only                                                                            | §3 (Glossary), FR-58 |
+| A-3  | USSD handling is inbound-only: receive `{msisdn, button_pressed, session_id}` callbacks; the telecom operator's gateway manages the GSM session         | §4.6, FR-37          |
+| A-4  | Agents are NOT in the synchronous balance deduction path due to latency constraints; fraud agent escalation runs asynchronously after balance deduction | §4.10, FR-61         |
+| A-5  | Multi-agent framework (e.g. LangGraph) is an architecture decision; PRD is framework-agnostic                                                           | §4.5                 |
+| A-6  | Pre-activation OTP is sent to the alternate mobile number provided during registration                                                                  | FR-4                 |
+| A-7  | SIM activation order fulfilment is simulated on the UI; no real provisioning system integration                                                         | FR-2                 |
+| A-8  | RAG knowledge base covers both general telecom FAQs and plan/billing queries                                                                            | FR-26                |
+| A-9  | SMS and push notifications share the same simulated delivery pipeline (Notification Portal)                                                             | §4.4                 |
+| A-10 | Fraud agent analysis is asynchronous to the balance deduction to protect the <200ms SLA                                                                 | FR-61                |
+| A-11 | USSD recharge initiation via USSD menu triggers the intent; full payment completion may redirect to the web flow or is simulated                        | FR-40                |
+| A-12 | SIM swap detection rule parameters (e.g. geographic distance threshold, time window) are implementation decisions                                       | FR-55                |
+| A-13 | Account takeover additional auth challenge mechanism is an implementation decision                                                                      | FR-66                |
+| A-14 | Simulator dashboard is accessible to authenticated developer/admin users only; not subscriber-facing                                                    | §4.12                |
+| A-15 | TRAI CAF is submitted digitally; physical document handling is out of scope                                                                             | FR-3                 |
 
 ---
 
-## 1.11. Open Questions
+## 1.11. Resolved Decisions
 
-| #    | Question                                                                                                                                                      | Answer                                                                                                                                                           | Owner              | Priority |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | -------- |
-| OQ-1 | What is the specific threshold (INR) for Low Balance Alert (FR-18) — fixed globally or configurable per subscriber?                                           | 10 Rs. This solution is for Indian subscribers only. Source it through a DB record                                                                               | PM / Engineering   | Medium   |
-| OQ-2 | What is the plan expiry reminder lead time N (FR-20) — 3 days, 1 day, or configurable?                                                                        | 3 days. Source through a DB record                                                                                                                               | PM                 | Low      |
-| OQ-3 | What KPI set is used for the Target Base Builder filter criteria (FR-46)? The feature list states "KPI set TBD".                                              | They will be sourced from the columns in a materialized databast view. TBD                                                                                       | PM / Data          | High     |
-| OQ-4 | How are plan recommendation outcomes "accepted" vs "dismissed" captured — explicit subscriber action or inferred from post-recommendation recharge behaviour? | Explicit action to initiate the request. FOr now, this will lead to a message saying "One of our agents will reach out to you to finalize your request shortly." | PM / Engineering   | Medium   |
-| OQ-5 | What is the exact TRAI-mandated audit log retention period for billing records?                                                                               | 6 years                                                                                                                                                          | Legal / Compliance | High     |
-| OQ-6 | What is the rate limit threshold per subscriber per channel (API / USSD / chatbot) for FR-36?                                                                 | 100 RPM                                                                                                                                                          | Engineering        | Low      |
-| OQ-7 | Should the upsell strategy feedback loop reuse the same Conclusion Agent instance as the chatbot, or is it a separate instance with shared patterns?          | Upsell does not require a conclusion agent                                                                                                                       | Architecture       | Medium   |
+All open questions have been resolved. Decisions are reflected in their respective FRs above and logged in `.decision-log.md`.
+
+| #    | Question                                       | Resolution                                                                                                            | Applied to |
+| ---- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------- |
+| OQ-1 | Low Balance Alert threshold                    | ₹10, global default sourced from a database configuration record                                                      | FR-18      |
+| OQ-2 | Plan expiry reminder lead time                 | 3 days, sourced from a database configuration record                                                                  | FR-20      |
+| OQ-3 | KPI set for Target Base Builder                | Dynamically sourced from columns of a materialised subscriber KPI database view; exact columns are TBD                | FR-46      |
+| OQ-4 | How plan recommendation outcomes are captured  | Explicit subscriber action; on acceptance, system responds with handoff message; dismissal is inferred at session end | FR-33      |
+| OQ-5 | TRAI audit log retention period                | 6 years minimum                                                                                                       | FR-59      |
+| OQ-6 | Rate limit threshold                           | 100 RPM per subscriber per channel (API, USSD, chatbot); configurable via database record                             | FR-36      |
+| OQ-7 | Upsell feedback loop — Conclusion Agent reuse? | Upsell feedback loop does not use the Conclusion Agent; outcomes logged to a dedicated upsell feedback store          | FR-51      |
