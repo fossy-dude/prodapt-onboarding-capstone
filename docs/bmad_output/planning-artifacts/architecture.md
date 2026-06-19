@@ -84,26 +84,29 @@ completedAt: '2026-06-18'
 
 ### 1.3.1. Decided Stack — MVP
 
-| Layer                      | Technology                             | Rationale                                                                      |
-| -------------------------- | -------------------------------------- | ------------------------------------------------------------------------------ |
-| **CDR Pipeline**           | Python (aiokafka consumer workers)     | Single-language MVP; sufficient for 10K eps PoC                                |
-| **Application Backend**    | Python 3.14 + FastAPI                  | All non-pipeline services in one FastAPI monorepo                              |
-| **Event Bus**              | Redpanda (Kafka-compatible, Docker)    | No ZooKeeper; Kafka-wire-compatible; simpler MVP ops                           |
-| **Balance Write Buffer**   | Redis (Docker, MVP)                    | Fast atomic INCRBY; session store; dedup SET; rate-limit counters              |
-| **Primary Database**       | PostgreSQL 16                          | Source of truth for balance, accounts, audit, plans                            |
-| **Vector Store**           | Milvus (Docker)                        | Fixed. Hybrid search: dense + BM25 + RRF reranker                              |
-| **Agent Orchestration**    | LangGraph (Python)                     | Stateful graph, native A2A, multi-turn memory                                  |
-| **LLM Provider**           | Azure OpenAI                           | GPT-5.4-mini and GPT-5.4 for agents; `text-embedding-3-small` for embeddings   |
-| **Frontend**               | React 18 + Vite + TailwindCSS          | Fast builds; single SPA with role-based routing                                |
-| **Auth**                   | AWS Cognito (via LocalStack/MiniStack) | JWT issuance; OTP via Cognito; role claims in token                            |
-| **Observability (infra)**  | OTEL-TUI (Docker)                      | Low memory footprint; traces/logs/metrics in terminal                          |
-| **Observability (agents)** | LangFuse (self-hosted Docker)          | All agent/tool calls traced                                                    |
-| **Log routing**            | Fluentd                                | Routes Docker logs to OTEL-TUI (MVP) or LGTM (Target)                          |
-| **PDF Generation**         | WeasyPrint (Python)                    | HTML→PDF for receipts; no headless browser dep                                 |
-| **ML Forecasting**         | scikit-learn                           | Subscriber growth/plan popularity; simple linear/gradient-boost                |
-| **CI/CD**                  | GitHub Actions                         | PR checks, lint, test, Docker build                                            |
-| **Container**              | Docker Compose                         | All services including Redpanda, Milvus, Redis, Postgres, LangFuse, LocalStack |
-| **CDR Simulator**          | Python Scripts                         | Manually generated via a UI. Limited to 100 CDRs in 1 shot                     |
+| Layer                      | Technology                          | Rationale                                                                     |
+| -------------------------- | ----------------------------------- | ----------------------------------------------------------------------------- |
+| **CDR Pipeline**           | Python (aiokafka consumer workers)  | Single-language MVP; sufficient for 10K eps PoC                               |
+| **Application Backend**    | Python 3.14 + FastAPI               | All non-pipeline services in one FastAPI monorepo                             |
+| **Event Bus**              | Redpanda (Kafka-compatible, Docker) | No ZooKeeper; Kafka-wire-compatible; simpler MVP ops                          |
+| **Balance Write Buffer**   | Redis (Docker, MVP)                 | Fast atomic INCRBY; session store; dedup SET; rate-limit counters             |
+| **Primary Database**       | PostgreSQL 16                       | Source of truth for balance, accounts, audit, plans                           |
+| **Vector Store**           | Milvus (Docker)                     | Fixed. Hybrid search: dense + BM25 + RRF reranker                             |
+| **Agent Orchestration**    | LangGraph (Python)                  | Stateful graph, native A2A, multi-turn memory                                 |
+| **LLM Provider**           | Azure OpenAI                        | GPT-5.4-mini and GPT-5.4 for agents; `text-embedding-3-small` for embeddings  |
+| **Frontend**               | React 18 + Vite + TailwindCSS       | Fast builds; single SPA with role-based routing                               |
+| **Chatbot UI**             | CopilotKit (`@copilotkit/react-ui`) | `<CopilotChat>` component; AG-UI event stream replacing SSE                   |
+| **Agent–UI Protocol**      | AG-UI (via CopilotKit runtime)      | Typed event stream: tool calls, state snapshots, text deltas                  |
+| **Config Management**      | pydantic-settings                   | Unified env / `.env` / Secrets Manager config; eager load; fails fast         |
+| **Auth**                   | AWS Cognito (via MiniStack)         | JWT issuance; OTP via Cognito; role claims in token                           |
+| **Observability (infra)**  | OTEL-TUI (Docker)                   | Low memory footprint; traces/logs/metrics in terminal                         |
+| **Observability (agents)** | LangFuse (self-hosted Docker)       | All agent/tool calls traced                                                   |
+| **Log routing**            | Fluentd                             | Routes Docker logs to OTEL-TUI (MVP) or LGTM (Target)                         |
+| **PDF Generation**         | WeasyPrint (Python)                 | HTML→PDF for receipts; no headless browser dep                                |
+| **ML Forecasting**         | scikit-learn                        | Subscriber growth/plan popularity; simple linear/gradient-boost               |
+| **CI/CD**                  | GitHub Actions                      | PR checks, lint, test, Docker build                                           |
+| **Container**              | Docker Compose                      | All services including Redpanda, Milvus, Redis, Postgres, LangFuse, MiniStack |
+| **CDR Simulator**          | Python Scripts                      | Manually generated via a UI. Limited to 100 CDRs in 1 shot                    |
 
 ### 1.3.2. Decided Stack — Target State
 
@@ -233,8 +236,12 @@ All non-CDR domain logic (auth, accounts, balance reads, recharge, chatbot agent
 ### 1.6.1. Self-Care Chatbot (LangGraph)
 
 ```
-Subscriber HTTP Request
-  │
+Subscriber Browser
+  │  (AG-UI event stream over HTTP POST /chat/stream)
+  ▼
+CopilotKit Runtime  (FastAPI endpoint, copilotkit Python SDK)
+  │  emits AG-UI events: RunStarted, TextMessageStart/Content/End,
+  │                       ToolCallStart/Args/End, StateSnapshot, RunFinished
   ▼
 Support Agent  (LangGraph supervisor node)
   ├── Tool: balance_lookup  ──► Balance Management Agent
@@ -248,6 +255,21 @@ Support Agent  (LangGraph supervisor node)
         └── Conclusion Agent
               └── A2A: Notification Agent ──► Kafka: notification.events
 ```
+
+**Frontend — CopilotKit:**
+
+- Library: `@copilotkit/react-ui` + `@copilotkit/react-core`
+- Component: `<CopilotChat>` embedded in `/subscriber/Chatbot.tsx`
+- `<CopilotKit runtimeUrl="/api/chat/stream">` wraps the subscriber portal
+- AG-UI protocol replaces the prior SSE approach — all agent state, tool calls, and text deltas stream as typed AG-UI events
+- `useCopilotReadable` hooks expose balance, plan, and session context to the agent at render time
+
+**Backend — AG-UI + CopilotKit Runtime:**
+
+- Package: `copilotkit` (Python SDK) wired into FastAPI as a router
+- `POST /api/chat/stream` — CopilotKit runtime endpoint; streams AG-UI events
+- LangGraph graph registered with `CopilotKitState` mixin so state transitions are surfaced as `StateSnapshot` events
+- All inter-agent A2A calls traced in LangFuse with matching `trace_id`
 
 **A2A protocol:** LangGraph inter-node calls with shared state graph. All inter-agent calls traced in LangFuse.
 
@@ -280,13 +302,28 @@ Rule-Based Pre-Screener (deterministic, in-process)
               │
               ▼
         Fraud Detection Agent (LangGraph, async)
-          │  Inputs: CDR event + triggered rules + subscriber history
+          │  Inputs: CDR event + triggered rules + subscriber history (7-day window)
           │  Output: confirmed | false_positive | needs_review
           │
           ├── confirmed → write to fraud_cases table + Kafka: fraud.alerts
           │              → Blacklist write (FR-66) + API gateway disable
           └── LangFuse trace on every escalation
 ```
+
+**Subscriber history metrics analyzed (7-day window):**
+
+| Metric                                                | Source                    | Fraud Signal                             |
+| ----------------------------------------------------- | ------------------------- | ---------------------------------------- |
+| CDR count per hour (voice / data / SMS split)         | `billing_cdr_events`      | Velocity spike vs 7d baseline            |
+| Total spend rate (₹/day) vs 7d moving average         | `billing_wallet_balances` | Anomalous depletion rate                 |
+| Balance depletion rate (% remaining per day)          | `billing_wallet_balances` | Unusually rapid drain                    |
+| Recharge frequency and amount variance                | `recharge_orders`         | Micro-recharge churn or bulk top-up      |
+| International / roaming call % of total CDRs          | `billing_cdr_events`      | Roaming abuse pattern                    |
+| Unique destination numbers contacted (voice)          | `billing_cdr_events`      | High contact diversity → SIM farm signal |
+| SIM swap event count                                  | `identity_registrations`  | Recent swap + activity spike             |
+| Failed transaction count                              | `billing_transactions`    | Repeated payment probe pattern           |
+| Peak usage hour shift (Δ from 7d modal hour)          | `billing_cdr_events`      | Ownership change indicator               |
+| Cell tower location variance (if CDR carries cell ID) | `billing_cdr_events`      | Geographic anomaly                       |
 
 ### 1.6.3. Ops/Marketing Agents
 
@@ -311,21 +348,27 @@ Root Cause Analysis Agent (FR-75):
 
 ## 1.7. Data Architecture
 
-### 1.7.1. PostgreSQL Schema Domains
+### 1.7.1. PostgreSQL Table Naming
 
-| Schema / Domain | Key Tables                                                                                                            |
-| --------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `identity`      | `subscribers`, `registrations`, `kyc_records`, `caf_submissions`                                                      |
-| `billing`       | `wallet_balances`, `cdr_events`, `transactions`, `audit_log`                                                          |
-| `plans`         | `plans`, `plan_subscriptions`, `plan_config`                                                                          |
-| `recharge`      | `recharge_orders`, `payment_methods`, `receipts`                                                                      |
-| `notifications` | `notification_events`, `notification_config`, `notification_preferences`                                              |
-| `support`       | `support_tickets`, `chat_sessions`, `session_learnings`                                                               |
-| `fraud`         | `fraud_cases`, `fraud_rules`, `blacklist`                                                                             |
-| `segmentation`  | `subscriber_kpi_view` (materialised), `segment_rules`, `segment_labels`, `recommendation_feedback`, `upsell_feedback` |
-| `ops`           | `order_fulfilment`, `forecast_results`                                                                                |
-| `eval`          | `llm_evaluations`, `deepeval_results`                                                                                 |
-| `sop`           | `sop_rules`, `sop_knowledge_chunks`                                                                                   |
+**Single `public` schema — domain prefix convention.** Separate PostgreSQL schemas (`identity.*`, `billing.*` etc.) are avoided in MVP; they add cross-schema permission management overhead without meaningful benefit at this scale. Domain is encoded as a table name prefix instead.
+
+**Naming pattern:** `{domain}_{table_name}` — all in `public` schema.
+
+| Domain prefix    | Tables                                                                                                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `identity_`      | `identity_subscribers`, `identity_registrations`, `identity_kyc_records`, `identity_caf_submissions`                                                                           |
+| `billing_`       | `billing_wallet_balances`, `billing_cdr_events`, `billing_transactions`, `billing_audit_log`                                                                                   |
+| `plans_`         | `plans_plans`, `plans_subscriptions`, `plans_plan_config`                                                                                                                      |
+| `recharge_`      | `recharge_orders`, `recharge_payment_methods`, `recharge_receipts`                                                                                                             |
+| `notifications_` | `notifications_events`, `notifications_config`, `notifications_preferences`                                                                                                    |
+| `support_`       | `support_tickets`, `support_chat_sessions`, `support_session_learnings`                                                                                                        |
+| `fraud_`         | `fraud_cases`, `fraud_rules`, `fraud_blacklist`                                                                                                                                |
+| `segmentation_`  | `segmentation_subscriber_kpi_view` (materialised), `segmentation_segment_rules`, `segmentation_labels`, `segmentation_recommendation_feedback`, `segmentation_upsell_feedback` |
+| `ops_`           | `ops_order_fulfilment`, `ops_forecast_results`                                                                                                                                 |
+| `eval_`          | `eval_llm_evaluations`, `eval_deepeval_results`                                                                                                                                |
+| `sop_`           | `sop_rules`, `sop_knowledge_chunks`                                                                                                                                            |
+
+**Migration path to Target State:** if separate schemas become warranted at scale, Alembic migrations can rename tables and reassign schema — prefix naming makes the mapping unambiguous.
 
 **Audit log (FR-59):** Append-only (`INSERT` only; no `UPDATE`/`DELETE` via app role). Retained 6 years; archived to S3 after 2 years via pg_partman + lifecycle policy.
 
@@ -337,9 +380,19 @@ Root Cause Analysis Agent (FR-75):
 | `balance:{msisdn}`          | STRING (INCRBY) | None | Hot write buffer           |
 | `session:{session_id}`      | HASH            | 30m  | USSD session state         |
 | `rate:{msisdn}:{window}`    | STRING (INCR)   | 60s  | 100 RPM rate limiter       |
-| `otp:{msisdn}`              | STRING          | 5m   | OTP validation             |
+| `otp:{msisdn}`              | STRING          | 5m   | Step-up OTP validation     |
 | `blacklist:{msisdn}`        | SET             | None | Account takeover block     |
 | `chat_context:{session_id}` | HASH            | 2h   | Chatbot multi-turn context |
+
+**Design rationale — key decisions:**
+
+- **`balance:{msisdn}` — no TTL (intentional):** The key is a persistent running counter. CDR consumers call `INCRBY` continuously; the background flusher reads the current value and bulk-upserts it to PostgreSQL every 2s or 5K records. The key is never deleted after a flush — it keeps accumulating as the live write buffer. 300K subscribers × ~50 bytes ≈ 15MB total memory, well within Redis limits. `maxmemory-policy noeviction` must be set so Redis never evicts this key class.
+
+- **`blacklist:{msisdn}` — dual-layer with Postgres:** The `fraud_blacklist` table is the source of truth and audit record. The Redis `SET` is the enforcement cache — every API request checks it at middleware level for sub-millisecond enforcement without a DB round-trip. The two are kept in sync: blacklist add writes both atomically; blacklist removal flushes Redis and updates the DB. Redis is the read path; Postgres is the write-of-record.
+
+- **`otp:{msisdn}` — step-up auth, not login OTP:** Initial login OTP is handled entirely by Cognito's auth flow. The Redis OTP key is for mid-session step-up verification (e.g., SIM binding change, high-value recharge above threshold). Cognito's Custom Auth Flow cannot cleanly interrupt an already-authenticated session for a second factor — Redis OTP fills this gap with a simple generate/validate/expire cycle.
+
+- **`rate:{msisdn}:{window}` — MVP has no real API Gateway:** In MVP (MiniStack), there is no functional per-subscriber rate limiter at the gateway level. Redis `INCR + EXPIRE` is the primary rate limit enforcement. In Target State, AWS API Gateway provides the coarse outer throttle (per-IP, burst) while the Valkey key enforces the business-level per-subscriber limit (100 RPM) — both layers coexist by design.
 
 ### 1.7.3. Milvus Collections
 
@@ -368,7 +421,7 @@ Index type: HNSW. BM25 lexical index on same collections for hybrid search. RRF 
 
 ### 1.8.1. Auth Flow
 
-**MVP:** AWS Cognito (LocalStack) issues JWTs. OTP sent via Cognito (stored in Notification Portal for testing). Roles: `subscriber`, `ops`, `fraud`, `admin/simulator`.
+**MVP:** AWS Cognito (MiniStack) issues JWTs. OTP sent via Cognito (stored in Notification Portal for testing). Roles: `subscriber`, `ops`, `fraud`, `admin/simulator`.
 
 **Target:** Keycloak on EKS. Same JWT structure; role claims identical. API Gateway validates JWT on every request. Blacklist enforcement at API Gateway layer (FR-66).
 
@@ -462,6 +515,50 @@ Grafana dashboards: CDR pipeline health, balance P95, fraud escalation rate, age
 
 ## 1.11. Implementation Patterns & Consistency Rules
 
+### 1.11.0. Configuration Management
+
+**All application configuration is managed via `pydantic-settings` at runtime.** This covers environment variables, `.env` files, and AWS Secrets Manager secrets — all resolved at startup (eager load; missing secrets are a fatal startup error).
+
+**Bootstrap template:** [fossy-dude/pydantic-config-mgmt-template](https://github.com/fossy-dude/pydantic-config-mgmt-template) is the reference implementation to bootstrap config management in both `cdr-pipeline` and `app-backend`.
+
+**Pattern:**
+
+```python
+from pydantic_settings import BaseSettings, SecretsManagerSettingsSource
+
+class DatabaseSettings(BaseSettings):
+    host: str
+    port: int = 5432
+    name: str
+    user: str
+    password: str          # resolved from Secrets Manager in Target State
+
+class Settings(BaseSettings):
+    db: DatabaseSettings
+    redis_url: str
+    kafka_brokers: str
+    azure_openai_api_key: str
+    langfuse_secret_key: str
+    # ... all other config
+
+    model_config = SettingsConfigDict(
+        env_nested_delimiter="__",   # DB__HOST maps to db.host
+        env_file=".env",
+        secrets_dir="/run/secrets",  # Docker secrets mount (MVP)
+    )
+
+settings = Settings()   # loaded once at module import; fails fast on missing values
+```
+
+**Source priority (lowest → highest):** defaults → `.env` file → environment variables → AWS Secrets Manager (Target State via `SecretsManagerSettingsSource`).
+
+**Rules:**
+
+- One `Settings` singleton per service, imported as `from core.config import settings`
+- Secrets Manager integration is wired only in Target State — MVP uses `.env` + environment variables
+- No config values hard-coded anywhere in source; all accessed via `settings.*`
+- `.env.example` committed to repo with all keys and placeholder values; actual `.env` is gitignored
+
 ### 1.11.1. Naming Conventions
 
 **Database:**
@@ -493,7 +590,7 @@ Grafana dashboards: CDR pipeline health, balance P95, fraud escalation rate, age
 **React:**
 
 - Components: `PascalCase.tsx` — `BalanceCard.tsx`, `FraudCaseQueue.tsx`
-- Hooks: `usePascalCase.ts` — `useBalance.ts`, `useChatSession.ts`
+- Hooks: `usePascalCase.ts` — `useBalance.ts`, `useWebSocket.ts`
 - Utility files: `camelCase.ts`
 - CSS classes: TailwindCSS utility classes only; no custom CSS except `globals.css`
 
@@ -564,6 +661,13 @@ Trace ID always in Kafka message header `traceparent` AND in JSON body `trace_id
 
 ### 1.12.1. Monorepo Layout
 
+**Key structural principles:**
+
+- **Dependency Inversion:** All I/O adapters (DB, Vector Store, Cache, LLM) implement typed `Protocol` interfaces defined in `core/protocols/`. Business logic depends only on the protocol, never on the concrete library. Swapping Milvus for another vector store requires only a new adapter file — zero changes to agent or service code.
+- **CQRS at DB layer:** Each domain has a `queries.py` (all `SELECT` operations, read-only) and a `commands.py` (all `INSERT`/`UPDATE`/`DELETE` operations, write-only). Routers and agents import from one or the other — never both from the same call site.
+- **Async-only:** Every FastAPI route is `async def`. All I/O libraries are async: `asyncpg` (Postgres), `redis.asyncio` / `valkey` async client (Redis), `aiokafka` (Kafka), `pymilvus` async (Milvus). No blocking I/O calls anywhere in the hot path.
+- **Task runner:** `justfile` (cross-platform, works on Windows / macOS / Linux via the `just` binary). Replaces Makefile.
+
 ```
 sboai_capstone/
 ├── .github/
@@ -573,43 +677,58 @@ sboai_capstone/
 ├── docker-compose.yml               # MVP: all infra + services
 ├── docker-compose.override.yml      # local dev overrides
 ├── .env.example
-├── Makefile                         # dev shortcuts: make up, make seed, make test
+├── justfile                         # cross-platform task runner (just up, just test, etc.)
 │
 ├── cdr-pipeline/                    # CDR ingestion codebase (MVP: Python, Target: Rust)
-│   ├── pyproject.toml               # MVP Python deps (aiokafka, psycopg2, valkey)
+│   ├── pyproject.toml               # MVP Python deps (aiokafka, asyncpg, valkey, pydantic-settings)
 │   ├── src/
-│   │   ├── main.py                  # Consumer entrypoint
+│   │   ├── main.py                  # Consumer entrypoint (async)
+│   │   ├── core/
+│   │   │   ├── config.py            # pydantic-settings Settings singleton
+│   │   │   └── protocols/
+│   │   │       ├── db.py            # DatabaseProtocol (async read/write)
+│   │   │       └── cache.py         # CacheProtocol (async get/set/incrby/expire)
+│   │   ├── adapters/
+│   │   │   ├── postgres.py          # AsyncpgAdapter implements DatabaseProtocol
+│   │   │   └── redis.py             # RedisAdapter implements CacheProtocol
 │   │   ├── consumer/
-│   │   │   ├── batch_processor.py   # getmany() batch loop
-│   │   │   ├── dedup.py             # Valkey SET idempotency
-│   │   │   └── balance_writer.py    # INCRBY + async Postgres flush
+│   │   │   ├── batch_processor.py   # getmany() batch loop (async)
+│   │   │   ├── dedup.py             # Valkey SET idempotency (via CacheProtocol)
+│   │   │   └── balance_writer.py    # INCRBY + async Postgres flush (via protocols)
 │   │   ├── screener/
 │   │   │   ├── rules.py             # Rule-based pre-screener (FR-60)
-│   │   │   └── publisher.py         # Publish to cdr.fraud.flagged
+│   │   │   └── publisher.py         # Publish to cdr.fraud.flagged (aiokafka)
 │   │   ├── dlq/
-│   │   │   └── handler.py           # DLQ publish on failure
+│   │   │   └── handler.py           # DLQ publish on failure (async)
 │   │   └── management/
-│   │       └── api.py               # FastAPI management plane (pause/resume/DLQ inspect)
+│   │       └── api.py               # FastAPI management plane (async, pause/resume/DLQ inspect)
 │   ├── tests/
 │   └── Dockerfile
 │
 ├── app-backend/                     # All other backend (FastAPI monorepo for MVP)
-│   ├── pyproject.toml
+│   ├── pyproject.toml               # asyncpg, redis[asyncio], aiokafka, pymilvus, copilotkit, pydantic-settings
 │   ├── src/
-│   │   ├── main.py                  # FastAPI app entrypoint
+│   │   ├── main.py                  # FastAPI app entrypoint + middleware registration
 │   │   ├── core/
-│   │   │   ├── config.py            # Settings (pydantic-settings)
-│   │   │   ├── db.py                # Postgres async engine (asyncpg)
-│   │   │   ├── redis_client.py      # Redis/Valkey client
-│   │   │   ├── kafka_client.py      # aiokafka producer
-│   │   │   ├── auth.py              # JWT decode + role guard
-│   │   │   └── tracing.py           # OTEL setup + trace_id propagation
+│   │   │   ├── config.py            # pydantic-settings Settings singleton (eager load)
+│   │   │   ├── middleware.py        # OTEL trace middleware (extract traceparent → generate if absent)
+│   │   │   ├── auth.py              # JWT decode + role guard (async)
+│   │   │   └── protocols/           # Abstract interfaces (Dependency Inversion)
+│   │   │       ├── db.py            # DatabaseProtocol: async execute / fetch / fetchrow / transaction
+│   │   │       ├── vector_store.py  # VectorStoreProtocol: async search / upsert / delete
+│   │   │       ├── cache.py         # CacheProtocol: async get / set / incrby / expire / delete
+│   │   │       └── llm.py           # LLMClientProtocol: async complete / embed
+│   │   ├── adapters/                # Concrete implementations of protocols
+│   │   │   ├── postgres.py          # AsyncpgAdapter implements DatabaseProtocol
+│   │   │   ├── milvus.py            # MilvusAdapter implements VectorStoreProtocol
+│   │   │   ├── redis.py             # RedisAdapter implements CacheProtocol
+│   │   │   └── azure_openai.py      # AzureOpenAIAdapter implements LLMClientProtocol
 │   │   ├── routers/
-│   │   │   ├── account.py           # FR-1–7
+│   │   │   ├── account.py           # FR-1–7 (async def routes)
 │   │   │   ├── balance.py           # FR-8–11
 │   │   │   ├── recharge.py          # FR-12–17
 │   │   │   ├── notifications.py     # FR-18–21 (simulated delivery)
-│   │   │   ├── chatbot.py           # FR-22–36 (LangGraph entrypoint)
+│   │   │   ├── chatbot.py           # FR-22–36 (CopilotKit runtime + LangGraph)
 │   │   │   ├── ussd.py              # FR-37–41
 │   │   │   ├── ops.py               # FR-42–52
 │   │   │   ├── fraud.py             # FR-53–56 (case queue + agent)
@@ -617,14 +736,14 @@ sboai_capstone/
 │   │   │   └── health.py            # FR-77 /health + /ready
 │   │   ├── agents/
 │   │   │   ├── chatbot/
-│   │   │   │   ├── graph.py         # LangGraph state graph definition
+│   │   │   │   ├── graph.py         # LangGraph state graph + CopilotKitState mixin
 │   │   │   │   ├── support_agent.py
 │   │   │   │   ├── rating_agent.py
 │   │   │   │   ├── balance_agent.py
 │   │   │   │   ├── conclusion_agent.py
 │   │   │   │   ├── notification_agent.py
 │   │   │   │   └── tools/
-│   │   │   │       ├── rag_search.py      # Milvus hybrid search
+│   │   │   │       ├── rag_search.py      # Milvus hybrid search (via VectorStoreProtocol)
 │   │   │   │       ├── plan_recommend.py  # Hybrid search + usage signals
 │   │   │   │       └── ticket_create.py
 │   │   │   ├── fraud/
@@ -635,11 +754,9 @@ sboai_capstone/
 │   │   │   │   ├── upsell_strategy_agent.py
 │   │   │   │   └── rca_agent.py           # FR-75
 │   │   │   └── shared/
-│   │   │       ├── llm_client.py          # Azure OpenAI client wrapper
 │   │   │       ├── langfuse_client.py     # LangFuse tracing wrapper
-│   │   │       └── embeddings.py          # text-embedding-3-small
+│   │   │       └── embeddings.py          # text-embedding-3-small (via LLMClientProtocol)
 │   │   ├── rag/
-│   │   │   ├── milvus_client.py
 │   │   │   ├── bm25_index.py
 │   │   │   ├── rrf_reranker.py
 │   │   │   └── ingestion/
@@ -660,6 +777,21 @@ sboai_capstone/
 │   │   │   └── fraud.py
 │   │   └── db/
 │   │       ├── migrations/                # Alembic
+│   │       ├── identity/
+│   │       │   ├── queries.py             # SELECT only — identity_subscribers, identity_kyc_records, ...
+│   │       │   └── commands.py            # INSERT/UPDATE/DELETE — identity_subscribers, ...
+│   │       ├── billing/
+│   │       │   ├── queries.py             # SELECT — billing_wallet_balances, billing_cdr_events, ...
+│   │       │   └── commands.py            # INSERT — billing_transactions, billing_audit_log, ...
+│   │       ├── fraud/
+│   │       │   ├── queries.py
+│   │       │   └── commands.py
+│   │       ├── recharge/
+│   │       │   ├── queries.py
+│   │       │   └── commands.py
+│   │       ├── support/
+│   │       │   ├── queries.py
+│   │       │   └── commands.py
 │   │       └── seed/
 │   │           ├── synthetic_generator.py # FR-71: 300K subs, 5M CDRs
 │   │           └── sop_generator.py       # SOP knowledge base seed
@@ -670,21 +802,21 @@ sboai_capstone/
 │   └── Dockerfile
 │
 ├── frontend/                              # React 18 + Vite + TailwindCSS
-│   ├── package.json
+│   ├── package.json                       # @copilotkit/react-ui, @copilotkit/react-core included
 │   ├── vite.config.ts
 │   ├── tailwind.config.ts
 │   ├── tsconfig.json
 │   ├── index.html
 │   ├── src/
 │   │   ├── main.tsx
-│   │   ├── App.tsx                        # Role-based router root
+│   │   ├── App.tsx                        # Role-based router root; <CopilotKit> wraps subscriber portal
 │   │   ├── router.tsx                     # React Router v6 routes
 │   │   ├── portals/
 │   │   │   ├── subscriber/               # /subscriber/* (FR-1–36)
 │   │   │   │   ├── Dashboard.tsx
 │   │   │   │   ├── Balance.tsx
 │   │   │   │   ├── Recharge.tsx
-│   │   │   │   ├── Chatbot.tsx
+│   │   │   │   ├── Chatbot.tsx            # <CopilotChat> component; AG-UI stream
 │   │   │   │   └── Profile.tsx
 │   │   │   ├── ops/                       # /ops/* (FR-42–52)
 │   │   │   │   ├── PlanStock.tsx
@@ -704,7 +836,6 @@ sboai_capstone/
 │   │   │   └── layout/                    # Navbar, Sidebar, RoleGuard
 │   │   ├── hooks/
 │   │   │   ├── useBalance.ts
-│   │   │   ├── useChatSession.ts
 │   │   │   ├── useWebSocket.ts
 │   │   │   └── useAuth.ts
 │   │   ├── lib/
@@ -732,23 +863,92 @@ sboai_capstone/
     └── generate_synthetic_data.py         # FR-71
 ```
 
+**OTEL trace middleware (FastAPI):**
+
+```python
+# core/middleware.py
+from opentelemetry import trace
+from opentelemetry.propagate import extract
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class OtelTraceMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        # Extract traceparent from incoming headers; generate new span if absent
+        ctx = extract(dict(request.headers))
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span("http_request", context=ctx) as span:
+            span.set_attribute("http.method", request.method)
+            span.set_attribute("http.url", str(request.url))
+            trace_id = format(span.get_span_context().trace_id, "032x")
+            request.state.trace_id = trace_id
+            response = await call_next(request)
+            response.headers["X-Trace-Id"] = trace_id
+            return response
+```
+
+**justfile commands (cross-platform):**
+
+```just
+# justfile — works on Windows (PowerShell), macOS, Linux
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
+
+up:           docker compose up -d
+down:         docker compose down
+logs:         docker compose logs -f
+restart svc:  docker compose restart {{svc}}
+
+backend:      cd app-backend && uvicorn src.main:app --reload --port 8000
+frontend:     cd frontend && npm run dev
+cdr:          cd cdr-pipeline && python -m src.main
+
+migrate:      cd app-backend && alembic upgrade head
+seed:         cd app-backend && python scripts/generate_synthetic_data.py
+seed-milvus:  cd app-backend && python scripts/seed_milvus.sh
+
+test:         cd app-backend && pytest tests/ -v
+test-cdr:     cd cdr-pipeline && pytest tests/ -v
+test-fe:      cd frontend && npm run test
+
+lint:         cd app-backend && ruff check src/ && cd ../cdr-pipeline && ruff check src/
+format:       cd app-backend && ruff format src/ && cd ../cdr-pipeline && ruff format src/
+lint-fe:      cd frontend && npm run lint
+```
+
 ### 1.12.2. Docker Compose Services (MVP)
+
+**MiniStack** MiniStack is lighter, faster to start, and sufficient for the Cognito + S3 surface area used in MVP.
+
+**Persistence:** Named Docker volumes are configured for Cognito user pools, S3 objects, and PostgreSQL data so state survives container restarts during development.
 
 ```yaml
 services:
   redpanda:          # Kafka-compatible event bus
   redis:             # Balance buffer, session, dedup, rate limit
   postgres:          # Primary DB
+    volumes:
+      - postgres_data:/var/lib/postgresql/data   # persisted across restarts
+
   milvus:            # Vector store (+ etcd + minio as deps)
   langfuse:          # Agent observability
-  localstack:        # AWS Cognito, S3 simulation
+  ministack:         # AWS Cognito + S3 simulation
+    volumes:
+      - ministack_cognito:/var/lib/ministack/cognito   # user pools + app clients persisted
+      - ministack_s3:/var/lib/ministack/s3             # S3 buckets + objects persisted
+
   otel-collector:    # OTEL collector
   otel-tui:          # Terminal traces/metrics/logs viewer
   fluentd:           # Log routing
   cdr-pipeline:      # CDR consumer + management API
   app-backend:       # FastAPI monorepo
   frontend:          # Vite dev server (or nginx for built assets)
+
+volumes:
+  postgres_data:
+  ministack_cognito:
+  ministack_s3:
 ```
+
+**Non-persisted services (acceptable to reset on restart):** Redis, Redpanda, Milvus, LangFuse. Redis balance state can be cold-started from Postgres; Redpanda offsets reset is safe during dev; Milvus collections are re-seeded via `just seed-milvus`.
 
 ---
 
@@ -793,7 +993,7 @@ All 77 FRs are architecturally addressed:
 - FR-57–59 (CDR Pipeline): Redpanda + aiokafka + Valkey + Postgres + DLQ
 - FR-60–62 (Fraud Agent): rule screener + LangGraph Fraud Agent + `fraud_cases` table
 - FR-63–67 (Security): pgcrypto + TLS + Fluentd redaction + Valkey blacklist + JWT roles
-- FR-68–70 (Simulator): `simulator` router + WebSocket trace stream + LocalStack
+- FR-68–70 (Simulator): `simulator` router + WebSocket trace stream + MiniStack
 - FR-71 (Synthetic Dataset): `synthetic_generator.py` — 300K subs, 5M CDRs, 1K plans
 - FR-72–77 (Eval/Obs): LangFuse + OTEL + DeepEval + LLM-as-Judge + `/health`+`/ready`
 
@@ -878,7 +1078,7 @@ All 77 FRs are architecturally addressed:
 
 **First Implementation Priorities:**
 
-1. `docker-compose.yml` — bring up all infra (Redpanda, Redis, Postgres, Milvus, LocalStack, LangFuse, OTEL-TUI, Fluentd)
+1. `docker-compose.yml` — bring up all infra (Redpanda, Redis, Postgres, Milvus, MiniStack, LangFuse, OTEL-TUI, Fluentd)
 2. Postgres schema migrations (Alembic) — all domains
 3. Synthetic dataset generation (`scripts/generate_synthetic_data.py`) — 300K subs, 5M CDRs
 4. CDR pipeline consumer (`cdr-pipeline/`) — dedup + balance write + fan-out
