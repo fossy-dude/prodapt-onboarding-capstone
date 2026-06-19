@@ -149,7 +149,7 @@ All stories reviewed have well-defined, testable acceptance criteria tied to FRs
 
 1. **Architecture-Story Coupling (Low Risk)**: Stories heavily reference Architecture document (ARCH-1 through ARCH-34). Ensure architecture and epics remain in sync during implementation.
 
-2. **Multi-Codebase Complexity (Medium Risk)**: Two-codebase structure (cdr-pipeline/ vs app-backend/) creates complexity in deployment and testing. Clear separation of concerns is documented (ARCH-18, Story 2.1 on topic partition).
+2. **Multi-Codebase Complexity (Medium Risk)**: Two-codebase structure (cdr-pipeline/ vs service_backend/) creates complexity in deployment and testing. Clear separation of concerns is documented (ARCH-18, Story 2.1 on topic partition).
 
 3. **Evaluation Harness Blocker (Low Risk)**: Epic 5, 6, 7 stories depend on eval harnesses (Stories 5.2, 6.1, 7.1) being complete before agent stories. Ensure QA resources are allocated upfront.
 
@@ -218,13 +218,13 @@ The search for `*ux*.md` and `*ux*/` folders in the planning artifacts directory
 
 **PRD User Journeys Mapped to Epic Stories:**
 
-| User Journey | Portal | Epic | Story | Coverage |
-|---|---|---|---|---|
-| UJ-1: Priya activates SIM after sign-up | Subscriber | 1 | 1.6, 1.7 | ✅ Register, track order, TRAI CAF |
-| UJ-2: Rohan checks balance & recharges | Subscriber | 3 | 3.2–3.5 | ✅ Balance, plan details, recharge flow |
-| UJ-3: Anjali queries chatbot about charge | Chatbot | 5 | 5.7–5.8 | ✅ Charge breakdown, dispute creation |
-| UJ-4: Fraud analyst reviews SIM swap alert | Fraud | 6 | 6.4–6.5 | ✅ Real-time feed, case queue, alerts |
-| UJ-5: Marketing manager designs upsell | Ops/Marketing | 7 | 7.5–7.7 | ✅ Target base builder, labelling, strategy |
+| User Journey                               | Portal        | Epic | Story    | Coverage                                   |
+| ------------------------------------------ | ------------- | ---- | -------- | ------------------------------------------ |
+| UJ-1: Priya activates SIM after sign-up    | Subscriber    | 1    | 1.6, 1.7 | ✅ Register, track order, TRAI CAF          |
+| UJ-2: Rohan checks balance & recharges     | Subscriber    | 3    | 3.2–3.5  | ✅ Balance, plan details, recharge flow     |
+| UJ-3: Anjali queries chatbot about charge  | Chatbot       | 5    | 5.7–5.8  | ✅ Charge breakdown, dispute creation       |
+| UJ-4: Fraud analyst reviews SIM swap alert | Fraud         | 6    | 6.4–6.5  | ✅ Real-time feed, case queue, alerts       |
+| UJ-5: Marketing manager designs upsell     | Ops/Marketing | 7    | 7.5–7.7  | ✅ Target base builder, labelling, strategy |
 
 **UX Requirement Gaps from PRD → Architecture**:
 - None identified. All 5 user journeys have corresponding epic stories with acceptance criteria.
@@ -235,23 +235,23 @@ The search for `*ux*.md` and `*ux*/` folders in the planning artifacts directory
 
 **Key UX-Architecture Mappings:**
 
-| UX Requirement | Architecture Support | Status |
-|---|---|---|
-| Real-time balance updates on dashboard | Valkey read-through (balance:{msisdn}), no stale DB reads | ✅ Supported (Story 3.2) |
-| Live WebSocket feeds (fraud, notifications) | WebSocket consumers on fraud.alerts, notification.events topics | ✅ Supported (Story 2.9, 6.4) |
-| Streaming chatbot responses | CopilotKit runtime + AG-UI SSE protocol at POST /api/chat/stream | ✅ Supported (Story 5.4, ARCH-13) |
-| Responsive multi-role dashboards | Role-gated routes (/subscriber/*, /ops/*, /fraud/*, /simulator/*) | ✅ Supported (Story 1.8, UX-DR7) |
-| Time-series forecast charts | Recharts wrappers in components/charts/ (Story 3.1, 7.2) | ✅ Supported (ARCH-22) |
-| PDF receipt generation | WeasyPrint from HTML template | ✅ Supported (Story 3.6) |
-| Plan recommendation cards | Tool-call results visualised in chat UI | ✅ Supported (Story 5.9) |
+| UX Requirement                              | Architecture Support                                              | Status                           |
+| ------------------------------------------- | ----------------------------------------------------------------- | -------------------------------- |
+| Real-time balance updates on dashboard      | Valkey read-through (balance:{msisdn}), no stale DB reads         | ✅ Supported (Story 3.2)          |
+| Live WebSocket feeds (fraud, notifications) | WebSocket consumers on fraud.alerts, notification.events topics   | ✅ Supported (Story 2.9, 6.4)     |
+| Streaming chatbot responses                 | CopilotKit runtime + AG-UI SSE protocol at POST /api/chat/stream  | ✅ Supported (Story 5.4, ARCH-13) |
+| Responsive multi-role dashboards            | Role-gated routes (/subscriber/*, /ops/*, /fraud/*, /simulator/*) | ✅ Supported (Story 1.8, UX-DR7)  |
+| Time-series forecast charts                 | Recharts wrappers in components/charts/ (Story 3.1, 7.2)          | ✅ Supported (ARCH-22)            |
+| PDF receipt generation                      | WeasyPrint from HTML template                                     | ✅ Supported (Story 3.6)          |
+| Plan recommendation cards                   | Tool-call results visualised in chat UI                           | ✅ Supported (Story 5.9)          |
 
 **Performance Targets Aligned with Architecture:**
 
-| UX Need | NFR Target | Architecture Provision |
-|---|---|---|
-| Sub-200ms balance display refresh | NFR-1: P95 ≤ 200ms balance deduction | Valkey INCRBY + async Postgres flush (Story 2.3) |
-| Sub-2s chatbot response | Implicit latency requirement | CopilotKit streaming reduces perceived latency |
-| Sub-30s forecast refresh | Implicit responsiveness | Cached in Postgres, React Query debounce (Story 7.3) |
+| UX Need                           | NFR Target                           | Architecture Provision                               |
+| --------------------------------- | ------------------------------------ | ---------------------------------------------------- |
+| Sub-200ms balance display refresh | NFR-1: P95 ≤ 200ms balance deduction | Valkey INCRBY + async Postgres flush (Story 2.3)     |
+| Sub-2s chatbot response           | Implicit latency requirement         | CopilotKit streaming reduces perceived latency       |
+| Sub-30s forecast refresh          | Implicit responsiveness              | Cached in Postgres, React Query debounce (Story 7.3) |
 
 ### UX Design Recommendations & Implementation Plan
 
@@ -282,13 +282,13 @@ The search for `*ux*.md` and `*ux*/` folders in the planning artifacts directory
 
 ### Summary: UX Alignment Status
 
-| Dimension | Status | Evidence |
-|---|---|---|
-| **UX Exists?** | Implicit (story-driven) | Epics doc UX-DR1–8, Stories 1.1, 3.1, 5.1 |
-| **UX ↔ PRD Aligned?** | ✅ Yes | All 5 UJ mapped to epic stories |
-| **UX ↔ Architecture Aligned?** | ✅ Yes | WebSocket, CopilotKit, role routing supported |
-| **UX Complete?** | ⚠️ Partial | Briefs defined; no visual design assets (acceptable for MVP) |
-| **Recommend Proceed?** | ✅ YES | Align with story-driven approach; governance note above |
+| Dimension                      | Status                  | Evidence                                                     |
+| ------------------------------ | ----------------------- | ------------------------------------------------------------ |
+| **UX Exists?**                 | Implicit (story-driven) | Epics doc UX-DR1–8, Stories 1.1, 3.1, 5.1                    |
+| **UX ↔ PRD Aligned?**          | ✅ Yes                   | All 5 UJ mapped to epic stories                              |
+| **UX ↔ Architecture Aligned?** | ✅ Yes                   | WebSocket, CopilotKit, role routing supported                |
+| **UX Complete?**               | ⚠️ Partial               | Briefs defined; no visual design assets (acceptable for MVP) |
+| **Recommend Proceed?**         | ✅ YES                   | Align with story-driven approach; governance note above      |
 
 ---
 
@@ -460,15 +460,15 @@ The search for `*ux*.md` and `*ux*/` folders in the planning artifacts directory
 
 ### Best Practices Compliance Checklist
 
-| Criterion | Epic 1 | Epic 2 | Epic 3 | Epic 4 | Epic 5 | Epic 6 | Epic 7 |
-|---|---|---|---|---|---|---|---|
-| **Delivers user value** | ✅ | ✅* | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Independent (or properly sequenced)** | ✅ | ✅ | ✅ | ✅ | ⚠️ Seq | ⚠️ Seq | ⚠️ Seq |
-| **Stories sized 1–2 days** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **No forward dependencies** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Clear acceptance criteria** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Traceability to FRs maintained** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **TDD-first (agents only)** | N/A | N/A | N/A | N/A | ✅ | ✅ | ✅ |
+| Criterion                               | Epic 1 | Epic 2 | Epic 3 | Epic 4 | Epic 5 | Epic 6 | Epic 7 |
+| --------------------------------------- | ------ | ------ | ------ | ------ | ------ | ------ | ------ |
+| **Delivers user value**                 | ✅      | ✅*     | ✅      | ✅      | ✅      | ✅      | ✅      |
+| **Independent (or properly sequenced)** | ✅      | ✅      | ✅      | ✅      | ⚠️ Seq  | ⚠️ Seq  | ⚠️ Seq  |
+| **Stories sized 1–2 days**              | ✅      | ✅      | ✅      | ✅      | ✅      | ✅      | ✅      |
+| **No forward dependencies**             | ✅      | ✅      | ✅      | ✅      | ✅      | ✅      | ✅      |
+| **Clear acceptance criteria**           | ✅      | ✅      | ✅      | ✅      | ✅      | ✅      | ✅      |
+| **Traceability to FRs maintained**      | ✅      | ✅      | ✅      | ✅      | ✅      | ✅      | ✅      |
+| **TDD-first (agents only)**             | N/A    | N/A    | N/A    | N/A    | ✅      | ✅      | ✅      |
 
 *Epic 2: Infrastructure epic justified by simulator tools & foundational balance engine.
 ⚠️ Seq: Forward dependency on earlier epic (acceptable, not forward reference within same epic).
@@ -557,15 +557,15 @@ All seven epics meet or exceed best practices standards:
 
 This assessment validated that PRD, Architecture, Epics, and Stories are complete, aligned, and ready for Phase 4 development. All key validation gates passed:
 
-| Gate | Result | Finding |
-|---|---|---|
-| **Document Completeness** | ✅ PASS | All required docs found; no duplicates |
-| **FR Coverage** | ✅ PASS | 100% (77/77 FRs mapped to stories) |
-| **NFR Coverage** | ✅ PASS | 100% (13/13 PRD NFRs → 20 extended NFRs) |
-| **Epic Independence** | ✅ PASS | No forward dependencies; proper sequencing |
-| **Story Quality** | ✅ PASS | 58 stories, all 1–2 day sized, clear ACs |
-| **UX Alignment** | ✅ PASS | Implicit (story-driven); traceable to 5 user journeys |
-| **Architecture Alignment** | ✅ PASS | Stories map to ARCH-1 through ARCH-34 specs |
+| Gate                       | Result | Finding                                               |
+| -------------------------- | ------ | ----------------------------------------------------- |
+| **Document Completeness**  | ✅ PASS | All required docs found; no duplicates                |
+| **FR Coverage**            | ✅ PASS | 100% (77/77 FRs mapped to stories)                    |
+| **NFR Coverage**           | ✅ PASS | 100% (13/13 PRD NFRs → 20 extended NFRs)              |
+| **Epic Independence**      | ✅ PASS | No forward dependencies; proper sequencing            |
+| **Story Quality**          | ✅ PASS | 58 stories, all 1–2 day sized, clear ACs              |
+| **UX Alignment**           | ✅ PASS | Implicit (story-driven); traceable to 5 user journeys |
+| **Architecture Alignment** | ✅ PASS | Stories map to ARCH-1 through ARCH-34 specs           |
 
 **Verdict: No rework required. Artifacts are ready for implementation.**
 
@@ -625,7 +625,7 @@ This assessment validated that PRD, Architecture, Epics, and Stories are complet
 
 #### 3. **Lock Architecture Decisions** (24h review)
    - **Action**: Review Architecture document (ARCH-1 to ARCH-34) with engineering team; confirm buy-in on:
-     - Two-codebase boundary (cdr-pipeline/ vs app-backend/ with only Postgres/Valkey/Kafka between them)
+     - Two-codebase boundary (cdr-pipeline/ vs service_backend/ with only Postgres/Valkey/Kafka between them)
      - Valkey `noeviction` policy for balance keys (non-negotiable for correctness)
      - Flyway SQL-native migrations (no ORM DDL)
      - UUID strategies (UUIDv7 for transactional, UUIDv4 for reference)
@@ -670,13 +670,13 @@ This assessment validated that PRD, Architecture, Epics, and Stories are complet
 
 ### Risk Summary
 
-| Risk | Probability | Impact | Mitigation |
-|---|---|---|---|
-| **Eval harness delays** | Medium | High | Allocate QA/ML early; Stories 5.2, 6.1, 7.1 are **blockers** |
-| **Third-party API unavailability** | Low | High | Confirm OpenAI/embedding access in week 1 |
-| **Architecture changes mid-sprint** | Low | High | Lock decisions before Epic 1 starts |
-| **UX drift (story-driven)** | Medium | Medium | Produce UX checklist from Story 1.1 |
-| **Database schema conflicts** | Low | Medium | Use Flyway migrations (append-only); no ad-hoc changes |
+| Risk                                | Probability | Impact | Mitigation                                                   |
+| ----------------------------------- | ----------- | ------ | ------------------------------------------------------------ |
+| **Eval harness delays**             | Medium      | High   | Allocate QA/ML early; Stories 5.2, 6.1, 7.1 are **blockers** |
+| **Third-party API unavailability**  | Low         | High   | Confirm OpenAI/embedding access in week 1                    |
+| **Architecture changes mid-sprint** | Low         | High   | Lock decisions before Epic 1 starts                          |
+| **UX drift (story-driven)**         | Medium      | Medium | Produce UX checklist from Story 1.1                          |
+| **Database schema conflicts**       | Low         | Medium | Use Flyway migrations (append-only); no ad-hoc changes       |
 
 ---
 

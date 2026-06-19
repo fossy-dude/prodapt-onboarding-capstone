@@ -84,18 +84,16 @@ import { Button } from '@/shared/ui/Button/Button';
 
 ### 2.1 File Naming
 
-| Type             | Pattern                  | Example                            |
-| ---------------- | ------------------------ | ---------------------------------- |
-| Component        | `PascalCase.tsx`         | `Button.tsx`, `UserProfile.tsx`    |
-| Component styles | `PascalCase.module.scss` | `Button.module.scss`               |
-| Component test   | `PascalCase.test.tsx`    | `Button.test.tsx`                  |
-| Hook             | `camelCase.ts`           | `useDocumentTitle.ts`              |
-| Hook test        | `camelCase.test.ts`      | `useDocumentTitle.test.ts`         |
-| Utility          | `camelCase.ts`           | `formatDate.ts`                    |
-| Type declaration | `camelCase.d.ts`         | `scss.d.ts`, `vite-env.d.ts`       |
-| Barrel export    | `index.ts`               | `index.ts`                         |
-| SCSS partial     | `_snakeCase.scss`        | `_tokens.scss`, `_reset.scss`      |
-| Page component   | `PascalCasePage.tsx`     | `HomePage.tsx`, `SettingsPage.tsx` |
+| Type             | Pattern               | Example                            |
+| ---------------- | --------------------- | ---------------------------------- |
+| Component        | `PascalCase.tsx`      | `Button.tsx`, `UserProfile.tsx`    |
+| Component test   | `PascalCase.test.tsx` | `Button.test.tsx`                  |
+| Hook             | `camelCase.ts`        | `useDocumentTitle.ts`              |
+| Hook test        | `camelCase.test.ts`   | `useDocumentTitle.test.ts`         |
+| Utility          | `camelCase.ts`        | `formatDate.ts`                    |
+| Type declaration | `camelCase.d.ts`      | `vite-env.d.ts`                    |
+| Barrel export    | `index.ts`            | `index.ts`                         |
+| Page component   | `PascalCasePage.tsx`  | `HomePage.tsx`, `SettingsPage.tsx` |
 
 ### 2.2 File Structure (Component)
 
@@ -104,7 +102,6 @@ Each component file should follow this order:
 ```typescript
 // 1. Imports
 import { type ReactNode } from 'react';
-import styles from './Component.module.scss';
 
 // 2. Types
 interface ComponentProps {
@@ -113,7 +110,7 @@ interface ComponentProps {
 
 // 3. Component
 function Component({ children }: ComponentProps) {
-  return <div className={styles.wrapper}>{children}</div>;
+  return <div className="flex flex-col">{children}</div>;
 }
 
 // 4. Named exports (no default exports)
@@ -173,10 +170,11 @@ interface UserProfile {
 - SCREAMING_SNAKE_CASE for true constants: `MAX_RETRIES`, `API_BASE_URL`
 - camelCase for configuration objects: `defaultTheme`, `routeConfig`
 
-### 3.6 CSS Classes (SCSS Modules)
+### 3.6 CSS Classes (Tailwind)
 
-- camelCase for class names in SCSS modules: `.button`, `.featureCard`, `.isActive`
-- Use semantic, not visual, names: `.heroSection` not `.blueSection`
+- Use Tailwind utility classes directly in JSX `className`.
+- Use semantic, descriptive component names even when classes are utilities: a `HeroSection` component is clear regardless of its utilities.
+- Extract repeated utility combinations into components or `@apply` in `src/styles/` only when reuse is genuinely needed.
 
 ---
 
@@ -301,35 +299,35 @@ function Button({ variant = 'primary', disabled = false, children }: ButtonProps
 
 ## 6. Styling Rules
 
-### 6.1 SCSS Modules
+### 6.1 Tailwind CSS
 
-- **Use SCSS Modules exclusively** for component styles: `Component.module.scss`.
-- **Never use inline styles** except for dynamic, computed values.
-- **Never use global CSS class names** for component-specific styles.
+- **Use Tailwind utility classes** for all component styling via `className`.
+- **Never use inline styles** except for truly dynamic, computed values (e.g. `style={{ width: dynamicWidth }}`).
+- **Never introduce CSS Modules or global CSS class names** for component-specific styles.
 
 ### 6.2 Design Tokens
 
-- **Always use design tokens** from `_tokens.scss` for colors, spacing, typography, etc.
-- **Never hard-code** colors, spacing values, font sizes, or other design values in component styles.
-- Import tokens with `@use '@/styles/tokens' as *;`.
+- **Extend the Tailwind theme** in `tailwind.config.ts` to define colors, spacing, typography, and other design tokens.
+- **Never hard-code** raw color hex values, pixel sizes, or font sizes outside the Tailwind config.
+- Reference tokens via Tailwind classes: `text-brand-primary`, `p-spacing-md`, etc.
 
 ### 6.3 Organization
 
-- Global styles belong in `src/styles/`.
-- Component styles are co-located with the component.
-- Use `_` prefix for SCSS partials: `_tokens.scss`, `_reset.scss`.
-- Use `@use` instead of `@import` (Sass module system).
+- Global base styles and Tailwind directives belong in `src/styles/global.css`.
+- Use `@layer base`, `@layer components`, `@layer utilities` when authoring custom CSS.
+- Keep custom CSS minimal — prefer Tailwind utilities and theme extensions.
 
 ### 6.4 Responsive Design
 
-- Use relative units (`rem`, `em`) for font sizes and spacing.
-- Use media queries with breakpoint tokens: `$breakpoint-md`, `$breakpoint-lg`.
-- Design mobile-first: base styles target mobile, media queries scale up.
+- Use Tailwind's responsive prefixes: `sm:`, `md:`, `lg:`, `xl:`, `2xl:`.
+- Design mobile-first: base classes target mobile, prefixed classes scale up.
+- Use Tailwind's spacing scale (`p-4`, `mt-6`) rather than raw `rem`/`px` values.
 
 ### 6.5 Naming
 
-- Use camelCase for SCSS class names (required by CSS modules with TypeScript).
-- Use semantic names: `.errorMessage`, not `.redText`.
+- Use semantic component names and props, not visual utility names.
+- If `@apply` is used (sparingly), keep class names semantic: `.errorMessage`, not `.redText`.
+- Prefer composing components over duplicating long utility strings.
 
 ---
 
@@ -430,7 +428,7 @@ chore(deps): update React to v19.1
 Husky + lint-staged will automatically:
 
 - Run ESLint with `--fix` on staged `.ts`/`.tsx`/`.js`/`.jsx` files.
-- Run Prettier with `--write` on staged `.ts`/`.tsx`/`.js`/`.jsx`/`.scss`/`.css`/`.json`/`.md` files.
+- Run Prettier with `--write` on staged `.ts`/`.tsx`/`.js`/`.jsx`/`.css`/`.json`/`.md` files.
 
 **Do not bypass pre-commit hooks** with `--no-verify` unless absolutely necessary.
 
@@ -572,7 +570,7 @@ npm run validate      # Runs all of the above
 - Do not install `jquery` or jQuery plugins.
 - Do not install `moment.js` — use `Intl` or `date-fns`.
 - Do not install `lodash` unless a specific utility is truly needed (prefer native methods).
-- Do not install CSS-in-JS libraries — use SCSS modules.
+- Do not install CSS-in-JS libraries (styled-components, Emotion, etc.) — use Tailwind CSS.
 
 ---
 

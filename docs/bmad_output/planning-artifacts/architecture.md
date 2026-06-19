@@ -109,7 +109,7 @@ completedAt: '2026-06-18'
 | **Linting / Formatting**   | ruff (lint + format) + pyrefly (static linting) | Single tool replaces flake8 + isort + Black; configured in `pyproject.toml` [Source](https://github.com/fossy-dude/pydantic-config-mgmt-template/blob/main/pyproject.toml) |
 | **Test runner**            | `uv tox` (tox-uv plugin)                        | Runs lint, typecheck, and pytest in isolated envs; `uv` for fast dep install                                                                                               |
 | **CI/CD**                  | GitHub Actions                                  | PR checks: `uv tox` (all envs), Docker build                                                                                                                               |
-| **Container**              | Docker Compose                                  | All services including Redpanda, Valkey, Postgres, LangFuse, MiniStack (Milvus Lite runs embedded in app-backend — no separate container)                                  |
+| **Container**              | Docker Compose                                  | All services including Redpanda, Valkey, Postgres, LangFuse, MiniStack (Milvus Lite runs embedded in service_backend — no separate container)                              |
 | **CDR Simulator**          | Python Scripts                                  | Manually generated via a UI. Limited to 100 CDRs in 1 shot                                                                                                                 |
 
 ### 1.3.2. Decided Stack — Target State
@@ -211,11 +211,11 @@ sboai_capstone/
 ├── cdr-pipeline/          # CDR ingestion + balance engine + fraud pre-screener
 │   (Python, aiokafka, Redpanda, Redis, Postgres)
 │
-└── app-backend/           # All other backend: API, agents, notifications, USSD
+└── service_backend/           # All other backend: API, agents, notifications, USSD
     (Python, FastAPI, LangGraph, Milvus, Postgres, Redis)
 ```
 
-All non-CDR domain logic (auth, accounts, balance reads, recharge, chatbot agents, USSD, notifications, dashboards, fraud case management, ML forecasting) lives in `app-backend` as FastAPI routers and internal Python modules. No HTTP between the two codebases — they share Postgres and Redis.
+All non-CDR domain logic (auth, accounts, balance reads, recharge, chatbot agents, USSD, notifications, dashboards, fraud case management, ML forecasting) lives in `service_backend` as FastAPI routers and internal Python modules. No HTTP between the two codebases — they share Postgres and Redis.
 
 ### 1.5.2. Target State — Microservices
 
@@ -436,7 +436,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";  -- already required for PII encrypti
 **Migration file location:**
 
 ```
-app-backend/db/migrations/
+service_backend/db/migrations/
   V1__baseline_schema.sql          # all domains: CREATE TABLE, indexes, FK constraints
   V2__set_modified_at_trigger.sql  # trigger function + application to all tables
   V3__segmentation_kpi_mvw.sql     # materialized view + refresh function
@@ -524,7 +524,7 @@ Milvus Lite runs fully in-process as a Python library via `pymilvus[milvus-lite]
 - Same `pymilvus` client API — collection creation, upsert, hybrid search all identical to Milvus standalone/distributed
 - Docker volume ensures data persists; re-seeding is a `just seed-milvus` command, not a cluster restart
 
-**Milvus Lite Dockerfile (`app-backend/Dockerfile`):**
+**Milvus Lite Dockerfile (`service_backend/Dockerfile`):**
 
 ```dockerfile
 FROM python:3.11-slim
@@ -558,8 +558,8 @@ CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ```yaml
 services:
-  app-backend:
-    build: ./app-backend
+  service_backend:
+    build: ./service_backend
     volumes:
       - milvus_lite_data:/app/data/milvus   # Milvus Lite .db file persisted here
 
@@ -623,7 +623,7 @@ Index type: HNSW. BM25 lexical index on same collections for hybrid search. RRF 
 | Card tokenisation        | Simulated tokenisation: raw PAN → UUID token at point of entry; raw PAN never written to DB                                                                              |
 | Rate limiting (FR-36)    | MVP: not enforced at application layer. Target State: AWS API Gateway per-role throttle                                                                                  |
 | Account takeover (FR-66) | SIM swap confirmed → `fraud_blacklist` table write + Cognito account disable + all tokens revoked via Cognito admin API → subsequent JWT validation at API Gateway fails |
-| Access token lifetime    | 30 minutes (MVP: Cognito App Client; Target: Keycloak client config) — bounds blacklist enforcement gap to ≤ 30 min                                                     |
+| Access token lifetime    | 30 minutes (MVP: Cognito App Client; Target: Keycloak client config) — bounds blacklist enforcement gap to ≤ 30 min                                                      |
 | TRAI data localisation   | All AWS resources in `ap-south-1`; no cross-region data transfer                                                                                                         |
 | Audit immutability       | Postgres app role: INSERT only on `audit_log`; no UPDATE/DELETE grants                                                                                                   |
 
@@ -723,7 +723,7 @@ Grafana dashboards: CDR pipeline health, balance P95, fraud escalation rate, age
 
 **All application configuration is managed via `pydantic-settings` at runtime.** This covers environment variables, `.env` files, and AWS Secrets Manager secrets — all resolved at startup (eager load; missing secrets are a fatal startup error).
 
-**Bootstrap template:** [fossy-dude/pydantic-config-mgmt-template](https://github.com/fossy-dude/pydantic-config-mgmt-template) is the reference implementation to bootstrap config management in both `cdr-pipeline` and `app-backend`.
+**Bootstrap template:** [fossy-dude/pydantic-config-mgmt-template](https://github.com/fossy-dude/pydantic-config-mgmt-template) is the reference implementation to bootstrap config management in both `cdr-pipeline` and `service_backend`.
 
 **Pattern:**
 
@@ -963,7 +963,7 @@ uv tox -e test
 # Or via justfile shortcuts:
 just lint      # ruff check across both codebases
 just format    # ruff format across both codebases
-just test      # uv tox -e test in app-backend
+just test      # uv tox -e test in service_backend
 just test-cdr  # uv tox -e test in cdr-pipeline
 ```
 
@@ -1029,7 +1029,7 @@ sboai_capstone/
 │   ├── tests/
 │   └── Dockerfile
 │
-├── app-backend/                     # All other backend (FastAPI monorepo for MVP)
+├── service_backend/                     # All other backend (FastAPI monorepo for MVP)
 │   ├── pyproject.toml               # deps + ruff/pyrefly/tox config; dev extras: ruff, pyrefly, pytest, tox, tox-uv, testcontainers
 │   ├── src/
 │   │   ├── main.py                  # FastAPI app entrypoint + middleware registration
@@ -1146,7 +1146,8 @@ sboai_capstone/
 │   │   │   │   ├── Balance.tsx
 │   │   │   │   ├── Recharge.tsx
 │   │   │   │   ├── Chatbot.tsx            # <CopilotChat> component; AG-UI stream
-│   │   │   │   └── Profile.tsx
+│   │   │   │   │   ├── Profile.tsx
+│   │   │   │   └── SimActivation.tsx     # /activate — subscriber-facing SIM order tracker (read-only, 10s poll)
 │   │   │   ├── ops/                       # /ops/* (FR-42–52)
 │   │   │   │   ├── PlanStock.tsx
 │   │   │   │   ├── OrderFulfilment.tsx
@@ -1158,7 +1159,7 @@ sboai_capstone/
 │   │   │   └── simulator/                 # /simulator/* (FR-68–70)
 │   │   │       ├── CdrSimulator.tsx
 │   │   │       ├── NotificationPortal.tsx
-│   │   │       └── SimActivation.tsx
+│   │   │       └── SimActivation.tsx     # DEV TOOL: simulate/advance order fulfilment state (not subscriber-facing)
 │   │   ├── components/
 │   │   │   ├── ui/                        # Shared: Button, Card, Badge, Table, Modal
 │   │   │   ├── charts/                    # Recharts wrappers for time-series
@@ -1221,7 +1222,7 @@ sboai_capstone/
                      realistic intra-day distribution (peak hours 9–11am, 6–9pm)
 ```
 
-**Script location:** `app-backend/db/seed/synthetic_generator.py`
+**Script location:** `service_backend/db/seed/synthetic_generator.py`
 
 **Key design decisions:**
 
@@ -1269,21 +1270,21 @@ down:         docker compose -f docker/docker-compose.yaml down
 logs:         docker compose -f docker/docker-compose.yaml logs -f
 restart svc:  docker compose -f docker/docker-compose.yaml restart {{svc}}
 
-backend:      cd app-backend && uvicorn src.main:app --reload --port 8000
+backend:      cd service_backend && uvicorn src.main:app --reload --port 8000
 frontend:     cd frontend && npm run dev
 cdr:          cd cdr-pipeline && python -m src.main
 
-migrate:      flyway -url=jdbc:postgresql://localhost:5432/sboai -locations=filesystem:app-backend/db/migrations migrate
-seed:         cd app-backend && python scripts/generate_synthetic_data.py
-seed-milvus:  cd app-backend && python scripts/seed_milvus.sh
+migrate:      flyway -url=jdbc:postgresql://localhost:5432/sboai -locations=filesystem:service_backend/db/migrations migrate
+seed:         cd service_backend && python scripts/generate_synthetic_data.py
+seed-milvus:  cd service_backend && python scripts/seed_milvus.sh
 
-test:         cd app-backend && uv tox -e test
+test:         cd service_backend && uv tox -e test
 test-cdr:     cd cdr-pipeline && uv tox -e test
 test-fe:      cd frontend && npm run test
-tox:          cd app-backend && uv tox && cd ../cdr-pipeline && uv tox  # lint + typecheck + test
+tox:          cd service_backend && uv tox && cd ../cdr-pipeline && uv tox  # lint + typecheck + test
 
-lint:         cd app-backend && uv tox -e lint && cd ../cdr-pipeline && uv tox -e lint
-format:       cd app-backend && ruff format src/ && cd ../cdr-pipeline && ruff format src/
+lint:         cd service_backend && uv tox -e lint && cd ../cdr-pipeline && uv tox -e lint
+format:       cd service_backend && ruff format src/ && cd ../cdr-pipeline && ruff format src/
 lint-fe:      cd frontend && npm run lint
 ```
 
@@ -1322,8 +1323,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data   # persisted across restarts
 
-  # Milvus: NOT a separate container in MVP — Milvus Lite runs embedded in app-backend (Python dep)
-  # Data persisted via milvus_lite_data volume mounted into app-backend container
+  # Milvus: NOT a separate container in MVP — Milvus Lite runs embedded in service_backend (Python dep)
+  # Data persisted via milvus_lite_data volume mounted into service_backend container
   langfuse:          # Agent observability
   ministack:         # AWS Cognito + S3 simulation (no Redis bundled — Valkey is separate)
     volumes:
@@ -1339,7 +1340,7 @@ volumes:
   valkey_data:
   ministack_cognito:
   ministack_s3:
-  milvus_lite_data:    # Milvus Lite .db file — persisted across app-backend container restarts
+  milvus_lite_data:    # Milvus Lite .db file — persisted across service_backend container restarts
 ```
 
 **`docker/docker-compose.yaml` — full stack (extends dependencies):**
@@ -1350,10 +1351,10 @@ include:
 
 services:
   cdr-pipeline:      # CDR consumer + management API
-  app-backend:       # FastAPI monorepo
+  service_backend:       # FastAPI monorepo
     deploy:
       replicas: 1    # HARD CONSTRAINT: Milvus Lite embedded .db file does not support concurrent process access.
-                     # Scaling app-backend to >1 replica in MVP will corrupt the Milvus Lite data file.
+                     # Scaling service_backend to >1 replica in MVP will corrupt the Milvus Lite data file.
                      # Scale-out is only supported in Target State with Milvus Distributed on EKS.
   frontend:          # Vite dev server (or nginx for built assets)
 ```
@@ -1362,7 +1363,7 @@ services:
 
 **Valkey on restart — balance warm-up required:** Valkey is non-persisted across full stack restarts in dev. On restart, `cdr-pipeline` runs `load_balances_from_postgres()` at startup before the consumer loop begins — this re-seeds all `balance:{msisdn}` keys from Postgres. No manual intervention needed; warm-up completes in < 5s for 300K subscribers.
 
-**Milvus Lite persistence:** The `milvus_lite_data` Docker volume persists the embedded Milvus `.db` file across `app-backend` container restarts. If the volume is wiped, re-seed with `just seed-milvus`.
+**Milvus Lite persistence:** The `milvus_lite_data` Docker volume persists the embedded Milvus `.db` file across `service_backend` container restarts. If the volume is wiped, re-seed with `just seed-milvus`.
 
 ### 1.12.4. PostgreSQL Container Initialization
 
@@ -1516,34 +1517,34 @@ The following are acknowledged architectural limitations accepted for MVP veloci
 
 **Callout 1 — Azure OpenAI data residency (TRAI compliance risk)**
 
-| | |
-|---|---|
-| **Risk** | Azure OpenAI is not available in any India AWS region (`ap-south-1`). All LLM calls (fraud agent, chatbot, ops agents) are routed to an Azure region outside India (e.g., `eastus`, `westeurope`). TRAI mandates that subscriber data be physically stored in India — the regulatory scope of "processing" via LLM APIs is not explicitly defined in current TRAI guidelines but carries compliance risk. |
-| **Scope** | Any LLM prompt that includes subscriber-identifiable context: CDR summaries, balance, MSISDN, plan details. |
-| **MVP mitigation** | All LLM prompt construction **must** follow the PII hygiene rules in §1.11.6: use subscriber UUID (not MSISDN), anonymised CDR statistics (not raw records), no name or address fields. A prompt sanitisation layer must be implemented before any context is passed to the LLM client (`LLMClientProtocol`). This does not fully resolve the data residency question but materially reduces the PII exposure. |
-| **Target State path** | Evaluate Amazon Bedrock (`ap-south-1`) as the LLM provider — Bedrock Titan / Claude models are available in Mumbai region and would eliminate the cross-border transfer concern. Switch is a one-adapter change in `azure_openai.py` → `bedrock.py` implementing `LLMClientProtocol`. |
+|                       |                                                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Risk**              | Azure OpenAI is not available in any India AWS region (`ap-south-1`). All LLM calls (fraud agent, chatbot, ops agents) are routed to an Azure region outside India (e.g., `eastus`, `westeurope`). TRAI mandates that subscriber data be physically stored in India — the regulatory scope of "processing" via LLM APIs is not explicitly defined in current TRAI guidelines but carries compliance risk.      |
+| **Scope**             | Any LLM prompt that includes subscriber-identifiable context: CDR summaries, balance, MSISDN, plan details.                                                                                                                                                                                                                                                                                                    |
+| **MVP mitigation**    | All LLM prompt construction **must** follow the PII hygiene rules in §1.11.6: use subscriber UUID (not MSISDN), anonymised CDR statistics (not raw records), no name or address fields. A prompt sanitisation layer must be implemented before any context is passed to the LLM client (`LLMClientProtocol`). This does not fully resolve the data residency question but materially reduces the PII exposure. |
+| **Target State path** | Evaluate Amazon Bedrock (`ap-south-1`) as the LLM provider — Bedrock Titan / Claude models are available in Mumbai region and would eliminate the cross-border transfer concern. Switch is a one-adapter change in `azure_openai.py` → `bedrock.py` implementing `LLMClientProtocol`.                                                                                                                          |
 
 ---
 
 **Callout 2 — Fraud detection to blacklist enforcement window**
 
-| | |
-|---|---|
-| **Risk** | The fraud detection flow is fully asynchronous: rule pre-screener flags a CDR → publishes to `cdr.fraud.flagged` → LangGraph Fraud Agent invokes LLM analysis (typical latency: 5–15s) → writes to `fraud_cases` → blacklists the subscriber. During this window, additional fraudulent CDRs continue processing normally on the balance hot path. |
-| **Scope** | Applies whenever the fraud agent escalates to LLM confirmation (i.e., after a rule-screener FLAG — not for all CDRs). |
-| **MVP acceptance** | The rule-based pre-screener catches the initial flag synchronously. The LLM agent's role is confirmation and case enrichment, not first-line detection. The 5–15s window is accepted as a known gap for MVP. False-positive rate of the rule screener determines actual exposure. |
-| **Target State path** | On pre-screener FLAG, write a soft-suspend record to a `suspect:{msisdn}` Valkey key before LLM escalation. CDR consumer checks this key and drops (DLQ) CDRs for suspected MSISDNs during the LLM analysis window. Clear the key on `false_positive`; confirm blacklist on `confirmed`. |
+|                       |                                                                                                                                                                                                                                                                                                                                                    |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Risk**              | The fraud detection flow is fully asynchronous: rule pre-screener flags a CDR → publishes to `cdr.fraud.flagged` → LangGraph Fraud Agent invokes LLM analysis (typical latency: 5–15s) → writes to `fraud_cases` → blacklists the subscriber. During this window, additional fraudulent CDRs continue processing normally on the balance hot path. |
+| **Scope**             | Applies whenever the fraud agent escalates to LLM confirmation (i.e., after a rule-screener FLAG — not for all CDRs).                                                                                                                                                                                                                              |
+| **MVP acceptance**    | The rule-based pre-screener catches the initial flag synchronously. The LLM agent's role is confirmation and case enrichment, not first-line detection. The 5–15s window is accepted as a known gap for MVP. False-positive rate of the rule screener determines actual exposure.                                                                  |
+| **Target State path** | On pre-screener FLAG, write a soft-suspend record to a `suspect:{msisdn}` Valkey key before LLM escalation. CDR consumer checks this key and drops (DLQ) CDRs for suspected MSISDNs during the LLM analysis window. Clear the key on `false_positive`; confirm blacklist on `confirmed`.                                                           |
 
 ---
 
 **Callout 3 — Flyway migration user has CREATEROLE privilege**
 
-| | |
-|---|---|
-| **Risk** | `sboai_flyway` is granted `CREATEROLE` in `02_roles.sql`. This violates least-privilege — the migration user should only need DDL (CREATE TABLE, ALTER, etc.) on the application database schema. `CREATEROLE` allows this user to create new PostgreSQL roles, including roles with elevated privileges. |
-| **Rationale** | Granted for development velocity — simplifies local setup where role management and DDL are iterated together. |
-| **MVP acceptance** | Accepted for local dev environment only. Credentials are in `.env` (gitignored); blast radius is limited to the local Postgres container. |
-| **Target State path** | Remove `CREATEROLE` from `sboai_flyway`. Grant only: `CONNECT` on database `sboai`, `CREATE` on `schema public`, ownership of objects created by migrations. Role management in Target State is handled by Terraform (`aws_rds_cluster` parameter group + Secrets Manager rotation). |
+|                       |                                                                                                                                                                                                                                                                                                           |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Risk**              | `sboai_flyway` is granted `CREATEROLE` in `02_roles.sql`. This violates least-privilege — the migration user should only need DDL (CREATE TABLE, ALTER, etc.) on the application database schema. `CREATEROLE` allows this user to create new PostgreSQL roles, including roles with elevated privileges. |
+| **Rationale**         | Granted for development velocity — simplifies local setup where role management and DDL are iterated together.                                                                                                                                                                                            |
+| **MVP acceptance**    | Accepted for local dev environment only. Credentials are in `.env` (gitignored); blast radius is limited to the local Postgres container.                                                                                                                                                                 |
+| **Target State path** | Remove `CREATEROLE` from `sboai_flyway`. Grant only: `CONNECT` on database `sboai`, `CREATE` on `schema public`, ownership of objects created by migrations. Role management in Target State is handled by Terraform (`aws_rds_cluster` parameter group + Secrets Manager rotation).                      |
 
 ### 1.13.5. Architecture Completeness Checklist
 
@@ -1571,7 +1572,7 @@ The following are acknowledged architectural limitations accepted for MVP veloci
 **Project Structure**
 
 - [x] Complete directory structure defined
-- [x] Component boundaries established (cdr-pipeline vs app-backend; FR mapping to routers/agents)
+- [x] Component boundaries established (cdr-pipeline vs service_backend; FR mapping to routers/agents)
 - [x] Integration points mapped (Kafka topics, Valkey key patterns, Milvus collections)
 - [x] Requirements to structure mapping complete
 
@@ -1600,7 +1601,7 @@ The following are acknowledged architectural limitations accepted for MVP veloci
 
 **AI Agent Guidelines:**
 
-- The two-codebase boundary (`cdr-pipeline/` vs `app-backend/`) is hard — no HTTP calls across it in MVP
+- The two-codebase boundary (`cdr-pipeline/` vs `service_backend/`) is hard — no HTTP calls across it in MVP
 - All agents must be async (never `await` an LLM call inside the Kafka batch processing loop)
 - Every FastAPI endpoint must emit OTEL spans with `trace_id`; LangGraph nodes must pass `trace_id` in LangFuse metadata
 - PII never in log statements — use subscriber UUID or MSISDN suffix `[-4:]`
@@ -1608,11 +1609,11 @@ The following are acknowledged architectural limitations accepted for MVP veloci
 
 **First Implementation Priorities:**
 
-1. `docker-compose.yml` — bring up all infra (Redpanda, Valkey, Postgres, MiniStack, LangFuse, OTEL-TUI, Fluentd); Milvus Lite starts embedded in app-backend — no separate container
+1. `docker-compose.yml` — bring up all infra (Redpanda, Valkey, Postgres, MiniStack, LangFuse, OTEL-TUI, Fluentd); Milvus Lite starts embedded in service_backend — no separate container
 2. Postgres schema migrations (Flyway SQL) — all domains, views, triggers
 3. Synthetic dataset generation (`scripts/generate_synthetic_data.py`) — 1K plans, 300K subscribers, 5M CDRs (in that order)
 4. CDR pipeline consumer (`cdr-pipeline/`) — dedup + balance write + fan-out
-5. Core FastAPI app (`app-backend/`) — account, balance, recharge routers
+5. Core FastAPI app (`service_backend/`) — account, balance, recharge routers
 6. LangGraph chatbot graph — Support Agent + RAG tool + Milvus ingest
 7. Frontend shell — React Router + role-based layout + auth integration
 
@@ -1692,18 +1693,18 @@ infrastructure/
 
 ### 1.14.3. Module Responsibilities
 
-| Module         | AWS Resources                                                                       | Notes                                                              |
-| -------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `networking`   | VPC, public/private/DB subnets, NAT GW, IGW, route tables, SGs                     | All in `ap-south-1`; no cross-region peering                      |
-| `eks`          | EKS cluster (managed), node groups, IAM roles, OIDC provider                       | Hosts: LangFuse, Milvus Distributed, Keycloak, app microservices  |
-| `rds`          | RDS PostgreSQL 16 Multi-AZ, parameter group, subnet group, Secrets Manager rotation | Same parameter group must enable `pg_uuidv7`, `pgcrypto`, `pg_trgm`, `btree_gin` |
-| `msk`          | MSK cluster, 24-partition topics (`cdr.raw`, `cdr.enriched.filtered`, etc.), IAM    | `ap-south-1`; 3-broker cluster minimum                            |
-| `elasticache`  | ElastiCache Valkey (Redis-compatible), `maxmemory-policy noeviction`                | Subnet group within private subnets                               |
-| `cognito`      | User Pool, App Client, OTP (SMS via SNS), custom attributes (`role`)                | Outputs: `USER_POOL_ID`, `APP_CLIENT_ID` for app config           |
-| `s3`           | Audit archive bucket, lifecycle: Standard → IA (2yr) → Glacier (6yr)               | TRAI 6-year retention; no public access                           |
-| `cloudfront`   | Distribution, S3 origin, OAC, cache behaviours, SPA 403/404 → 200 routing          | Custom domain + ACM cert                                          |
-| `api_gateway`  | HTTP API, JWT authorizer (Cognito), routes, per-subscriber usage plan               | FR-36 throttle; blacklist enforcement at JWT layer                |
-| `secrets`      | Secrets Manager entries for DB credentials, Azure OpenAI key, LangFuse key         | Rotated via Lambda (RDS) or manual (API keys)                     |
+| Module        | AWS Resources                                                                       | Notes                                                                            |
+| ------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `networking`  | VPC, public/private/DB subnets, NAT GW, IGW, route tables, SGs                      | All in `ap-south-1`; no cross-region peering                                     |
+| `eks`         | EKS cluster (managed), node groups, IAM roles, OIDC provider                        | Hosts: LangFuse, Milvus Distributed, Keycloak, app microservices                 |
+| `rds`         | RDS PostgreSQL 16 Multi-AZ, parameter group, subnet group, Secrets Manager rotation | Same parameter group must enable `pg_uuidv7`, `pgcrypto`, `pg_trgm`, `btree_gin` |
+| `msk`         | MSK cluster, 24-partition topics (`cdr.raw`, `cdr.enriched.filtered`, etc.), IAM    | `ap-south-1`; 3-broker cluster minimum                                           |
+| `elasticache` | ElastiCache Valkey (Redis-compatible), `maxmemory-policy noeviction`                | Subnet group within private subnets                                              |
+| `cognito`     | User Pool, App Client, OTP (SMS via SNS), custom attributes (`role`)                | Outputs: `USER_POOL_ID`, `APP_CLIENT_ID` for app config                          |
+| `s3`          | Audit archive bucket, lifecycle: Standard → IA (2yr) → Glacier (6yr)                | TRAI 6-year retention; no public access                                          |
+| `cloudfront`  | Distribution, S3 origin, OAC, cache behaviours, SPA 403/404 → 200 routing           | Custom domain + ACM cert                                                         |
+| `api_gateway` | HTTP API, JWT authorizer (Cognito), routes, per-subscriber usage plan               | FR-36 throttle; blacklist enforcement at JWT layer                               |
+| `secrets`     | Secrets Manager entries for DB credentials, Azure OpenAI key, LangFuse key          | Rotated via Lambda (RDS) or manual (API keys)                                    |
 
 **RDS PostgreSQL extensions via parameter group:** The `rds` module must configure a custom DB parameter group that pre-loads `pg_uuidv7`, `pgcrypto`, `pg_trgm`, and `btree_gin` so Flyway migrations can reference them without superuser `CREATE EXTENSION` calls at migration time.
 
@@ -1728,15 +1729,15 @@ The S3 bucket and DynamoDB table for state locking must be created manually (or 
 
 Terraform outputs feed directly into the application's pydantic-settings configuration (via AWS Secrets Manager in Target State):
 
-| Terraform Output          | Application Config Key               | Consumer                    |
-| ------------------------- | ------------------------------------ | --------------------------- |
-| `rds_endpoint`            | `db.host`                            | `app-backend`, `cdr-ingestion` |
-| `msk_bootstrap_brokers`   | `kafka_brokers`                      | `cdr-ingestion`, notification, fraud |
-| `elasticache_endpoint`    | `redis_url`                          | `app-backend`, `cdr-ingestion` |
-| `cognito_user_pool_id`    | `cognito_user_pool_id`               | `app-backend` auth          |
-| `cognito_app_client_id`   | `cognito_app_client_id`              | `app-backend` auth          |
-| `cloudfront_domain`       | Frontend deployment target           | CI/CD                       |
-| `api_gateway_invoke_url`  | Frontend `VITE_API_BASE_URL`         | Frontend build              |
+| Terraform Output         | Application Config Key       | Consumer                             |
+| ------------------------ | ---------------------------- | ------------------------------------ |
+| `rds_endpoint`           | `db.host`                    | `service_backend`, `cdr-ingestion`   |
+| `msk_bootstrap_brokers`  | `kafka_brokers`              | `cdr-ingestion`, notification, fraud |
+| `elasticache_endpoint`   | `redis_url`                  | `service_backend`, `cdr-ingestion`   |
+| `cognito_user_pool_id`   | `cognito_user_pool_id`       | `service_backend` auth               |
+| `cognito_app_client_id`  | `cognito_app_client_id`      | `service_backend` auth               |
+| `cloudfront_domain`      | Frontend deployment target   | CI/CD                                |
+| `api_gateway_invoke_url` | Frontend `VITE_API_BASE_URL` | Frontend build                       |
 
 ---
 
@@ -1786,10 +1787,10 @@ The project root `README.md` is the single authoritative onboarding document. It
 
 ### 2.5 Start application services
    just up
-   # Starts: cdr-pipeline, app-backend (Milvus Lite embedded), frontend
+   # Starts: cdr-pipeline, service_backend (Milvus Lite embedded), frontend
 
 ### 2.6 Verify
-   curl http://localhost:8000/health   # app-backend
+   curl http://localhost:8000/health   # service_backend
    curl http://localhost:8001/health   # cdr-pipeline management API
    open http://localhost:5173          # React frontend
 
@@ -1821,7 +1822,7 @@ The project root `README.md` is the single authoritative onboarding document. It
 
 ### 3.6 Deploy application services to EKS
    helm upgrade --install cdr-ingestion ./helm/cdr-ingestion/
-   helm upgrade --install app-backend ./helm/app-backend/
+   helm upgrade --install service_backend ./helm/service_backend/
    # (other services)
 
 ### 3.7 Deploy frontend to S3 + CloudFront
@@ -1860,7 +1861,7 @@ Phase 3: Seed Data
   Both    → Synthetic data generation (just seed): plans → subscribers → CDRs
              Requires: Phase 2 complete (FK constraints must exist)
           → Milvus ingestion (just seed-milvus)
-             Requires: Phase 1 complete (app-backend running for Milvus Lite)
+             Requires: Phase 1 complete (service_backend running for Milvus Lite)
 
 Phase 4: Application Config (Target State only)
   Target  → Terraform outputs → Secrets Manager entries populated

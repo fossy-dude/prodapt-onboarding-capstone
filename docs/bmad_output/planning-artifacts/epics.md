@@ -118,7 +118,7 @@ NFR-14: Subscriber growth forecast MAPE < 15% on 3-month activation/churn projec
 NFR-15: CDR simulator trace completeness — 100% of simulated events must show full end-to-end trace.
 NFR-16: PII must never appear in logs or OTEL span attributes — use subscriber UUID or MSISDN suffix [-4:] only.
 NFR-17: Every Kafka message must include traceparent in headers AND trace_id in JSON body.
-NFR-18: The two-codebase boundary (cdr-pipeline/ vs app-backend/) is hard — no HTTP calls between them in MVP; communication only via shared Postgres and Redis/Valkey.
+NFR-18: The two-codebase boundary (cdr-pipeline/ vs service_backend/) is hard — no HTTP calls between them in MVP; communication only via shared Postgres and Redis/Valkey.
 NFR-19: Health check endpoints (/health, /ready) must respond within 200ms under normal operating conditions.
 NFR-20: Rate limit threshold is configurable via a database configuration record (not hardcoded) — default 100 RPM per subscriber per channel.
 
@@ -128,13 +128,13 @@ NFR-20: Rate limit threshold is configurable via a database configuration record
 
 From Architecture document — technical requirements that impact epic and story creation:
 
-ARCH-1: Two-codebase structure: cdr-pipeline/ (Python + aiokafka) and app-backend/ (Python + FastAPI). No inter-service HTTP calls in MVP; they share Postgres and Valkey.
+ARCH-1: Two-codebase structure: cdr-pipeline/ (Python + aiokafka) and service_backend/ (Python + FastAPI). No inter-service HTTP calls in MVP; they share Postgres and Valkey.
 ARCH-2: Postgres container init scripts (docker/postgres/init/01_extensions.sql, 02_roles.sql, 03_databases.sql) must run at container creation time. Extensions: pg_uuidv7, pgcrypto, pg_trgm, btree_gin.
 ARCH-3: Flyway SQL-native migrations (V1__baseline_schema.sql through V5__grants.sql). No ORM DDL. No ad-hoc schema changes outside migrations.
 ARCH-4: All database queries use raw SQL via psycopg3 async. CQRS split: queries.py (SELECT only) and commands.py (INSERT/UPDATE/DELETE only) per domain.
 ARCH-5: Valkey key domains: dedup:{cdr_id} (24h TTL), balance:{msisdn} (no TTL — noeviction policy required), session:{session_id} (30m HASH), otp:{msisdn} (5m), chat_context:{session_id} (2h HASH).
 ARCH-6: balance:{msisdn} key must never be evicted. Valkey maxmemory-policy must be set to noeviction. On cdr-pipeline restart, load_balances_from_postgres() re-seeds all balance keys before the consumer loop starts.
-ARCH-7: Milvus Lite runs embedded in-process (pymilvus[milvus-lite]) in app-backend. No separate container. Data persisted to Docker volume milvus_lite_data mounted at /app/data/milvus/sboai.db.
+ARCH-7: Milvus Lite runs embedded in-process (pymilvus[milvus-lite]) in service_backend. No separate container. Data persisted to Docker volume milvus_lite_data mounted at /app/data/milvus/sboai.db.
 ARCH-8: Three Milvus collections: faq_chunks (category, source_doc, plan_type metadata), plan_vectors (plan_id, plan_type, price, validity), sop_chunks (rule_id, severity, domain). All use text-embedding-3-small (1536 dims), HNSW index, BM25 + RRF for hybrid search.
 ARCH-9: UUID strategy — UUIDv7 (uuid_generate_v7()) for all transactional/high-insert tables; UUIDv4 (gen_random_uuid()) for reference/config tables. Python-side: use uuid7 package.
 ARCH-10: Kafka topics: cdr.raw (24 partitions, key=subscriber_id), cdr.enriched.filtered (24p), cdr.fraud.flagged (6p), fraud.alerts (6p), notification.events (12p), cdr.dlq (6p).
@@ -348,7 +348,7 @@ So that code quality is enforced automatically and onboarding requires no tribal
 
 **Acceptance Criteria:**
 
-**Given** the project root exists with both cdr-pipeline/ and app-backend/ codebases
+**Given** the project root exists with both cdr-pipeline/ and service_backend/ codebases
 **When** the tooling is configured
 **Then** justfile defines these commands: `just deps`, `just up`, `just migrate`, `just seed`, `just seed-milvus`, `just test`, `just lint` (ARCH-18)
 **And** ruff is configured in pyproject.toml with lint + format rules for both Python codebases; pyrefly configured for static type checking (ARCH-20)
@@ -367,10 +367,10 @@ So that misconfigured deployments fail fast at boot and every request is traceab
 
 **Acceptance Criteria:**
 
-**Given** both cdr-pipeline and app-backend services exist
+**Given** both cdr-pipeline and service_backend services exist
 **When** either service starts
 **Then** a pydantic-settings singleton loads all required env vars at module import time and raises a descriptive error immediately if any required value is missing (ARCH-17)
-**And** app-backend exposes GET /health and GET /ready; both respond within 200ms under normal operating conditions (FR-77, NFR-19)
+**And** service_backend exposes GET /health and GET /ready; both respond within 200ms under normal operating conditions (FR-77, NFR-19)
 **And** GET /health returns 200 with `{"status": "ok"}` when the service is running
 **And** GET /ready returns 200 only when Postgres connection pool and Valkey connection are healthy; returns 503 otherwise
 **And** OTEL trace middleware in FastAPI extracts traceparent from incoming request headers; generates a new root span if absent (ARCH-27)
@@ -382,7 +382,7 @@ So that misconfigured deployments fail fast at boot and every request is traceab
 ### Story 1.5: LangFuse Self-Hosted Setup & Client Instrumentation Scaffold
 
 As a **platform engineer**,
-I want LangFuse running locally and a reusable instrumentation client wired into app-backend so that all future agentic workflows can emit traces with a single decorator,
+I want LangFuse running locally and a reusable instrumentation client wired into service_backend so that all future agentic workflows can emit traces with a single decorator,
 So that agent observability is available from the first agent story without per-agent setup overhead.
 
 **Acceptance Criteria:**
@@ -390,7 +390,7 @@ So that agent observability is available from the first agent story without per-
 **Given** LangFuse is included in docker-compose-dependencies.yaml
 **When** `just up` is run
 **Then** LangFuse UI is accessible at http://localhost:3000 and accepts traces
-**And** a `get_langfuse_client()` singleton factory is implemented in app-backend/core/observability/langfuse.py
+**And** a `get_langfuse_client()` singleton factory is implemented in service_backend/core/observability/langfuse.py
 **And** a `@trace_agent` decorator is implemented that wraps any async function, creates a LangFuse trace with: trace name, input, output, model, token usage (FR-72)
 **And** the decorator is a no-op (pass-through) when LANGFUSE_ENABLED=false in env, allowing tests to run without a live LangFuse instance
 **And** `just up` logs the LangFuse dashboard URL after startup
@@ -413,7 +413,7 @@ So that I can begin the SIM activation process and my identity is on record befo
 **And** the TRAI CAF submission is recorded in the audit_log table as an immutable row with event_type = 'TRAI_CAF_SUBMITTED', timestamp, and a hash of the submitted data (FR-3, FR-65)
 **And** all data is stored within the India-region Postgres instance (NFR-3)
 **And** the registration API response uses the standard FastAPI envelope: `{data: {registration_id, status}, meta: {trace_id, timestamp}}` (ARCH-12)
-**And** a Flyway migration (V2__subscriber_schema.sql) creates: subscribers table, subscriber_orders table, audit_log table
+**And** registration writes to the existing **V1-baseline** tables — `identity_subscribers`, `identity_registrations`, `identity_caf_submissions`, `billing_audit_log` (append-only) — and creates an initial `ops_order_fulfilment` order; **NO new migration is created** (V1 is the full all-domain baseline — see Story 1.2). [`V2__subscriber_schema.sql` and the `subscribers`/`subscriber_orders`/`audit_log` shorthand are superseded.]
 
 **Given** a registration form is submitted with a duplicate MSISDN
 **When** the API receives the request
@@ -429,14 +429,14 @@ So that I know exactly where I am in the activation process and what to expect n
 
 **Acceptance Criteria:**
 
-**Given** a subscriber is logged in with a Registration ID and has a subscriber_order record
+**Given** a subscriber is logged in with a Registration ID and has an `ops_order_fulfilment` order record (the canonical SIM-order table; "subscriber_order" is shorthand)
 **When** they navigate to /activate
 **Then** the UI displays an order tracker with four steps: Created → KYC Pending → KYC Verified → Activated
 **And** the current step is visually highlighted; completed steps show a checkmark
 **And** the tracker polls GET /api/v1/subscriber/orders/{order_id}/status every 10 seconds and updates without a full page reload
 **And** when status = 'ACTIVATED', a success banner displays with the subscriber's MSISDN
 **And** the API endpoint GET /api/v1/subscriber/orders/{order_id}/status returns `{status, updated_at, msisdn}` (only when ACTIVATED)
-**And** the SimActivation.tsx component is in frontend/src/pages/subscriber/
+**And** there are **two distinct activation flows**: (1) the subscriber-facing read-only tracker at `frontend/src/portals/subscriber/SimActivation.tsx` (route `/activate`), and (2) a separate developer tool at `frontend/src/portals/simulator/SimActivation.tsx` (under `/simulator/*`) that simulates/advances an order's fulfilment state for testing. [Corrects the earlier `frontend/src/pages/subscriber/` path.]
 
 ---
 
@@ -465,7 +465,7 @@ So that I can access my role-specific dashboard and all API calls are authentica
 **When** any API request is made
 **Then** the JWT is sent as Authorization: Bearer {token} and the FastAPI JWT middleware validates the signature, expiry, and role claim before routing the request (NFR-7)
 
-**And** a Flyway migration (V3__auth_schema.sql) creates: auth_sessions table with session_id (UUIDv7), subscriber_id, issued_at, expires_at, revoked_at (nullable)
+**And** **NO sessions table is created** — JWTs are **stateless** (issued by Cognito). Token revocation is performed via the Cognito admin API (account disable + token revocation), and the 30-minute access-token TTL bounds the revocation gap (architecture §1.8.1/§1.8.2). [The earlier `V3__auth_schema.sql`/`auth_sessions` design is superseded — there is no sessions table in the canonical §1.7.1 inventory.]
 
 ---
 
@@ -645,12 +645,12 @@ So that all downstream epics have representative data for testing agents, foreca
 ### Story 2.7: Milvus Lite Initialisation & Vector Seeding
 
 As a **developer**,
-I want Milvus Lite running embedded in app-backend and all three vector collections seeded from the synthetic knowledge base,
+I want Milvus Lite running embedded in service_backend and all three vector collections seeded from the synthetic knowledge base,
 So that RAG-dependent stories in Epic 5 (chatbot) and Epic 7 (RCA agent) have a populated vector store from day one.
 
 **Acceptance Criteria:**
 
-**Given** app-backend starts
+**Given** service_backend starts
 **When** the Milvus Lite client initialises
 **Then** it connects to the embedded Milvus Lite DB at /app/data/milvus/sboai.db (Docker volume: milvus_lite_data) (ARCH-7)
 **And** three collections are created if not present: faq_chunks (fields: chunk_id, text, embedding[1536], category, source_doc, plan_type), plan_vectors (fields: plan_id, text, embedding[1536], plan_type, price, validity), sop_chunks (fields: chunk_id, text, embedding[1536], rule_id, severity, domain) (ARCH-8)
@@ -995,9 +995,9 @@ So that every agent story can be validated against quality targets from the firs
 
 **Given** the eval harness is set up
 **When** `just test` runs the eval suite
-**Then** a LLM-as-Judge evaluator is implemented in app-backend/evals/judges/response_quality.py with rubrics for: response relevance (does the answer address the question?), factual accuracy (is the answer consistent with the knowledge base?) (FR-73)
-**And** a DeepEval test suite is configured in app-backend/evals/deepeval/ with metrics: Faithfulness, AnswerRelevancy, Hallucination (FR-74)
-**And** a fixture dataset of 20 golden Q&A pairs covering balance, plan, recharge, dispute, and FAQ queries is stored in app-backend/evals/fixtures/chatbot_golden.json
+**Then** a LLM-as-Judge evaluator is implemented in service_backend/evals/judges/response_quality.py with rubrics for: response relevance (does the answer address the question?), factual accuracy (is the answer consistent with the knowledge base?) (FR-73)
+**And** a DeepEval test suite is configured in service_backend/evals/deepeval/ with metrics: Faithfulness, AnswerRelevancy, Hallucination (FR-74)
+**And** a fixture dataset of 20 golden Q&A pairs covering balance, plan, recharge, dispute, and FAQ queries is stored in service_backend/evals/fixtures/chatbot_golden.json
 **And** the harness can run against any LangGraph graph by accepting a graph_callable and fixture set
 **And** target thresholds are enforced: LLM-as-Judge ≥ 80% pass rate (NFR-11), Hallucination < 5% (NFR-12)
 **And** eval results are written to a JSON report; CI fails if thresholds are not met
@@ -1178,7 +1178,7 @@ So that fraud agent implementations can be validated against accuracy targets fr
 
 **Given** the fraud eval harness is set up
 **When** `just test` runs the eval suite
-**Then** a fixture dataset of 50 CDR sequences is stored in app-backend/evals/fixtures/fraud_golden.json: 25 true-positive fraud cases (SIM swap, velocity abuse, suspicious recharge), 25 true-negative clean cases
+**Then** a fixture dataset of 50 CDR sequences is stored in service_backend/evals/fixtures/fraud_golden.json: 25 true-positive fraud cases (SIM swap, velocity abuse, suspicious recharge), 25 true-negative clean cases
 **And** an evaluator asserts that the Fraud Detection Agent correctly classifies each case as: confirmed_fraud | false_positive | needs_review
 **And** the target true-positive rate ≥ 75% is enforced as a CI gate (NFR-13)
 **And** a LangFuse trace template is defined for fraud agent calls: node name, input (7-day CDR summary), output (verdict), model, confidence_score
@@ -1216,7 +1216,7 @@ So that genuine fraud is distinguished from false positives before entering the 
 **When** the Fraud Detection Agent processes it (asynchronously — never in the balance deduction hot path) (ARCH-14, FR-61)
 **Then** the agent fetches the subscriber's last 7 days of CDR history from Postgres
 **And** it invokes GPT-5.4 with a structured prompt containing: rule triggered, CDR pattern, subscriber history summary, and outputs a verdict: confirmed_fraud | false_positive | needs_review with a confidence_score (0.0–1.0)
-**And** the agent is implemented as a LangGraph async graph in app-backend/agents/fraud/graph.py
+**And** the agent is implemented as a LangGraph async graph in service_backend/agents/fraud/graph.py
 **And** the full agent run is traced to LangFuse: input (CDR event + history), output (verdict), model, token usage, latency (FR-72)
 
 **Given** the verdict is confirmed_fraud or needs_review
@@ -1283,7 +1283,7 @@ So that a compromised account is locked down immediately without manual interven
 **When** the account protection workflow runs
 **Then** a row is inserted into fraud_blacklist: subscriber_id, msisdn, blacklisted_at, reason = 'SIM_SWAP_CONFIRMED', blacklisted_by = 'fraud_agent' (FR-66, ARCH-33)
 **And** the MiniStack Cognito admin API is called to disable the subscriber's user account (ARCH-33)
-**And** all active auth_sessions rows for the subscriber are updated with revoked_at = now() (ARCH-33)
+**And** all the subscriber's active tokens are revoked via the Cognito admin API (token revocation) — JWTs are stateless, so there is no `auth_sessions` table; the 30-minute access-token TTL bounds the residual validity window (architecture §1.8.1/§1.8.2, ARCH-33)
 **And** subsequent JWT validation for this subscriber returns HTTP 401 — the FastAPI JWT middleware checks fraud_blacklist on every request for subscribers with active fraud cases
 **And** the account protection actions are recorded in audit_log with event_type = 'ACCOUNT_TAKEOVER_PREVENTION'
 **And** a Flyway migration creates: fraud_blacklist table (blacklist_id UUIDv7, subscriber_id, msisdn, blacklisted_at, reason, blacklisted_by)
@@ -1309,7 +1309,7 @@ So that accuracy and quality targets are enforced from the first story.
 **Then** a ML forecast evaluator loads a fixture CSV of 6-month historical activation data and asserts that the trained scikit-learn model achieves MAPE < 15% on a 3-month holdout set (NFR-14)
 **And** a LLM-as-Judge evaluator for upsell strategy text asserts: strategy is specific to the segment (not generic), actionable (contains at least one concrete offer), and appropriately scoped (no hallucinated product names) (FR-73)
 **And** both evaluators return structured pass/fail results and CI fails if targets are not met
-**And** fixture files are stored in app-backend/evals/fixtures/: forecast_historical.csv, upsell_golden_segments.json
+**And** fixture files are stored in service_backend/evals/fixtures/: forecast_historical.csv, upsell_golden_segments.json
 
 ---
 

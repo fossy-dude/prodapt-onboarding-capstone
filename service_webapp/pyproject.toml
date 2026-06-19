@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "service-webapp"
 version = "0.1.0"
-description = "Primary Webapp-Backend Service. API endpoints for all frontend API calls (REST and WS calls for agentic workflows)"
+description = "Primary Webservice_backend Service. API endpoints for all frontend API calls (REST and WS calls for agentic workflows)"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
