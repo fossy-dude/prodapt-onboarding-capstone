@@ -48,7 +48,7 @@ completedAt: '2026-06-18'
 | Balance deduction latency | P95 ≤ 200ms            | Valkey write buffer; agents strictly off hot path  |
 | CDR throughput (Target)   | 100,000 eps            | 24-partition Kafka/Redpanda; Rust consumer workers |
 | CDR throughput (MVP)      | ~10,000 eps            | Redpanda + aiokafka; Python consumer               |
-| Idempotency               | Exactly-once deduction | Valkey SET on `cdr_record_id`, 24h TTL             |
+| Idempotency               | Exactly-once deduction | Valkey SET on `cdr_id`, 24h TTL                    |
 | Data localisation         | India only             | AWS `ap-south-1` (Mumbai) for all target infra     |
 | Audit retention           | 6 years (TRAI)         | Immutable Postgres audit log; archival to S3       |
 | PCI-DSS                   | Card tokenisation      | Raw PAN never persisted; tokenised reference only  |
@@ -155,7 +155,7 @@ Redpanda: cdr.raw  [24 partitions, key = subscriber_id]
 Python Consumer Pool  [aiokafka, group_id='cdr-balance-updater']
   │  batch=500 | commit offset AFTER batch success
   │
-  ├─► Dedup ──► Redis SET (cdr_record_id, TTL=24h)
+  ├─► Dedup ──► Redis SET (cdr_id, TTL=24h)
   │
   ├─► Balance Update ──► Redis INCRBY pipeline (atomic)
   │                         └─► Async flush → PostgreSQL (bulk upsert, 2s or 5K)
@@ -177,7 +177,7 @@ Amazon MSK: cdr.raw  [24 partitions, key = subscriber_id]
 Rust Consumer Service  [tokio + rdkafka, consumer group 'cdr-balance-updater']
   │  micro-batch=500 | at-least-once + idempotency
   │
-  ├─► Dedup ──► ElastiCache Valkey SET (cdr_record_id, TTL=24h)
+  ├─► Dedup ──► ElastiCache Valkey SET (cdr_id, TTL=24h)
   │
   ├─► Balance Update ──► Valkey INCRBY pipeline
   │                         └─► Async flush → RDS PostgreSQL (bulk upsert)
@@ -363,7 +363,7 @@ Root Cause Analysis Agent (FR-75):
 | Domain prefix    | Tables                                                                                                                                                                              |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `identity_`      | `identity_subscribers`, `identity_registrations`, `identity_kyc_records`, `identity_caf_submissions`                                                                                |
-| `billing_`       | `billing_wallet_balances`, `billing_cdr_events`, `billing_transactions`, `billing_audit_log`                                                                                        |
+| `billing_`       | `billing_wallet_balances`, `billing_cdr_events` *(see `docs/Schema - CDR.md`)*, `billing_transactions`, `billing_audit_log`                                                         |
 | `plans_`         | `plans_plans`, `plans_subscriptions`, `plans_plan_config`                                                                                                                           |
 | `recharge_`      | `recharge_orders`, `recharge_payment_methods`, `recharge_receipts`                                                                                                                  |
 | `notifications_` | `notifications_events`, `notifications_config`, `notifications_preferences`                                                                                                         |
@@ -394,7 +394,7 @@ UUID version choice is driven by sortability and index locality, not a blanket r
 
 **Transactional tables that MUST use UUIDv7** (DDL: `id UUID DEFAULT uuid_generate_v7() PRIMARY KEY`):
 
-- `billing_cdr_events` — CDR records (5M+ rows; high insert rate)
+- `billing_cdr_events` — CDR records (5M+ rows; high insert rate); full column definition in `docs/Schema - CDR.md`
 - `billing_transactions` — payment and deduction transactions
 - `billing_audit_log` — append-only audit events
 - `fraud_cases` — fraud case entries
@@ -429,7 +429,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";  -- already required for PII encrypti
 
 ---
 
-### 1.7.1a. Database Migration Management
+### 1.7.2. Database Migration Management
 
 **Tool: Flyway (SQL-native).** All schema evolution — initial table creation, indexes, views, materialized views, triggers, grants — is managed as versioned SQL migration files. No ORM-generated DDL. No ad-hoc schema changes outside migrations.
 
@@ -477,11 +477,11 @@ CREATE TRIGGER trg_identity_subscribers_modified_at
   FOR EACH ROW EXECUTE FUNCTION set_modified_at();
 ```
 
-### 1.7.2. Valkey / Redis Data Domains
+### 1.7.3. Valkey / Redis Data Domains
 
 | Key Pattern                 | Type            | TTL  | Purpose                    |
 | --------------------------- | --------------- | ---- | -------------------------- |
-| `dedup:{cdr_record_id}`     | SET             | 24h  | Idempotency guard          |
+| `dedup:{cdr_id}`            | SET             | 24h  | Idempotency guard          |
 | `balance:{msisdn}`          | STRING (INCRBY) | None | Hot write buffer           |
 | `session:{session_id}`      | HASH            | 30m  | USSD session state         |
 | `otp:{msisdn}`              | STRING          | 5m   | Step-up OTP validation     |
@@ -490,14 +490,11 @@ CREATE TRIGGER trg_identity_subscribers_modified_at
 **Design rationale — key decisions:**
 
 - **`balance:{msisdn}` — no TTL (intentional):** The key is a persistent running counter. CDR consumers call `INCRBY` continuously; the background flusher reads the current value and bulk-upserts it to PostgreSQL every 2s or 5K records. The key is never deleted after a flush — it keeps accumulating as the live write buffer. 300K subscribers × ~50 bytes ≈ 15MB total memory, well within Redis limits. `maxmemory-policy noeviction` must be set so Redis never evicts this key class.
-
 - **`otp:{msisdn}` — step-up auth, not login OTP:** Initial login OTP is handled entirely by Cognito's auth flow. The Redis OTP key is for mid-session step-up verification (e.g., SIM binding change, high-value recharge above threshold). Cognito's Custom Auth Flow cannot cleanly interrupt an already-authenticated session for a second factor — Redis OTP fills this gap with a simple generate/validate/expire cycle.
-
 - **Blacklist — Postgres + Cognito only (no Redis cache):** When a subscriber is blacklisted (e.g., confirmed SIM swap fraud), the `fraud_blacklist` table is written as the source of truth, and the subscriber's Cognito account is immediately disabled with all active tokens revoked via the Cognito admin API. Subsequent API Gateway calls fail at the JWT validation layer — Cognito returns an invalid-token response before the request reaches any backend service. This eliminates the Redis enforcement cache entirely: no dual-write, no sync complexity, no risk of cache/DB divergence.
-
 - **Rate limiting — not in MVP; API Gateway in Target State:** MVP has no per-subscriber rate limiting. In Target State, AWS API Gateway enforces the business-level per-subscriber limit (FR-36) natively — no application-layer Redis key needed.
 
-### 1.7.3. Milvus Deployment Strategy
+### 1.7.4. Milvus Deployment Strategy
 
 **MVP — Milvus Lite (embedded, Python dependency):**
 
@@ -565,7 +562,7 @@ client = MilvusClient(uri="/app/data/milvus/sboai.db")
 
 Switch from Lite to Distributed by changing only the `uri` in config — the collection schema, index configuration, and all query/upsert code remain identical. Milvus Distributed on EKS uses the same `pymilvus` client pointed at the cluster endpoint (`grpc://milvus.cluster.internal:19530`). Horizontal scaling via query nodes and data nodes handles RAG query throughput at production scale.
 
-### 1.7.3a. Milvus Collections
+### 1.7.5. Milvus Collections
 
 | Collection     | Embedding Model        | Dimensions | Metadata Fields                     |
 | -------------- | ---------------------- | ---------- | ----------------------------------- |
@@ -575,7 +572,7 @@ Switch from Lite to Distributed by changing only the `uri` in config — the col
 
 Index type: HNSW. BM25 lexical index on same collections for hybrid search. RRF reranker at query time.
 
-### 1.7.4. Kafka / Redpanda Topics
+### 1.7.6. Kafka / Redpanda Topics
 
 | Topic                   | Partitions | Key             | Consumers                                               |
 | ----------------------- | ---------- | --------------- | ------------------------------------------------------- |
@@ -584,7 +581,7 @@ Index type: HNSW. BM25 lexical index on same collections for hybrid search. RRF 
 | `cdr.fraud.flagged`     | 6          | `msisdn`        | fraud-detection-agent                                   |
 | `fraud.alerts`          | 6          | `msisdn`        | fraud-dashboard (WebSocket relay), notification-service |
 | `notification.events`   | 12         | `msisdn`        | notification-service                                    |
-| `cdr.dlq`               | 6          | `cdr_record_id` | DLQ inspector (manual)                                  |
+| `cdr.dlq`               | 6          | `cdr_id`        | DLQ inspector (manual)                                  |
 
 ---
 
@@ -701,7 +698,7 @@ Grafana dashboards: CDR pipeline health, balance P95, fraud escalation rate, age
 
 ## 1.11. Implementation Patterns & Consistency Rules
 
-### 1.11.0. Configuration Management
+### 1.11.1. Configuration Management
 
 **All application configuration is managed via `pydantic-settings` at runtime.** This covers environment variables, `.env` files, and AWS Secrets Manager secrets — all resolved at startup (eager load; missing secrets are a fatal startup error).
 
@@ -745,7 +742,7 @@ settings = Settings()   # loaded once at module import; fails fast on missing va
 - No config values hard-coded anywhere in source; all accessed via `settings.*`
 - `.env.example` committed to repo with all keys and placeholder values; actual `.env` is gitignored
 
-### 1.11.1. Naming Conventions
+### 1.11.2. Naming Conventions
 
 **Database:**
 
@@ -804,7 +801,7 @@ Full naming pattern: `{domain}_{descriptor}_{confidentiality}_{vw|mvw}` — e.g.
 - Utility files: `camelCase.ts`
 - CSS classes: TailwindCSS utility classes only; no custom CSS except `globals.css`
 
-### 1.11.2. API Response Format
+### 1.11.3. API Response Format
 
 All FastAPI responses use a standard envelope:
 
@@ -828,7 +825,7 @@ All FastAPI responses use a standard envelope:
 
 HTTP status codes: 200 (ok), 201 (created), 400 (client error), 401 (unauthenticated), 403 (forbidden / blacklisted), 404 (not found), 409 (conflict / duplicate), 422 (validation), 429 (rate limited), 500 (server error).
 
-### 1.11.3. Kafka Event Schema
+### 1.11.4. Kafka Event Schema
 
 All Kafka messages: JSON, with envelope:
 
@@ -844,23 +841,91 @@ All Kafka messages: JSON, with envelope:
 
 Trace ID always in Kafka message header `traceparent` AND in JSON body `trace_id`.
 
-### 1.11.4. Error Handling Patterns
+**CDR Kafka payload — type-differentiated schema:**
+
+CDR events on `cdr.raw` carry only the fields relevant to their `cdr_type`. The payload is **CORE fields + type-specific fields only** — no null-padded cross-type columns. Full CDR PostgreSQL schema is defined in `docs/Schema - CDR.md`.
+
+CORE fields (present on every CDR type):
+
+```json
+{
+  "cdr_id":         "UUIDv7",
+  "session_id":     "UUIDv7",
+  "subscriber_id":  "UUID",
+  "cdr_type":       "voice | sms | data",
+  "telecom_circle": "string",
+  "cell_tower_id":  "string",
+  "roaming":        "bool",
+  "cost_paise":     "int64",
+  "status":         "pending | rated | failed",
+  "fraud_flag":     "bool",
+  "start_time":     "ISO8601+offset",
+  "end_time":       "ISO8601+offset | null"
+}
+```
+
+Voice CDR payload (CORE + voice-specific):
+
+```json
+{
+  "cdr_id": "019012ab-...", "session_id": "019012ab-...",
+  "subscriber_id": "550e8400-...", "cdr_type": "voice",
+  "telecom_circle": "Tamil Nadu", "cell_tower_id": "TN-CHN-042",
+  "roaming": false, "cost_paise": 120, "status": "rated", "fraud_flag": false,
+  "start_time": "2026-06-18T10:23:00+05:30", "end_time": "2026-06-18T10:25:30+05:30",
+  "from_number": "+919876543210", "to_number": "+919123456789",
+  "call_direction": "MO", "duration_seconds": 150, "call_status": "answered"
+}
+```
+
+SMS CDR payload (CORE + sms-specific):
+
+```json
+{
+  "cdr_id": "019012ac-...", "session_id": "019012ac-...",
+  "subscriber_id": "550e8400-...", "cdr_type": "sms",
+  "telecom_circle": "Maharashtra", "cell_tower_id": "MH-MUM-017",
+  "roaming": false, "cost_paise": 50, "status": "rated", "fraud_flag": false,
+  "start_time": "2026-06-18T11:05:00+05:30", "end_time": null,
+  "from_number": "+919876543210", "to_number": "+912212345678",
+  "message_direction": "MO", "sms_status": "delivered"
+}
+```
+
+Data CDR payload (CORE + data-specific):
+
+```json
+{
+  "cdr_id": "019012ad-...", "session_id": "019012ad-...",
+  "subscriber_id": "550e8400-...", "cdr_type": "data",
+  "telecom_circle": "Karnataka", "cell_tower_id": "KA-BLR-109",
+  "roaming": false, "cost_paise": 0, "status": "rated", "fraud_flag": false,
+  "start_time": "2026-06-18T12:00:00+05:30", "end_time": "2026-06-18T12:30:00+05:30",
+  "network_type": "4G", "downloaded_mb": 45.250, "uploaded_mb": 3.100,
+  "volume_mb": 48.350, "apn": "airtelgprs.com",
+  "imei": "356938035643809", "operator_id": "AIRT-KA"
+}
+```
+
+### 1.11.5. Error Handling Patterns
 
 - FastAPI: global exception handler → standard error envelope (never raw 500)
 - LangGraph agents: each node wraps in try/except; errors logged to LangFuse + returned as structured error state
 - Kafka consumers: failed record → publish to `cdr.dlq`; batch offset not committed until retry exhausted
 - Frontend: React Query error states + toast notifications; never raw error objects exposed to UI
 
-### 1.11.5. PII Hygiene Rules (All Agents MUST Follow)
+### 1.11.6. PII Hygiene Rules (All Agents MUST Follow)
 
 - Never log raw MSISDN, name, address, or card data — use `msisdn[-4:]` suffix or `[REDACTED]`
 - Never include PII in OTEL span attributes — use subscriber UUID only
 - Fluentd redaction filter is a safety net, not the primary guard
 
-### 1.11.6. Linting, Formatting, and Code Quality
+### 1.11.7. Linting, Formatting, and Code Quality
 
 **Python linting and formatting tools** (configured in each codebase's `pyproject.toml`):
+
 Refer to `docs/Ref-Linting-config-pyproject.toml`
+
 ```
 
 **Running quality checks:**
@@ -883,7 +948,7 @@ just test-cdr  # uv tox -e test in cdr-pipeline
 
 **GitHub Actions CI** (`.github/workflows/ci-pipeline.yml`) runs `uv tox` (all environments) on every PR — lint, typecheck, and test must all pass before merge is permitted.
 
-### 1.11.7. Testing Patterns
+### 1.11.8. Testing Patterns
 
 - Python backend: pytest (via `uv tox -e test`); test files in `tests/` per service codebase
 - FastAPI: `httpx.AsyncClient` for API tests; no mocking of Postgres — use `testcontainers`
@@ -1106,7 +1171,7 @@ sboai_capstone/
     └── generate_synthetic_data.py         # FR-71
 ```
 
-### 1.12.1a. Synthetic Data Generation (FR-71)
+### 1.12.2. Synthetic Data Generation (FR-71)
 
 **Scale targets:** 1,000 plans · 300,000 subscribers · 5,000,000 CDRs
 
@@ -1126,11 +1191,12 @@ sboai_capstone/
 
 3. CDRs (5,000,000)
    └─► Generated referencing subscriber_id from step 2
-       Fields: cdr_record_id (UUIDv7), subscriber_id (FK → subscribers),
-               cdr_type (voice/data/sms), duration_seconds, data_mb,
-               destination_msisdn, call_start_utc, amount_paise,
-               cell_id, roaming_flag
+       Schema: see docs/Schema - CDR.md — CORE fields + type-specific fields
+               (voice: from_number, to_number, call_direction, duration_seconds, call_status)
+               (sms:   from_number, to_number, message_direction, sms_status)
+               (data:  network_type, downloaded_mb, uploaded_mb, volume_mb, apn, imei, operator_id)
        Distribution: ~17 CDRs per subscriber average;
+                     mix: ~60% voice, ~20% data, ~20% SMS
                      realistic intra-day distribution (peak hours 9–11am, 6–9pm)
 ```
 
@@ -1140,7 +1206,7 @@ sboai_capstone/
 
 - Plans seeded first via `V5__seed_plans.sql` Flyway migration (static, version-controlled)
 - Subscriber and CDR generation runs via `generate_synthetic_data.py` script (not a migration — idempotent via UPSERT with `ON CONFLICT DO NOTHING`)
-- CDR records use UUIDv7 for `cdr_record_id` — ensures time-ordered index locality in PostgreSQL
+- CDR records use UUIDv7 for `cdr_id` (PK) — ensures time-ordered index locality in PostgreSQL (field name per `docs/Schema - CDR.md`)
 - PII fields (name, MSISDN) generated with realistic Indian phone number patterns (91xxxxxxxxxx) and faker-generated names
 - Balance amounts in paise (integer) — avoids floating-point precision issues
 - Fraud signals embedded in ~0.5% of subscribers (unusual CDR velocity, SIM swap flags) to support fraud agent testing
@@ -1200,7 +1266,7 @@ format:       cd app-backend && ruff format src/ && cd ../cdr-pipeline && ruff f
 lint-fe:      cd frontend && npm run lint
 ```
 
-### 1.12.2. Docker Compose Services (MVP)
+### 1.12.3. Docker Compose Services (MVP)
 
 **Two-file Docker Compose split:** Infrastructure dependencies are defined in `docker/docker-compose-dependencies.yaml`. The full stack `docker/docker-compose.yaml` uses Compose's `include:` directive to reuse all dependency definitions and adds the application services on top. This allows local development with just `docker compose -f docker/docker-compose-dependencies.yaml up -d` — no codebase containers needed while iterating.
 
@@ -1257,6 +1323,84 @@ services:
 **Non-persisted services (acceptable to reset on restart):** Valkey, Redpanda, LangFuse. Valkey balance state cold-starts from Postgres; Redpanda offset reset is safe during dev.
 
 **Milvus Lite persistence:** The `milvus_lite_data` Docker volume persists the embedded Milvus `.db` file across `app-backend` container restarts. If the volume is wiped, re-seed with `just seed-milvus`.
+
+### 1.12.4. PostgreSQL Container Initialization
+
+**Constraint: All PostgreSQL setup must happen at container creation time, not at application startup or migration time.** This includes extension installation, role/user creation, and database provisioning. The PostgreSQL container is configured via an `init/` directory of SQL scripts that Docker executes exactly once on first volume mount.
+
+**Directory layout:**
+
+```
+docker/postgres/
+├── init/
+│   ├── 01_extensions.sql    # Install all required extensions
+│   ├── 02_roles.sql         # Create application roles and users
+│   └── 03_databases.sql     # Create application database (if not default)
+```
+
+**`01_extensions.sql` — install at container init:**
+
+```sql
+-- Must run as superuser (postgres) — before any application role connects
+CREATE EXTENSION IF NOT EXISTS "pg_uuidv7";      -- UUIDv7 primary keys
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";       -- AES-256 PII column encryption
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";        -- trigram indexes for MSISDN fuzzy search
+CREATE EXTENSION IF NOT EXISTS "btree_gin";      -- composite GIN indexes
+```
+
+**`02_roles.sql` — create users at container init:**
+
+```sql
+-- Application user: owns schema, runs migrations and all DML
+CREATE USER sboai_app WITH PASSWORD '${POSTGRES_APP_PASSWORD}';
+
+-- Read-only reporting user: used by ML/analytics queries, never on write path
+CREATE USER sboai_readonly WITH PASSWORD '${POSTGRES_READONLY_PASSWORD}';
+
+-- Flyway migration user: runs DDL migrations; separate from app user
+CREATE USER sboai_flyway WITH PASSWORD '${POSTGRES_FLYWAY_PASSWORD}' CREATEROLE;
+
+-- Grant privileges (database must exist first — created by Docker POSTGRES_DB env var)
+GRANT ALL PRIVILEGES ON DATABASE sboai TO sboai_app;
+GRANT CONNECT ON DATABASE sboai TO sboai_readonly;
+GRANT CONNECT ON DATABASE sboai TO sboai_flyway;
+```
+
+**`docker/docker-compose-dependencies.yaml` — Postgres service with init mount:**
+
+```yaml
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: sboai
+      POSTGRES_USER: postgres                          # superuser for init scripts only
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d  # executed once on first start
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sboai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+```
+
+**Environment variables (`.env.example`):**
+
+```dotenv
+POSTGRES_SUPERUSER_PASSWORD=change_me_superuser
+POSTGRES_APP_PASSWORD=change_me_app
+POSTGRES_READONLY_PASSWORD=change_me_readonly
+POSTGRES_FLYWAY_PASSWORD=change_me_flyway
+```
+
+**Rules:**
+
+- Extensions are installed by the `postgres` superuser in init scripts — Flyway migrations run as `sboai_flyway` and must not attempt `CREATE EXTENSION`
+- Application code always connects as `sboai_app` — never as `postgres` superuser
+- `sboai_readonly` is granted SELECT on all tables post-migration via `V5__grants.sql` Flyway migration
+- Init scripts are idempotent (`IF NOT EXISTS`) — safe to re-run if the volume is wiped and recreated
 
 ---
 
@@ -1394,3 +1538,260 @@ All 77 FRs are architecturally addressed:
 5. Core FastAPI app (`app-backend/`) — account, balance, recharge routers
 6. LangGraph chatbot graph — Support Agent + RAG tool + Milvus ingest
 7. Frontend shell — React Router + role-based layout + auth integration
+
+See `README.md` at the project root for the authoritative end-to-end setup sequence.
+
+---
+
+## 1.14. Infrastructure as Code (Terraform)
+
+### 1.14.1. Overview
+
+Terraform manages all AWS Target State infrastructure. MVP infrastructure is Docker Compose only — no Terraform needed for local development. The `infrastructure/` folder is structured so that MVP developers can ignore it entirely; Target State engineers apply it before any application deployment.
+
+**Constraint:** Terraform is applied **before** any application deployment. The sequence is: Terraform → DB migrations → seed data → application deploy. See `README.md` for the exact sequence.
+
+### 1.14.2. Terraform Directory Layout
+
+```
+infrastructure/
+├── README.md                        # Target State provisioning guide (mirrors root README.md §2)
+├── terraform/
+│   ├── main.tf                      # Root module — provider config, backend (S3 + DynamoDB lock)
+│   ├── variables.tf                 # All input variables with descriptions and defaults
+│   ├── outputs.tf                   # Exported values consumed by application config
+│   ├── versions.tf                  # Terraform + provider version pins
+│   │
+│   ├── modules/
+│   │   ├── networking/              # VPC, subnets (public/private/db), NAT gateway, SGs
+│   │   │   ├── main.tf
+│   │   │   ├── variables.tf
+│   │   │   └── outputs.tf
+│   │   ├── eks/                     # EKS cluster + managed node groups
+│   │   │   ├── main.tf
+│   │   │   ├── variables.tf
+│   │   │   └── outputs.tf
+│   │   ├── rds/                     # RDS PostgreSQL (Multi-AZ); parameter group; subnet group
+│   │   │   ├── main.tf
+│   │   │   ├── variables.tf
+│   │   │   └── outputs.tf
+│   │   ├── msk/                     # Amazon MSK (Kafka); 24-partition topic configs
+│   │   │   ├── main.tf
+│   │   │   ├── variables.tf
+│   │   │   └── outputs.tf
+│   │   ├── elasticache/             # ElastiCache Valkey cluster; noeviction policy
+│   │   │   ├── main.tf
+│   │   │   ├── variables.tf
+│   │   │   └── outputs.tf
+│   │   ├── cognito/                 # Cognito User Pool + App Client; OTP config; role claims
+│   │   │   ├── main.tf
+│   │   │   ├── variables.tf
+│   │   │   └── outputs.tf
+│   │   ├── s3/                      # Audit archive bucket; lifecycle rules (6yr retention)
+│   │   │   ├── main.tf
+│   │   │   ├── variables.tf
+│   │   │   └── outputs.tf
+│   │   ├── cloudfront/              # CloudFront distribution; S3 origin; SPA error-page routing
+│   │   │   ├── main.tf
+│   │   │   ├── variables.tf
+│   │   │   └── outputs.tf
+│   │   ├── api_gateway/             # API Gateway; JWT authorizer; per-subscriber throttle (FR-36)
+│   │   │   ├── main.tf
+│   │   │   ├── variables.tf
+│   │   │   └── outputs.tf
+│   │   └── secrets/                 # Secrets Manager entries for all DB passwords, API keys
+│   │       ├── main.tf
+│   │       ├── variables.tf
+│   │       └── outputs.tf
+│   │
+│   └── environments/
+│       ├── dev/                     # Dev environment tfvars
+│       │   ├── main.tf              # Instantiates root module with dev overrides
+│       │   └── terraform.tfvars
+│       └── prod/                    # Production environment tfvars
+│           ├── main.tf
+│           └── terraform.tfvars
+```
+
+### 1.14.3. Module Responsibilities
+
+| Module         | AWS Resources                                                                       | Notes                                                              |
+| -------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `networking`   | VPC, public/private/DB subnets, NAT GW, IGW, route tables, SGs                     | All in `ap-south-1`; no cross-region peering                      |
+| `eks`          | EKS cluster (managed), node groups, IAM roles, OIDC provider                       | Hosts: LangFuse, Milvus Distributed, Keycloak, app microservices  |
+| `rds`          | RDS PostgreSQL 16 Multi-AZ, parameter group, subnet group, Secrets Manager rotation | Same parameter group must enable `pg_uuidv7`, `pgcrypto`, `pg_trgm`, `btree_gin` |
+| `msk`          | MSK cluster, 24-partition topics (`cdr.raw`, `cdr.enriched.filtered`, etc.), IAM    | `ap-south-1`; 3-broker cluster minimum                            |
+| `elasticache`  | ElastiCache Valkey (Redis-compatible), `maxmemory-policy noeviction`                | Subnet group within private subnets                               |
+| `cognito`      | User Pool, App Client, OTP (SMS via SNS), custom attributes (`role`)                | Outputs: `USER_POOL_ID`, `APP_CLIENT_ID` for app config           |
+| `s3`           | Audit archive bucket, lifecycle: Standard → IA (2yr) → Glacier (6yr)               | TRAI 6-year retention; no public access                           |
+| `cloudfront`   | Distribution, S3 origin, OAC, cache behaviours, SPA 403/404 → 200 routing          | Custom domain + ACM cert                                          |
+| `api_gateway`  | HTTP API, JWT authorizer (Cognito), routes, per-subscriber usage plan               | FR-36 throttle; blacklist enforcement at JWT layer                |
+| `secrets`      | Secrets Manager entries for DB credentials, Azure OpenAI key, LangFuse key         | Rotated via Lambda (RDS) or manual (API keys)                     |
+
+**RDS PostgreSQL extensions via parameter group:** The `rds` module must configure a custom DB parameter group that pre-loads `pg_uuidv7`, `pgcrypto`, `pg_trgm`, and `btree_gin` so Flyway migrations can reference them without superuser `CREATE EXTENSION` calls at migration time.
+
+### 1.14.4. Terraform State Backend
+
+```hcl
+# infrastructure/terraform/main.tf
+terraform {
+  backend "s3" {
+    bucket         = "sboai-terraform-state-ap-south-1"
+    key            = "sboai_capstone/terraform.tfstate"
+    region         = "ap-south-1"
+    encrypt        = true
+    dynamodb_table = "sboai-terraform-locks"   # prevents concurrent apply
+  }
+}
+```
+
+The S3 bucket and DynamoDB table for state locking must be created manually (or via a bootstrap script) before the first `terraform init`.
+
+### 1.14.5. Terraform Outputs → Application Config
+
+Terraform outputs feed directly into the application's pydantic-settings configuration (via AWS Secrets Manager in Target State):
+
+| Terraform Output          | Application Config Key               | Consumer                    |
+| ------------------------- | ------------------------------------ | --------------------------- |
+| `rds_endpoint`            | `db.host`                            | `app-backend`, `cdr-ingestion` |
+| `msk_bootstrap_brokers`   | `kafka_brokers`                      | `cdr-ingestion`, notification, fraud |
+| `elasticache_endpoint`    | `redis_url`                          | `app-backend`, `cdr-ingestion` |
+| `cognito_user_pool_id`    | `cognito_user_pool_id`               | `app-backend` auth          |
+| `cognito_app_client_id`   | `cognito_app_client_id`              | `app-backend` auth          |
+| `cloudfront_domain`       | Frontend deployment target           | CI/CD                       |
+| `api_gateway_invoke_url`  | Frontend `VITE_API_BASE_URL`         | Frontend build              |
+
+---
+
+## 1.15. Project README and Setup Sequence
+
+### 1.15.1. README.md Structure
+
+The project root `README.md` is the single authoritative onboarding document. It covers both MVP (local Docker Compose) and Target State (AWS) setup in separate top-level sections. Implementation teams must follow the sequence exactly — each phase depends on the previous.
+
+**File location:** `README.md` (project root)
+
+**Required sections:**
+
+```
+# AI-Powered Prepaid Billing System
+
+## 1. Prerequisites
+   - Docker Desktop / Docker Engine + Compose plugin
+   - just (task runner)
+   - uv (Python package manager)
+   - Node.js 20+ and npm
+   - Flyway CLI
+   - (Target State only) Terraform ≥ 1.7, AWS CLI v2, kubectl, helm
+
+## 2. MVP Setup — Local Docker Compose
+
+### 2.1 Clone and configure environment
+   git clone ...
+   cp .env.example .env
+   # Edit .env: set all passwords and API keys
+
+### 2.2 Start infrastructure containers
+   just deps
+   # Starts: Postgres (with init scripts: extensions + users), Redpanda, Valkey,
+   # MiniStack, LangFuse, OTEL-TUI, Fluentd
+   # Postgres init scripts run automatically on first start (docker/postgres/init/)
+   # Wait for Postgres healthcheck to pass before next step
+
+### 2.3 Run database migrations
+   just migrate
+   # Flyway applies migrations in order: V1__baseline_schema → V5__grants
+   # Requires Postgres to be healthy (step 2.2)
+
+### 2.4 Generate and seed synthetic data
+   just seed          # generates 1K plans → 300K subscribers → 5M CDRs (in that order)
+   just seed-milvus   # ingests FAQ, plan, and SOP documents into Milvus Lite
+
+### 2.5 Start application services
+   just up
+   # Starts: cdr-pipeline, app-backend (Milvus Lite embedded), frontend
+
+### 2.6 Verify
+   curl http://localhost:8000/health   # app-backend
+   curl http://localhost:8001/health   # cdr-pipeline management API
+   open http://localhost:5173          # React frontend
+
+## 3. Target State Setup — AWS
+
+### 3.1 Bootstrap Terraform state backend (one-time, manual)
+   # Create S3 bucket: sboai-terraform-state-ap-south-1
+   # Create DynamoDB table: sboai-terraform-locks
+   # (See infrastructure/README.md for exact AWS CLI commands)
+
+### 3.2 Provision AWS infrastructure with Terraform
+   cd infrastructure/terraform/environments/dev   # or prod
+   terraform init
+   terraform plan -var-file=terraform.tfvars
+   terraform apply -var-file=terraform.tfvars
+   # Provisions: VPC, EKS, RDS (with extensions), MSK, ElastiCache Valkey,
+   # Cognito, S3, CloudFront, API Gateway, Secrets Manager
+
+### 3.3 Configure kubeconfig
+   aws eks update-kubeconfig --region ap-south-1 --name sboai-eks
+
+### 3.4 Run database migrations against RDS
+   # Set FLYWAY_URL to RDS endpoint (from terraform output rds_endpoint)
+   just migrate-prod
+
+### 3.5 Generate and seed synthetic data against RDS
+   just seed-prod
+   just seed-milvus-prod   # connects to Milvus Distributed on EKS
+
+### 3.6 Deploy application services to EKS
+   helm upgrade --install cdr-ingestion ./helm/cdr-ingestion/
+   helm upgrade --install app-backend ./helm/app-backend/
+   # (other services)
+
+### 3.7 Deploy frontend to S3 + CloudFront
+   cd frontend && npm run build
+   aws s3 sync dist/ s3://sboai-frontend-ap-south-1/ --delete
+   aws cloudfront create-invalidation --distribution-id <id> --paths "/*"
+
+## 4. Development Workflow
+   just test       # run backend tests
+   just lint       # run ruff linting
+   just tox        # full quality gate (lint + typecheck + test)
+
+## 5. Troubleshooting
+   # Postgres init scripts didn't run: wipe postgres_data volume, restart deps
+   # Milvus Lite data lost: run just seed-milvus
+   # Redpanda topic missing: run just deps (topics auto-created on consumer start)
+```
+
+### 1.15.2. Setup Sequence — Hard Dependencies
+
+The dependency order between setup phases is mandatory; skipping or reordering will cause failures:
+
+```
+Phase 1: Infrastructure
+  MVP     → Docker containers (just deps)
+             └─ Postgres init: extensions + users (automatic on first start)
+  Target  → Terraform apply (infrastructure/terraform/environments/{env})
+             └─ RDS extensions provisioned via parameter group
+
+Phase 2: Schema Migration
+  Both    → Flyway migrations (just migrate / just migrate-prod)
+             Requires: Phase 1 complete + Postgres healthy
+             Applies: tables, indexes, views, triggers, grants
+
+Phase 3: Seed Data
+  Both    → Synthetic data generation (just seed): plans → subscribers → CDRs
+             Requires: Phase 2 complete (FK constraints must exist)
+          → Milvus ingestion (just seed-milvus)
+             Requires: Phase 1 complete (app-backend running for Milvus Lite)
+
+Phase 4: Application Config (Target State only)
+  Target  → Terraform outputs → Secrets Manager entries populated
+             → pydantic-settings resolves secrets at app startup
+             Requires: Phase 1 complete
+
+Phase 5: Application Deploy
+  MVP     → just up (docker compose full stack)
+  Target  → helm deploy to EKS + S3/CloudFront frontend deploy
+             Requires: Phases 1–4 complete
+```
