@@ -489,10 +489,28 @@ CREATE TRIGGER trg_identity_subscribers_modified_at
 
 **Design rationale — key decisions:**
 
-- **`balance:{msisdn}` — no TTL (intentional):** The key is a persistent running counter. CDR consumers call `INCRBY` continuously; the background flusher reads the current value and bulk-upserts it to PostgreSQL every 2s or 5K records. The key is never deleted after a flush — it keeps accumulating as the live write buffer. 300K subscribers × ~50 bytes ≈ 15MB total memory, well within Redis limits. `maxmemory-policy noeviction` must be set so Redis never evicts this key class.
+- **`balance:{msisdn}` — no TTL (intentional):** The key is a persistent running counter. CDR consumers call `INCRBY(-cost_paise)` continuously; the background flusher reads the current value and bulk-upserts it to PostgreSQL every 2s or 5K records. The key is never deleted after a flush — it keeps accumulating as the live write buffer. 300K subscribers × ~50 bytes ≈ 15MB total memory, well within Redis limits. `maxmemory-policy noeviction` must be set so Redis never evicts this key class.
+- **`balance:{msisdn}` — startup sync (`load_balances_from_postgres`):** On Valkey startup (or restart), balance keys do not exist. The CDR consumer must **not** call `INCRBY` on an absent key — that would create the key at `0 - cost_paise`, ignoring the real balance in Postgres. The `cdr-pipeline` service runs `load_balances_from_postgres()` at startup before the consumer loop begins. This function bulk-reads `billing_wallet_balances` from Postgres and `SET`s each `balance:{msisdn}` key to the stored `balance_paise` value. The consumer only starts processing CDRs after this warm-up completes.
+
+  ```python
+  # cdr-pipeline/src/consumer/startup.py
+  async def load_balances_from_postgres(db: DatabaseProtocol, cache: CacheProtocol) -> None:
+      """Bulk-seed Valkey balance keys from Postgres before consumer loop starts."""
+      rows = await db.fetch("SELECT msisdn, balance_paise FROM billing_wallet_balances")
+      pipeline = cache.pipeline()
+      for row in rows:
+          pipeline.set(f"balance:{row['msisdn']}", row['balance_paise'])
+      await pipeline.execute()
+  ```
+
+  This warm-up runs once at startup and takes < 5s for 300K rows. If Postgres is unavailable at startup, the service fails fast (pydantic-settings eager load pattern).
+
+- **`balance:{msisdn}` — recharge sync:** When a recharge completes, the `recharge-service` writes to Postgres (`recharge_orders`, updates `billing_wallet_balances`) **and** calls `INCRBY(+recharge_paise)` on the Valkey key atomically. This keeps Valkey as the authoritative live balance. The CDR consumer never reads from Postgres for balance — only from Valkey.
+- **Balance read path:** `balance-service` reads `balance:{msisdn}` from Valkey as the source of truth for live balance queries. If the key is absent (e.g., subscriber has never had a CDR and Valkey was recently restarted before warm-up completed), it falls back to `billing_wallet_balances` in Postgres. This fallback is exceptional, not the normal path.
 - **`otp:{msisdn}` — step-up auth, not login OTP:** Initial login OTP is handled entirely by Cognito's auth flow. The Redis OTP key is for mid-session step-up verification (e.g., SIM binding change, high-value recharge above threshold). Cognito's Custom Auth Flow cannot cleanly interrupt an already-authenticated session for a second factor — Redis OTP fills this gap with a simple generate/validate/expire cycle.
 - **Blacklist — Postgres + Cognito only (no Redis cache):** When a subscriber is blacklisted (e.g., confirmed SIM swap fraud), the `fraud_blacklist` table is written as the source of truth, and the subscriber's Cognito account is immediately disabled with all active tokens revoked via the Cognito admin API. Subsequent API Gateway calls fail at the JWT validation layer — Cognito returns an invalid-token response before the request reaches any backend service. This eliminates the Redis enforcement cache entirely: no dual-write, no sync complexity, no risk of cache/DB divergence.
 - **Rate limiting — not in MVP; API Gateway in Target State:** MVP has no per-subscriber rate limiting. In Target State, AWS API Gateway enforces the business-level per-subscriber limit (FR-36) natively — no application-layer Redis key needed.
+- **`maxmemory` — must be configured explicitly:** Valkey is deployed with `maxmemory-policy noeviction`. Without an explicit `maxmemory` ceiling, Valkey will grow unbounded and risk OOM-killing the container. Set `maxmemory` to a generous headroom above the working-set estimate: balance keys (300K × 50B ≈ 15MB) + USSD sessions (peak concurrency × 1KB) + OTP keys + chat contexts. Set `maxmemory 512mb` as the MVP default — monitored and adjusted based on observed peak. See §1.12.3 for the docker-compose config.
 
 ### 1.7.4. Milvus Deployment Strategy
 
@@ -589,9 +607,11 @@ Index type: HNSW. BM25 lexical index on same collections for hybrid search. RRF 
 
 ### 1.8.1. Auth Flow
 
-**MVP:** AWS Cognito (MiniStack) issues JWTs. OTP sent via Cognito (stored in Notification Portal for testing). Roles: `subscriber`, `ops`, `fraud`, `admin/simulator`.
+**MVP:** AWS Cognito (MiniStack) issues JWTs. OTP sent via Cognito (stored in Notification Portal for testing). Roles: `subscriber`, `ops`, `fraud`, `admin/simulator`. **Access token TTL: 30 minutes** (configured in Cognito App Client settings). Refresh token TTL: 30 days.
 
-**Target:** Keycloak on EKS. Same JWT structure; role claims identical. API Gateway validates JWT on every request. Blacklist enforcement at API Gateway layer (FR-66).
+**Target:** Keycloak on EKS. Same JWT structure; role claims identical. API Gateway validates JWT on every request. Blacklist enforcement at API Gateway layer (FR-66). **Access token TTL: 30 minutes** (configured in Keycloak client settings — same as MVP).
+
+**Access token TTL rationale:** Standard Cognito/Keycloak access tokens are stateless JWTs that cannot be individually revoked before expiry. Setting TTL to 30 minutes bounds the window during which a compromised or blacklisted subscriber's token remains valid after account disable. The recharge-service enforces a step-up OTP for high-value recharges regardless of token age.
 
 ### 1.8.2. Security Controls
 
@@ -603,6 +623,7 @@ Index type: HNSW. BM25 lexical index on same collections for hybrid search. RRF 
 | Card tokenisation        | Simulated tokenisation: raw PAN → UUID token at point of entry; raw PAN never written to DB                                                                              |
 | Rate limiting (FR-36)    | MVP: not enforced at application layer. Target State: AWS API Gateway per-role throttle                                                                                  |
 | Account takeover (FR-66) | SIM swap confirmed → `fraud_blacklist` table write + Cognito account disable + all tokens revoked via Cognito admin API → subsequent JWT validation at API Gateway fails |
+| Access token lifetime    | 30 minutes (MVP: Cognito App Client; Target: Keycloak client config) — bounds blacklist enforcement gap to ≤ 30 min                                                     |
 | TRAI data localisation   | All AWS resources in `ap-south-1`; no cross-region data transfer                                                                                                         |
 | Audit immutability       | Postgres app role: INSERT only on `audit_log`; no UPDATE/DELETE grants                                                                                                   |
 
@@ -1282,8 +1303,21 @@ lint-fe:      cd frontend && npm run lint
 services:
   redpanda:          # Kafka-compatible event bus
   valkey:            # Balance buffer, session, dedup, OTP (standalone; maxmemory-policy noeviction)
+    command: >
+      valkey-server
+      --maxmemory 512mb
+      --maxmemory-policy noeviction
     volumes:
       - valkey_data:/data
+  # Valkey maxmemory rationale:
+  #   balance keys:    300K × ~50B  ≈   15MB
+  #   USSD sessions:   peak 10K × ~1KB ≈ 10MB
+  #   OTP keys:        peak 50K × ~50B ≈  2MB
+  #   chat contexts:   peak 5K × ~2KB  ≈ 10MB
+  #   overhead + headroom:             ≈ 475MB
+  #   Total ceiling: 512MB. Adjust based on observed RSS in dev.
+  #   With noeviction policy: if Valkey hits 512MB, new writes return OOM errors.
+  #   Monitor with: docker stats valkey | grep MEM
   postgres:          # Primary DB
     volumes:
       - postgres_data:/var/lib/postgresql/data   # persisted across restarts
@@ -1317,10 +1351,16 @@ include:
 services:
   cdr-pipeline:      # CDR consumer + management API
   app-backend:       # FastAPI monorepo
+    deploy:
+      replicas: 1    # HARD CONSTRAINT: Milvus Lite embedded .db file does not support concurrent process access.
+                     # Scaling app-backend to >1 replica in MVP will corrupt the Milvus Lite data file.
+                     # Scale-out is only supported in Target State with Milvus Distributed on EKS.
   frontend:          # Vite dev server (or nginx for built assets)
 ```
 
-**Non-persisted services (acceptable to reset on restart):** Valkey, Redpanda, LangFuse. Valkey balance state cold-starts from Postgres; Redpanda offset reset is safe during dev.
+**Non-persisted services (acceptable to reset on restart):** Redpanda, LangFuse. Redpanda offset reset is safe during dev.
+
+**Valkey on restart — balance warm-up required:** Valkey is non-persisted across full stack restarts in dev. On restart, `cdr-pipeline` runs `load_balances_from_postgres()` at startup before the consumer loop begins — this re-seeds all `balance:{msisdn}` keys from Postgres. No manual intervention needed; warm-up completes in < 5s for 300K subscribers.
 
 **Milvus Lite persistence:** The `milvus_lite_data` Docker volume persists the embedded Milvus `.db` file across `app-backend` container restarts. If the volume is wiped, re-seed with `just seed-milvus`.
 
@@ -1467,6 +1507,43 @@ All 77 FRs are architecturally addressed:
 - Consent management
 - Session timeout / token revocation
 - ML fraud classifier (architecture hook only)
+
+### 1.13.4a. Known Limitations & Accepted Risk Callouts
+
+The following are acknowledged architectural limitations accepted for MVP velocity. Each has a documented rationale and a stated remediation path for Target State or post-MVP hardening.
+
+---
+
+**Callout 1 — Azure OpenAI data residency (TRAI compliance risk)**
+
+| | |
+|---|---|
+| **Risk** | Azure OpenAI is not available in any India AWS region (`ap-south-1`). All LLM calls (fraud agent, chatbot, ops agents) are routed to an Azure region outside India (e.g., `eastus`, `westeurope`). TRAI mandates that subscriber data be physically stored in India — the regulatory scope of "processing" via LLM APIs is not explicitly defined in current TRAI guidelines but carries compliance risk. |
+| **Scope** | Any LLM prompt that includes subscriber-identifiable context: CDR summaries, balance, MSISDN, plan details. |
+| **MVP mitigation** | All LLM prompt construction **must** follow the PII hygiene rules in §1.11.6: use subscriber UUID (not MSISDN), anonymised CDR statistics (not raw records), no name or address fields. A prompt sanitisation layer must be implemented before any context is passed to the LLM client (`LLMClientProtocol`). This does not fully resolve the data residency question but materially reduces the PII exposure. |
+| **Target State path** | Evaluate Amazon Bedrock (`ap-south-1`) as the LLM provider — Bedrock Titan / Claude models are available in Mumbai region and would eliminate the cross-border transfer concern. Switch is a one-adapter change in `azure_openai.py` → `bedrock.py` implementing `LLMClientProtocol`. |
+
+---
+
+**Callout 2 — Fraud detection to blacklist enforcement window**
+
+| | |
+|---|---|
+| **Risk** | The fraud detection flow is fully asynchronous: rule pre-screener flags a CDR → publishes to `cdr.fraud.flagged` → LangGraph Fraud Agent invokes LLM analysis (typical latency: 5–15s) → writes to `fraud_cases` → blacklists the subscriber. During this window, additional fraudulent CDRs continue processing normally on the balance hot path. |
+| **Scope** | Applies whenever the fraud agent escalates to LLM confirmation (i.e., after a rule-screener FLAG — not for all CDRs). |
+| **MVP acceptance** | The rule-based pre-screener catches the initial flag synchronously. The LLM agent's role is confirmation and case enrichment, not first-line detection. The 5–15s window is accepted as a known gap for MVP. False-positive rate of the rule screener determines actual exposure. |
+| **Target State path** | On pre-screener FLAG, write a soft-suspend record to a `suspect:{msisdn}` Valkey key before LLM escalation. CDR consumer checks this key and drops (DLQ) CDRs for suspected MSISDNs during the LLM analysis window. Clear the key on `false_positive`; confirm blacklist on `confirmed`. |
+
+---
+
+**Callout 3 — Flyway migration user has CREATEROLE privilege**
+
+| | |
+|---|---|
+| **Risk** | `sboai_flyway` is granted `CREATEROLE` in `02_roles.sql`. This violates least-privilege — the migration user should only need DDL (CREATE TABLE, ALTER, etc.) on the application database schema. `CREATEROLE` allows this user to create new PostgreSQL roles, including roles with elevated privileges. |
+| **Rationale** | Granted for development velocity — simplifies local setup where role management and DDL are iterated together. |
+| **MVP acceptance** | Accepted for local dev environment only. Credentials are in `.env` (gitignored); blast radius is limited to the local Postgres container. |
+| **Target State path** | Remove `CREATEROLE` from `sboai_flyway`. Grant only: `CONNECT` on database `sboai`, `CREATE` on `schema public`, ownership of objects created by migrations. Role management in Target State is handled by Terraform (`aws_rds_cluster` parameter group + Secrets Manager rotation). |
 
 ### 1.13.5. Architecture Completeness Checklist
 
