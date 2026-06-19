@@ -2,119 +2,73 @@
 architecture-beta
 
     %% ── USERS ────────────────────────────────────────────────────────
-    group users(internet)[Users]
-        service subscriber(server)[Subscriber Portal]  in users
-        service ops_user(server)[Ops Dashboard]        in users
-        service fraud_user(server)[Fraud Dashboard]    in users
-        service sim_user(server)[Simulator / Dev]      in users
+    group users(internet)["Users"]
+        service subscriber(server)["Subscriber Portal"] in users
+        service ops_user(server)["Ops Dashboard"] in users
+        service fraud_user(server)["Fraud Dashboard"] in users
+        service sim_user(server)["Simulator / Dev"] in users
 
-    %% ── FRONTEND (Docker – Vite dev server) ──────────────────────────
-    group frontend(logos:react)[Frontend
-_(React 18 + Vite + TailwindCSS)_]
-        service fe_sub(logos:react)[Subscriber Portal
-_(React SPA)_]    in frontend
-        service fe_ops(logos:react)[Ops Dashboard
-_(React SPA)_]    in frontend
-        service fe_fraud(logos:react)[Fraud Dashboard
-_(React SPA)_]   in frontend
-        service fe_sim(logos:react)[Simulator Portal
-_(React SPA)_]   in frontend
+    %% ── FRONTEND ─────────────────────────────────────────────────────
+    group frontend(logos:react)["Frontend (React 18 + Vite + TailwindCSS)"]
+        service fe_sub(logos:react)["Subscriber Portal (React SPA)"] in frontend
+        service fe_ops(logos:react)["Ops Dashboard (React SPA)"] in frontend
+        service fe_fraud(logos:react)["Fraud Dashboard (React SPA)"] in frontend
+        service fe_sim(logos:react)["Simulator Portal (React SPA)"] in frontend
 
     %% ── AUTH (MiniStack) ─────────────────────────────────────────────
-    service auth(aws:cognito)[Identity Provider
-_(AWS Cognito – MiniStack)_]
+    service auth(aws:cognito)["Identity Provider (AWS Cognito)"]
 
     %% ── APP BACKEND (FastAPI monorepo) ───────────────────────────────
-    group app_backend(logos:python)[App Backend – Docker
-_(Python 3.14 + FastAPI)_]
-        service acct_router(server)[Account Router
-_(FR-1–7)_]         in app_backend
-        service bal_router(server)[Balance Router
-_(FR-8–11)_]        in app_backend
-        service rchg_router(server)[Recharge Router
-_(FR-12–17)_]       in app_backend
-        service notif_router(server)[Notifications Router
-_(FR-18–21)_]       in app_backend
-        service ussd_router(server)[USSD Router
-_(FR-37–41)_]       in app_backend
-        service ops_router(server)[Ops Router
-_(FR-42–52)_]       in app_backend
-        service fraud_router(server)[Fraud Router
-_(FR-53–56)_]       in app_backend
-        service sim_router(server)[Simulator Router
-_(FR-68–70)_]       in app_backend
-        service copilot(server)[AG-UI Runtime
-_(CopilotKit)_]     in app_backend
-        service chatbot_agent(logos:openai)[Self-Care Chatbot
-_(LangGraph – Support/Rating
-Balance/Conclusion/Notif)_] in app_backend
-        service fraud_agent(logos:openai)[Fraud Detection Agent
-_(LangGraph – Rule + LLM)_] in app_backend
-        service ops_agents(logos:openai)[Ops/Marketing Agents
-_(LangGraph – Segment/Upsell/RCA)_] in app_backend
-        service milvus_lite(database)[Vector Store
-_(Milvus Lite – embedded)_] in app_backend
-        service ml(logos:python)[ML Forecasting
-_(scikit-learn)_]   in app_backend
-        service pdf(server)[PDF Receipts
-_(WeasyPrint)_]     in app_backend
+    group app_backend(logos:python)["App Backend (Python 3.14 + FastAPI)"]
+        service acct_router(server)["Account Router (FR-1 to 7)"] in app_backend
+        service bal_router(server)["Balance Router (FR-8 to 11)"] in app_backend
+        service rchg_router(server)["Recharge Router (FR-12 to 17)"] in app_backend
+        service notif_router(server)["Notifications Router (FR-18 to 21)"] in app_backend
+        service ussd_router(server)["USSD Router (FR-37 to 41)"] in app_backend
+        service ops_router(server)["Ops Router (FR-42 to 52)"] in app_backend
+        service fraud_router(server)["Fraud Router (FR-53 to 56)"] in app_backend
+        service sim_router(server)["Simulator Router (FR-68 to 70)"] in app_backend
+        service copilot(server)["AG-UI Runtime (CopilotKit)"] in app_backend
+        service chatbot_agent(server)["Self-Care Chatbot (LangGraph)"] in app_backend
+        service fraud_agent(server)["Fraud Detection Agent (LangGraph)"] in app_backend
+        service ops_agents(server)["Ops and Marketing Agents (LangGraph)"] in app_backend
+        service milvus_lite(database)["Vector Store (Milvus Lite)"] in app_backend
+        service ml(logos:python)["ML Forecasting (scikit-learn)"] in app_backend
+        service pdf(server)["PDF Receipts (WeasyPrint)"] in app_backend
 
     %% ── CDR PIPELINE (separate codebase) ────────────────────────────
-    group cdr_pipeline(logos:python)[CDR Pipeline – Docker
-_(Python + aiokafka)_]
-        service consumer(server)[CDR Consumer
-_(batch=500)_]      in cdr_pipeline
-        service dedup(disk)[Idempotency Guard
-_(Valkey SET · TTL 24h)_] in cdr_pipeline
-        service bal_writer(server)[Balance Writer
-_(INCRBY → async PG flush)_] in cdr_pipeline
-        service screener(server)[Rule-Based Pre-Screener
-_(Fraud Flags)_]    in cdr_pipeline
-        service dlq_handler(server)[DLQ Handler
-_(cdr.dlq)_]        in cdr_pipeline
-        service mgmt_api(server)[Management API
-_(pause/resume/DLQ inspect)_] in cdr_pipeline
+    group cdr_pipeline(logos:python)["CDR Pipeline (Python + aiokafka)"]
+        service consumer(server)["CDR Consumer (batch 500)"] in cdr_pipeline
+        service dedup(disk)["Idempotency Guard (Valkey TTL 24h)"] in cdr_pipeline
+        service bal_writer(server)["Balance Writer (INCRBY async PG flush)"] in cdr_pipeline
+        service screener(server)["Rule-Based Pre-Screener (Fraud Flags)"] in cdr_pipeline
+        service dlq_handler(server)["DLQ Handler (cdr.dlq)"] in cdr_pipeline
+        service mgmt_api(server)["Management API (pause/resume/DLQ)"] in cdr_pipeline
 
     %% ── EVENT BUS (Redpanda) ────────────────────────────────────────
-    group event_bus(logos:redpanda)[Event Bus – Docker
-_(Redpanda – Kafka-compatible · 24 partitions)_]
-        service t_raw(server)[cdr.raw
-_(24p)_]            in event_bus
-        service t_enr(server)[cdr.enriched.filtered
-_(24p)_]            in event_bus
-        service t_fraud_f(server)[cdr.fraud.flagged
-_(6p)_]             in event_bus
-        service t_fraud_a(server)[fraud.alerts
-_(6p)_]             in event_bus
-        service t_notif(server)[notification.events
-_(12p)_]            in event_bus
-        service t_dlq(server)[cdr.dlq
-_(6p)_]             in event_bus
+    group event_bus(server)["Event Bus (Redpanda - 24 partitions)"]
+        service t_raw(server)["cdr.raw (24p)"] in event_bus
+        service t_enr(server)["cdr.enriched.filtered (24p)"] in event_bus
+        service t_fraud_f(server)["cdr.fraud.flagged (6p)"] in event_bus
+        service t_fraud_a(server)["fraud.alerts (6p)"] in event_bus
+        service t_notif(server)["notification.events (12p)"] in event_bus
+        service t_dlq(server)["cdr.dlq (6p)"] in event_bus
 
     %% ── DATA STORES ──────────────────────────────────────────────────
-    service postgres(logos:postgresql)[Primary Database
-_(PostgreSQL 16 – Docker)_]
-    service valkey(logos:redis)[Cache & Write Buffer
-_(Valkey – Docker · maxmem 512MB)_]
+    service postgres(logos:postgresql)["Primary Database (PostgreSQL 16)"]
+    service valkey(logos:redis)["Cache and Write Buffer (Valkey 512MB)"]
 
     %% ── LLM PROVIDER ────────────────────────────────────────────────
-    service llm(logos:microsoft-azure)[LLM Provider
-_(Azure OpenAI – GPT-5.4-mini
-text-embedding-3-small)_]
+    service llm(logos:microsoft-azure)["LLM Provider (Azure OpenAI GPT-4o-mini)"]
 
     %% ── OBSERVABILITY ───────────────────────────────────────────────
-    group observability(logos:grafana)[Observability – Docker]
-        service langfuse(logos:openai)[Agent Traces
-_(LangFuse – self-hosted)_] in observability
-        service otel_tui(server)[Infra Traces/Metrics/Logs
-_(OTEL-TUI + OTEL Collector)_] in observability
-        service fluentd(logos:fluentd)[Log Routing
-_(Fluentd)_]        in observability
+    group observability(logos:grafana)["Observability (Docker)"]
+        service langfuse(server)["Agent Traces (LangFuse)"] in observability
+        service otel_tui(server)["Infra Traces and Metrics (OTEL-TUI)"] in observability
+        service fluentd(server)["Log Routing (Fluentd)"] in observability
 
     %% ── CI/CD ────────────────────────────────────────────────────────
-    service cicd(logos:github-actions)[CI/CD
-_(GitHub Actions – uv tox
-lint · test · Docker build)_]
+    service cicd(logos:github-actions)["CI/CD (GitHub Actions - uv tox)"]
 
     %% ── EDGES ────────────────────────────────────────────────────────
     subscriber:R --> L:fe_sub
