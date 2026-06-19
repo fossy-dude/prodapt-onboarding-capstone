@@ -88,8 +88,10 @@ completedAt: '2026-06-18'
 | -------------------------- | ----------------------------------- | ----------------------------------------------------------------------------- |
 | **CDR Pipeline**           | Python (aiokafka consumer workers)  | Single-language MVP; sufficient for 10K eps PoC                               |
 | **Application Backend**    | Python 3.14 + FastAPI               | All non-pipeline services in one FastAPI monorepo                             |
+| **DB Client**              | Psycopg3 (async) + connection pool  | Native async protocol; binary mode; faster than asyncpg for most workloads; SQL-only, no ORM |
+| **DB Migrations**          | Flyway (SQL-native)                 | All schema DDL, views, materialized views, triggers managed as versioned SQL migrations |
 | **Event Bus**              | Redpanda (Kafka-compatible, Docker) | No ZooKeeper; Kafka-wire-compatible; simpler MVP ops                          |
-| **Balance Write Buffer**   | Redis (Docker, MVP)                 | Fast atomic INCRBY; session store; dedup SET; rate-limit counters             |
+| **Balance Write Buffer**   | Valkey (Docker, MVP)                | Fast atomic INCRBY; session store; dedup SET; Redis-compatible; |
 | **Primary Database**       | PostgreSQL 16                       | Source of truth for balance, accounts, audit, plans                           |
 | **Vector Store**           | Milvus (Docker)                     | Fixed. Hybrid search: dense + BM25 + RRF reranker                             |
 | **Agent Orchestration**    | LangGraph (Python)                  | Stateful graph, native A2A, multi-turn memory                                 |
@@ -121,7 +123,8 @@ completedAt: '2026-06-18'
 | **Vector Store**            | Milvus (self-managed on EKS)                                  | Fixed. Same Milvus collection schema as MVP; scaled replicas            |
 | **Agent Orchestration**     | LangGraph (Python)                                            | Unchanged from MVP                                                      |
 | **LLM Provider**            | Azure OpenAI                                                  | Unchanged; consider Bedrock for future data residency                   |
-| **Frontend**                | React 18 + Vite + TailwindCSS                                 | Built as static assets; served via CloudFront + S3                      |
+| **Frontend**                | React 18 + Vite + TailwindCSS                                 | Built as static assets; S3 origin; served via CloudFront (CDN, `ap-south-1`) |
+| **CDN**                     | AWS CloudFront                                                | Static asset caching; global PoPs for low-latency delivery; origin = S3 bucket |
 | **Auth**                    | Keycloak (self-hosted on EKS)                                 | Enterprise RBAC; scale warrants full IdP over Cognito                   |
 | **API Gateway**             | AWS API Gateway + ALB                                         | Rate limiting (FR-36); JWT validation; subscriber blacklist enforcement |
 | **Observability (infra)**   | OTEL → LGTM (Grafana, Loki, Tempo, Mimir)                     | Managed Grafana on AWS; `ap-south-1`                                    |
@@ -306,7 +309,8 @@ Rule-Based Pre-Screener (deterministic, in-process)
           │  Output: confirmed | false_positive | needs_review
           │
           ├── confirmed → write to fraud_cases table + Kafka: fraud.alerts
-          │              → Blacklist write (FR-66) + API gateway disable
+          │              → Blacklist write to fraud_blacklist table (FR-66)
+          │              → Cognito account disable + token revocation
           └── LangFuse trace on every escalation
 ```
 
@@ -363,14 +367,69 @@ Root Cause Analysis Agent (FR-75):
 | `notifications_` | `notifications_events`, `notifications_config`, `notifications_preferences`                                                                                                    |
 | `support_`       | `support_tickets`, `support_chat_sessions`, `support_session_learnings`                                                                                                        |
 | `fraud_`         | `fraud_cases`, `fraud_rules`, `fraud_blacklist`                                                                                                                                |
-| `segmentation_`  | `segmentation_subscriber_kpi_view` (materialised), `segmentation_segment_rules`, `segmentation_labels`, `segmentation_recommendation_feedback`, `segmentation_upsell_feedback` |
+| `segmentation_`  | `segmentation_segment_rules`, `segmentation_labels`, `segmentation_recommendation_feedback`, `segmentation_upsell_feedback`; materialized view: `segmentation_subscriber_kpi_r_mvw` |
 | `ops_`           | `ops_order_fulfilment`, `ops_forecast_results`                                                                                                                                 |
-| `eval_`          | `eval_llm_evaluations`, `eval_deepeval_results`                                                                                                                                |
 | `sop_`           | `sop_rules`, `sop_knowledge_chunks`                                                                                                                                            |
 
-**Migration path to Target State:** if separate schemas become warranted at scale, Alembic migrations can rename tables and reassign schema — prefix naming makes the mapping unambiguous.
+**Migration path to Target State:** if separate schemas become warranted at scale, migrations can rename tables and reassign schema — prefix naming makes the mapping unambiguous.
 
 **Audit log (FR-59):** Append-only (`INSERT` only; no `UPDATE`/`DELETE` via app role). Retained 6 years; archived to S3 after 2 years via pg_partman + lifecycle policy.
+
+**Table standards (applies to every table):**
+
+- `id UUID DEFAULT gen_random_uuid() PRIMARY KEY`
+- `created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL`
+- `modified_at TIMESTAMPTZ DEFAULT NOW() NOT NULL` — updated via `set_modified_at()` trigger (defined once in a base migration, applied per table)
+
+---
+
+### 1.7.1a. Database Migration Management
+
+**Tool: Flyway (SQL-native).** All schema evolution — initial table creation, indexes, views, materialized views, triggers, grants — is managed as versioned SQL migration files. No ORM-generated DDL. No ad-hoc schema changes outside migrations.
+
+**Migration file location:**
+
+```
+app-backend/db/migrations/
+  V1__baseline_schema.sql          # all domains: CREATE TABLE, indexes, FK constraints
+  V2__set_modified_at_trigger.sql  # trigger function + application to all tables
+  V3__segmentation_kpi_mvw.sql     # materialized view + refresh function
+  V4__billing_views.sql            # billing_usage_summary_i_vw, etc.
+  V5__seed_plans.sql               # static plan catalogue data
+  ...
+```
+
+**Encoding in migrations:**
+
+| DDL Object         | Encoded in migrations?  | Notes                                                                 |
+| ------------------ | ----------------------- | --------------------------------------------------------------------- |
+| Tables             | ✅ Yes                  | All domains in V1 baseline                                            |
+| Indexes            | ✅ Yes                  | Co-located with table DDL; follow access-pattern rules                |
+| FK constraints     | ✅ Yes                  | Explicit `REFERENCES` clauses in CREATE TABLE                         |
+| Views (`_vw`)      | ✅ Yes                  | `CREATE OR REPLACE VIEW` in dedicated migration                       |
+| Materialized views | ✅ Yes                  | `CREATE MATERIALIZED VIEW` + `CREATE UNIQUE INDEX` for concurrent refresh |
+| Triggers           | ✅ Yes                  | `modified_at` trigger function + `CREATE TRIGGER` per table           |
+| Grants / roles     | ✅ Yes                  | App role grants (read-only on audit tables, etc.)                     |
+| Alembic            | ❌ Removed              | Replaced by Flyway SQL-native approach                                |
+
+**SQL-only rule:** All database queries in application code use raw SQL strings (via psycopg3). No SQLAlchemy ORM, no Django ORM, no query builder. CQRS split (`queries.py` / `commands.py`) organises SQL by read vs. write — see §1.12.1.
+
+**`modified_at` trigger pattern (defined once in V2 migration):**
+
+```sql
+CREATE OR REPLACE FUNCTION set_modified_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.modified_at = NOW();
+  RETURN NEW;
+END;
+$$;
+
+-- Applied to each table that has modified_at:
+CREATE TRIGGER trg_identity_subscribers_modified_at
+  BEFORE UPDATE ON identity_subscribers
+  FOR EACH ROW EXECUTE FUNCTION set_modified_at();
+```
 
 ### 1.7.2. Valkey / Redis Data Domains
 
@@ -379,20 +438,18 @@ Root Cause Analysis Agent (FR-75):
 | `dedup:{cdr_record_id}`     | SET             | 24h  | Idempotency guard          |
 | `balance:{msisdn}`          | STRING (INCRBY) | None | Hot write buffer           |
 | `session:{session_id}`      | HASH            | 30m  | USSD session state         |
-| `rate:{msisdn}:{window}`    | STRING (INCR)   | 60s  | 100 RPM rate limiter       |
 | `otp:{msisdn}`              | STRING          | 5m   | Step-up OTP validation     |
-| `blacklist:{msisdn}`        | SET             | None | Account takeover block     |
 | `chat_context:{session_id}` | HASH            | 2h   | Chatbot multi-turn context |
 
 **Design rationale — key decisions:**
 
 - **`balance:{msisdn}` — no TTL (intentional):** The key is a persistent running counter. CDR consumers call `INCRBY` continuously; the background flusher reads the current value and bulk-upserts it to PostgreSQL every 2s or 5K records. The key is never deleted after a flush — it keeps accumulating as the live write buffer. 300K subscribers × ~50 bytes ≈ 15MB total memory, well within Redis limits. `maxmemory-policy noeviction` must be set so Redis never evicts this key class.
 
-- **`blacklist:{msisdn}` — dual-layer with Postgres:** The `fraud_blacklist` table is the source of truth and audit record. The Redis `SET` is the enforcement cache — every API request checks it at middleware level for sub-millisecond enforcement without a DB round-trip. The two are kept in sync: blacklist add writes both atomically; blacklist removal flushes Redis and updates the DB. Redis is the read path; Postgres is the write-of-record.
-
 - **`otp:{msisdn}` — step-up auth, not login OTP:** Initial login OTP is handled entirely by Cognito's auth flow. The Redis OTP key is for mid-session step-up verification (e.g., SIM binding change, high-value recharge above threshold). Cognito's Custom Auth Flow cannot cleanly interrupt an already-authenticated session for a second factor — Redis OTP fills this gap with a simple generate/validate/expire cycle.
 
-- **`rate:{msisdn}:{window}` — MVP has no real API Gateway:** In MVP (MiniStack), there is no functional per-subscriber rate limiter at the gateway level. Redis `INCR + EXPIRE` is the primary rate limit enforcement. In Target State, AWS API Gateway provides the coarse outer throttle (per-IP, burst) while the Valkey key enforces the business-level per-subscriber limit (100 RPM) — both layers coexist by design.
+- **Blacklist — Postgres + Cognito only (no Redis cache):** When a subscriber is blacklisted (e.g., confirmed SIM swap fraud), the `fraud_blacklist` table is written as the source of truth, and the subscriber's Cognito account is immediately disabled with all active tokens revoked via the Cognito admin API. Subsequent API Gateway calls fail at the JWT validation layer — Cognito returns an invalid-token response before the request reaches any backend service. This eliminates the Redis enforcement cache entirely: no dual-write, no sync complexity, no risk of cache/DB divergence.
+
+- **Rate limiting — not in MVP; API Gateway in Target State:** MVP has no per-subscriber rate limiting. In Target State, AWS API Gateway enforces the business-level per-subscriber limit (FR-36) natively — no application-layer Redis key needed.
 
 ### 1.7.3. Milvus Collections
 
@@ -433,8 +490,8 @@ Index type: HNSW. BM25 lexical index on same collections for hybrid search. RRF 
 | TLS in transit           | TLS 1.2+ enforced at ALB and API Gateway                                                                             |
 | PII in logs              | Fluentd redaction filter strips MSISDN, name, address fields before forwarding                                       |
 | Card tokenisation        | Simulated tokenisation: raw PAN → UUID token at point of entry; raw PAN never written to DB                          |
-| Rate limiting (FR-36)    | Valkey/Redis INCR + TTL per `msisdn:window`; API Gateway rate limit as outer layer                                   |
-| Account takeover (FR-66) | SIM swap confirmed → write `blacklist:{msisdn}` to Valkey + `blacklist` table → API Gateway returns 403; JWT revoked |
+| Rate limiting (FR-36)    | MVP: not enforced at application layer. Target State: AWS API Gateway per-role throttle                        |
+| Account takeover (FR-66) | SIM swap confirmed → `fraud_blacklist` table write + Cognito account disable + all tokens revoked via Cognito admin API → subsequent JWT validation at API Gateway fails |
 | TRAI data localisation   | All AWS resources in `ap-south-1`; no cross-region data transfer                                                     |
 | Audit immutability       | Postgres app role: INSERT only on `audit_log`; no UPDATE/DELETE grants                                               |
 
@@ -454,6 +511,21 @@ React 18 + Vite + TailwindCSS (single build output)
 ```
 
 JWT `role` claim determines which route subtree is accessible. Role mismatch → redirect to login.
+
+**Deployment — MVP vs Target State:**
+
+| Context      | Serving                                                                |
+| ------------ | ---------------------------------------------------------------------- |
+| MVP          | Vite dev server (Docker) or nginx container serving built assets        |
+| Target State | `npm run build` → static assets uploaded to S3 → served via CloudFront |
+
+**Target State CDN (CloudFront):**
+
+- Origin: S3 bucket in `ap-south-1` (same region as all infra)
+- CloudFront distribution with `ap-south-1` as primary origin; global PoPs for low latency
+- Cache behaviour: long TTL on hashed asset filenames (`/assets/*.js`); no-cache on `index.html` (entry point for SPA routing)
+- HTTPS enforced; custom domain (TLS cert via ACM)
+- SPA routing: CloudFront error page for 403/404 → returns `index.html` with 200 (React Router handles client-side routing)
 
 ### 1.9.2. Real-Time UI Channels
 
@@ -563,12 +635,36 @@ settings = Settings()   # loaded once at module import; fails fast on missing va
 
 **Database:**
 
-- Tables: `snake_case` plural — `subscribers`, `wallet_balances`, `cdr_events`
+- Tables: `{domain}_{name}` in `public` schema, `snake_case` plural — `identity_subscribers`, `billing_cdr_events`
 - Columns: `snake_case` — `subscriber_id`, `msisdn`, `created_at`
 - Foreign keys: `{referenced_table_singular}_id` — `subscriber_id`, `plan_id`
-- Indexes: `idx_{table}_{columns}` — `idx_subscribers_msisdn`
+- Indexes: `idx_{table}_{columns}` — `idx_identity_subscribers_msisdn`
 - Primary keys: always `id UUID DEFAULT gen_random_uuid()`
-- Timestamps: `created_at TIMESTAMPTZ DEFAULT NOW()`, `updated_at TIMESTAMPTZ`
+- Timestamps: **every table must have** `created_at TIMESTAMPTZ DEFAULT NOW()` and `modified_at TIMESTAMPTZ DEFAULT NOW()` (kept current via `ON UPDATE` trigger in migrations)
+
+**View naming — suffix convention:**
+
+| Suffix         | Meaning             | Example                                  |
+| -------------- | ------------------- | ---------------------------------------- |
+| `_vw`          | Regular view        | `billing_usage_summary_i_vw`             |
+| `_mvw`         | Materialized view   | `segmentation_subscriber_kpi_r_mvw`      |
+
+**Confidentiality flags (part of name, before `_vw`/`_mvw`):**
+
+| Flag | Meaning       | When to apply                                           |
+| ---- | ------------- | ------------------------------------------------------- |
+| `_i` | Internal      | Operational data not for external exposure              |
+| `_c` | Confidential  | Sensitive business data; access restricted by role      |
+| `_r` | Restricted    | Contains PII or regulated data (MSISDN, name, address)  |
+
+Full naming pattern: `{domain}_{descriptor}_{confidentiality}_{vw|mvw}` — e.g. `segmentation_subscriber_kpi_r_mvw`, `billing_usage_summary_i_vw`.
+
+**Index strategy (access-pattern driven):**
+
+- Every foreign key column gets an index
+- Every column used in `WHERE` clauses in expected hot queries gets an index
+- Composite indexes follow query column order (most selective first)
+- Indexes defined in migration files alongside table DDL — no ad-hoc index creation
 
 **API:**
 
@@ -665,7 +761,7 @@ Trace ID always in Kafka message header `traceparent` AND in JSON body `trace_id
 
 - **Dependency Inversion:** All I/O adapters (DB, Vector Store, Cache, LLM) implement typed `Protocol` interfaces defined in `core/protocols/`. Business logic depends only on the protocol, never on the concrete library. Swapping Milvus for another vector store requires only a new adapter file — zero changes to agent or service code.
 - **CQRS at DB layer:** Each domain has a `queries.py` (all `SELECT` operations, read-only) and a `commands.py` (all `INSERT`/`UPDATE`/`DELETE` operations, write-only). Routers and agents import from one or the other — never both from the same call site.
-- **Async-only:** Every FastAPI route is `async def`. All I/O libraries are async: `asyncpg` (Postgres), `redis.asyncio` / `valkey` async client (Redis), `aiokafka` (Kafka), `pymilvus` async (Milvus). No blocking I/O calls anywhere in the hot path.
+- **Async-only:** Every FastAPI route is `async def`. All I/O libraries are async: `psycopg` async with `AsyncConnectionPool` (Postgres), `valkey` async client (Valkey), `aiokafka` (Kafka), `pymilvus` async (Milvus). No blocking I/O calls anywhere in the hot path.
 - **Task runner:** `justfile` (cross-platform, works on Windows / macOS / Linux via the `just` binary). Replaces Makefile.
 
 ```
@@ -674,13 +770,15 @@ sboai_capstone/
 │   └── workflows/
 │       ├── ci-pipeline.yml          # lint, test, build on PR
 │       └── ci-cdr.yml               # CDR pipeline specific checks
-├── docker-compose.yml               # MVP: all infra + services
-├── docker-compose.override.yml      # local dev overrides
+├── docker/
+│   ├── docker-compose-dependencies.yaml  # infra only: Redpanda, Redis, Postgres, Milvus, etc.
+│   ├── docker-compose.yaml               # full stack: extends dependencies + app services
+│   └── docker-compose.override.yaml      # local dev overrides (port mappings, hot reload)
 ├── .env.example
 ├── justfile                         # cross-platform task runner (just up, just test, etc.)
 │
 ├── cdr-pipeline/                    # CDR ingestion codebase (MVP: Python, Target: Rust)
-│   ├── pyproject.toml               # MVP Python deps (aiokafka, asyncpg, valkey, pydantic-settings)
+│   ├── pyproject.toml               # MVP Python deps (aiokafka, psycopg[async,pool], valkey[asyncio], pydantic-settings)
 │   ├── src/
 │   │   ├── main.py                  # Consumer entrypoint (async)
 │   │   ├── core/
@@ -689,7 +787,7 @@ sboai_capstone/
 │   │   │       ├── db.py            # DatabaseProtocol (async read/write)
 │   │   │       └── cache.py         # CacheProtocol (async get/set/incrby/expire)
 │   │   ├── adapters/
-│   │   │   ├── postgres.py          # AsyncpgAdapter implements DatabaseProtocol
+│   │   │   ├── postgres.py          # Psycopg3AsyncAdapter implements DatabaseProtocol (AsyncConnectionPool)
 │   │   │   └── redis.py             # RedisAdapter implements CacheProtocol
 │   │   ├── consumer/
 │   │   │   ├── batch_processor.py   # getmany() batch loop (async)
@@ -706,7 +804,7 @@ sboai_capstone/
 │   └── Dockerfile
 │
 ├── app-backend/                     # All other backend (FastAPI monorepo for MVP)
-│   ├── pyproject.toml               # asyncpg, redis[asyncio], aiokafka, pymilvus, copilotkit, pydantic-settings
+│   ├── pyproject.toml               # psycopg[async,pool], valkey[asyncio], aiokafka, pymilvus, copilotkit, pydantic-settings
 │   ├── src/
 │   │   ├── main.py                  # FastAPI app entrypoint + middleware registration
 │   │   ├── core/
@@ -719,7 +817,7 @@ sboai_capstone/
 │   │   │       ├── cache.py         # CacheProtocol: async get / set / incrby / expire / delete
 │   │   │       └── llm.py           # LLMClientProtocol: async complete / embed
 │   │   ├── adapters/                # Concrete implementations of protocols
-│   │   │   ├── postgres.py          # AsyncpgAdapter implements DatabaseProtocol
+│   │   │   ├── postgres.py          # Psycopg3AsyncAdapter implements DatabaseProtocol (AsyncConnectionPool)
 │   │   │   ├── milvus.py            # MilvusAdapter implements VectorStoreProtocol
 │   │   │   ├── redis.py             # RedisAdapter implements CacheProtocol
 │   │   │   └── azure_openai.py      # AzureOpenAIAdapter implements LLMClientProtocol
@@ -776,10 +874,15 @@ sboai_capstone/
 │   │   │   ├── plan.py
 │   │   │   └── fraud.py
 │   │   └── db/
-│   │       ├── migrations/                # Alembic
+│   │       ├── migrations/                # Flyway SQL migrations (versioned)
+│   │       │   ├── V1__baseline_schema.sql         # all tables + indexes + FK constraints
+│   │       │   ├── V2__modified_at_trigger.sql     # trigger function + application to all tables
+│   │       │   ├── V3__segmentation_kpi_mvw.sql    # segmentation_subscriber_kpi_r_mvw + refresh fn
+│   │       │   ├── V4__billing_views.sql            # billing_usage_summary_i_vw
+│   │       │   └── V5__grants.sql                   # app role grants (audit insert-only, etc.)
 │   │       ├── identity/
-│   │       │   ├── queries.py             # SELECT only — identity_subscribers, identity_kyc_records, ...
-│   │       │   └── commands.py            # INSERT/UPDATE/DELETE — identity_subscribers, ...
+│   │       │   ├── queries.py             # SELECT only — raw SQL via psycopg3
+│   │       │   └── commands.py            # INSERT/UPDATE/DELETE — raw SQL via psycopg3
 │   │       ├── billing/
 │   │       │   ├── queries.py             # SELECT — billing_wallet_balances, billing_cdr_events, ...
 │   │       │   └── commands.py            # INSERT — billing_transactions, billing_audit_log, ...
@@ -798,7 +901,7 @@ sboai_capstone/
 │   ├── tests/
 │   │   ├── unit/
 │   │   ├── integration/
-│   │   └── conftest.py                    # testcontainers: Postgres, Redis, Redpanda
+│   │   └── conftest.py                    # testcontainers: Postgres, Valkey, Redpanda
 │   └── Dockerfile
 │
 ├── frontend/                              # React 18 + Vite + TailwindCSS
@@ -892,16 +995,17 @@ class OtelTraceMiddleware(BaseHTTPMiddleware):
 # justfile — works on Windows (PowerShell), macOS, Linux
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
-up:           docker compose up -d
-down:         docker compose down
-logs:         docker compose logs -f
-restart svc:  docker compose restart {{svc}}
+deps:         docker compose -f docker/docker-compose-dependencies.yaml up -d
+up:           docker compose -f docker/docker-compose.yaml up -d
+down:         docker compose -f docker/docker-compose.yaml down
+logs:         docker compose -f docker/docker-compose.yaml logs -f
+restart svc:  docker compose -f docker/docker-compose.yaml restart {{svc}}
 
 backend:      cd app-backend && uvicorn src.main:app --reload --port 8000
 frontend:     cd frontend && npm run dev
 cdr:          cd cdr-pipeline && python -m src.main
 
-migrate:      cd app-backend && alembic upgrade head
+migrate:      flyway -url=jdbc:postgresql://localhost:5432/sboai -locations=filesystem:app-backend/db/migrations migrate
 seed:         cd app-backend && python scripts/generate_synthetic_data.py
 seed-milvus:  cd app-backend && python scripts/seed_milvus.sh
 
@@ -916,21 +1020,29 @@ lint-fe:      cd frontend && npm run lint
 
 ### 1.12.2. Docker Compose Services (MVP)
 
+**Two-file Docker Compose split:** Infrastructure dependencies are defined in `docker/docker-compose-dependencies.yaml`. The full stack `docker/docker-compose.yaml` uses Compose's `include:` directive to reuse all dependency definitions and adds the application services on top. This allows local development with just `docker compose -f docker/docker-compose-dependencies.yaml up -d` — no codebase containers needed while iterating.
+
 **MiniStack** MiniStack is lighter, faster to start, and sufficient for the Cognito + S3 surface area used in MVP.
 
+**Valkey (standalone, not MiniStack-bundled):** Valkey runs as its own dedicated container, independent of MiniStack. This avoids any implicit dependency on MiniStack's internal Redis and gives a clean separation: Valkey = application data layer; MiniStack = Cognito/S3 simulation.
+
 **Persistence:** Named Docker volumes are configured for Cognito user pools, S3 objects, and PostgreSQL data so state survives container restarts during development.
+
+**`docker/docker-compose-dependencies.yaml` — infrastructure only:**
 
 ```yaml
 services:
   redpanda:          # Kafka-compatible event bus
-  redis:             # Balance buffer, session, dedup, rate limit
+  valkey:            # Balance buffer, session, dedup, OTP (standalone; maxmemory-policy noeviction)
+    volumes:
+      - valkey_data:/data
   postgres:          # Primary DB
     volumes:
       - postgres_data:/var/lib/postgresql/data   # persisted across restarts
 
   milvus:            # Vector store (+ etcd + minio as deps)
   langfuse:          # Agent observability
-  ministack:         # AWS Cognito + S3 simulation
+  ministack:         # AWS Cognito + S3 simulation (no Redis bundled — Valkey is separate)
     volumes:
       - ministack_cognito:/var/lib/ministack/cognito   # user pools + app clients persisted
       - ministack_s3:/var/lib/ministack/s3             # S3 buckets + objects persisted
@@ -938,17 +1050,27 @@ services:
   otel-collector:    # OTEL collector
   otel-tui:          # Terminal traces/metrics/logs viewer
   fluentd:           # Log routing
-  cdr-pipeline:      # CDR consumer + management API
-  app-backend:       # FastAPI monorepo
-  frontend:          # Vite dev server (or nginx for built assets)
 
 volumes:
   postgres_data:
+  valkey_data:
   ministack_cognito:
   ministack_s3:
 ```
 
-**Non-persisted services (acceptable to reset on restart):** Redis, Redpanda, Milvus, LangFuse. Redis balance state can be cold-started from Postgres; Redpanda offsets reset is safe during dev; Milvus collections are re-seeded via `just seed-milvus`.
+**`docker/docker-compose.yaml` — full stack (extends dependencies):**
+
+```yaml
+include:
+  - docker-compose-dependencies.yaml   # reuse all infra service definitions
+
+services:
+  cdr-pipeline:      # CDR consumer + management API
+  app-backend:       # FastAPI monorepo
+  frontend:          # Vite dev server (or nginx for built assets)
+```
+
+**Non-persisted services (acceptable to reset on restart):** Valkey, Redpanda, Milvus, LangFuse. Valkey balance state cold-starts from Postgres; Redpanda offset reset is safe during dev; Milvus collections are re-seeded via `just seed-milvus`.
 
 ---
 
@@ -957,7 +1079,7 @@ volumes:
 ### 1.13.1. Decision Compatibility ✅
 
 - Redpanda (Kafka-wire-compatible) → aiokafka consumer works unchanged
-- Valkey → Redis-compatible; same Python `redis` client
+- Valkey (Docker, standalone) → Redis-compatible; Python `valkey[asyncio]` client; same wire protocol as Redis
 - LangGraph + Azure OpenAI: supported; `langchain-openai` with Azure base URL
 - OTEL-TUI + OTEL Collector: standard OTLP receiver
 - Milvus: `pymilvus` client; HNSW + BM25 hybrid supported in Milvus 2.4+
@@ -974,8 +1096,8 @@ volumes:
 | 6-year audit retention        | Postgres append-only + S3 archive                                         |
 | PCI-DSS                       | Tokenisation at entry; raw PAN never persisted                            |
 | PII encryption                | pgcrypto AES-256 + Fluentd redaction                                      |
-| FR-36 rate limiting           | Valkey INCR/TTL per subscriber per window                                 |
-| FR-66 account takeover        | Blacklist Valkey + Postgres + API Gateway 403 on JWT                      |
+| FR-36 rate limiting           | MVP: not enforced; Target State: API Gateway per-subscriber throttle      |
+| FR-66 account takeover        | Postgres `fraud_blacklist` + Cognito account disable + token revocation → API Gateway JWT validation blocks all subsequent calls |
 | FR-77 health checks           | `/health` + `/ready` on every FastAPI service                             |
 
 ### 1.13.3. FR Coverage ✅
@@ -992,7 +1114,7 @@ All 77 FRs are architecturally addressed:
 - FR-53–56 (Fraud Dashboard): `fraud` router + WebSocket push + `fraud.alerts` topic
 - FR-57–59 (CDR Pipeline): Redpanda + aiokafka + Valkey + Postgres + DLQ
 - FR-60–62 (Fraud Agent): rule screener + LangGraph Fraud Agent + `fraud_cases` table
-- FR-63–67 (Security): pgcrypto + TLS + Fluentd redaction + Valkey blacklist + JWT roles
+- FR-63–67 (Security): pgcrypto + TLS + Fluentd redaction + Postgres/Cognito blacklist + JWT roles
 - FR-68–70 (Simulator): `simulator` router + WebSocket trace stream + MiniStack
 - FR-71 (Synthetic Dataset): `synthetic_generator.py` — 300K subs, 5M CDRs, 1K plans
 - FR-72–77 (Eval/Obs): LangFuse + OTEL + DeepEval + LLM-as-Judge + `/health`+`/ready`
@@ -1079,7 +1201,7 @@ All 77 FRs are architecturally addressed:
 **First Implementation Priorities:**
 
 1. `docker-compose.yml` — bring up all infra (Redpanda, Redis, Postgres, Milvus, MiniStack, LangFuse, OTEL-TUI, Fluentd)
-2. Postgres schema migrations (Alembic) — all domains
+2. Postgres schema migrations (Flyway SQL) — all domains, views, triggers
 3. Synthetic dataset generation (`scripts/generate_synthetic_data.py`) — 300K subs, 5M CDRs
 4. CDR pipeline consumer (`cdr-pipeline/`) — dedup + balance write + fan-out
 5. Core FastAPI app (`app-backend/`) — account, balance, recharge routers
