@@ -1,0 +1,244 @@
+[project]
+[project.optional-dependencies]
+dev = [
+    "pyinstrument>=5.1.0",
+    "python-semantic-release>=10.0",
+]
+test = [
+    "ruff>=0.12.9",
+    "pytest>=7.0.0",
+    "pytest-env>=1.1.0",
+    "tox>=4.0.0",
+    "pyrefly>=0.31.0",
+]
+
+# ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+# │                                           Ruff Config                                            │
+# └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+fix = true
+
+[tool.ruff.format]
+# 5. Use single quotes for non-triple-quoted strings.
+quote-style = "double"
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+    "B", # flake8-bugbear
+    "C4", # comprehensions
+    "D", # pydocstyle
+    "E", # pycodestyle
+    "F", # pyflakes
+    "FA", # flake8-future-annotations
+    "FLY", # flynt
+    "G", # flake8-logging-format
+    "I", # isort
+    "INT", # flake8-gettext
+    "ISC", # implicit string concatenation
+    "NPY002", # numpy-legacy-random
+    "PERF", # Perflint
+    "PGH", # pygrep-hooks
+    "PIE", # misc lints
+    "PL", # pylint
+    "PT", # flake8-pytest-style
+    "PYI", # flake8-pyi
+    "Q", # flake8-quotes
+    "RUF", # Ruff-specific rules
+    "S102", # flake8-bandit: exec-builtin
+    "T10", # flake8-debugger
+    "TCH", # type-checking imports
+    "TID", # tidy imports
+    "UP", # pyupgrade
+    "W", # pycodestyle
+    "YTT", # flake8-2020
+]
+
+# Taken from pandas pyproject.toml as reference
+ignore = [
+    ### Intentionally disabled
+    # module level import not at top of file
+    "E402",
+    # do not assign a lambda expression, use a def
+    "E731",
+    # controversial
+    "B007",
+    # controversial
+    "B008",
+    # setattr is used to side-step mypy
+    "B009",
+    # getattr is used to side-step mypy
+    "B010",
+    # tests use comparisons but not their returned value
+    "B015",
+    # Function definition does not bind loop variable
+    "B023",
+    # Only works with python >=3.10
+    "B905",
+    # Too many arguments to function call
+    "PLR0913",
+    # Too many returns
+    "PLR0911",
+    # Too many branches
+    "PLR0912",
+    # Too many statements
+    "PLR0915",
+    # Redefined loop name
+    "PLW2901",
+    # Global statements are discouraged
+    "PLW0603",
+    # Use `typing.NamedTuple` instead of `collections.namedtuple`
+    "PYI024",
+    # No builtin `eval()` allowed
+    "S307",
+    # while int | float can be shortened to float, the former is more explicit
+    "PYI041",
+    # incorrect-dict-iterator, flags valid Series.items usage
+    "PERF102",
+    # try-except-in-loop, becomes useless in Python 3.11
+    "PERF203",
+    # pytest-parametrize-names-wrong-type
+    "PT006",
+    # pytest-parametrize-values-wrong-type
+    "PT007",
+    # pytest-patch-with-lambda
+    "PT008",
+    # pytest-raises-with-multiple-statements
+    "PT012",
+    # pytest-assert-in-except
+    "PT017",
+    # pytest-composite-assertion
+    "PT018",
+    # pytest-fixture-param-without-value
+    "PT019",
+    # The following rules may cause conflicts when used with the formatter:
+    "ISC001",
+    ### TODO: Enable gradually
+    # Useless statement
+    "B018",
+    # Magic number
+    "PLR2004",
+    # comparison-with-itself
+    "PLR0124",
+    # collection-literal-concatenation
+    "RUF005",
+    # pairwise-over-zipped (>=PY310 only)
+    "RUF007",
+    # mutable-class-default
+    "RUF012",
+    # Unnecessary pass/... literal
+    "PIE790",
+    # Unused imports
+    "F401",
+    "E501", # (line too long)
+    "G004", # (logging-format-interpolation - use f-strings
+    "W291", # Trailing Whitespace
+    "W293", # Blank lines contains Trailing Whitespace
+    # Docstring styles - too much
+    "D100", # Missing docstring in public module
+    "D104", # Missing docstring in public package
+]
+unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["E402"]
+"**/{tests,docs,tools}/*" = ["E402"]
+"error_codes.py" = ["C408"]
+
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
+mark-parentheses = false
+
+[tool.ruff.lint.flake8-quotes]
+docstring-quotes = "double"
+
+[tool.ruff.lint.isort]
+case-sensitive = true
+combine-as-imports = true
+force-wrap-aliases = true
+split-on-trailing-comma = true
+
+[tool.ruff.lint.pyupgrade]
+# Preserve types, even if a file imports `from __future__ import annotations`.
+keep-runtime-typing = true
+
+[tool.ruff.lint.pydocstyle]
+# Use numpy-style docstrings.
+convention = "numpy"
+
+[tool.ruff.lint.pyflakes]
+#A list of modules to ignore when considering unused imports. These will not be removed even if unused
+allowed-unused-imports = []
+
+
+# ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+# │                                          Pytest config                                           │
+# └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+python_files = "test_*.py"
+markers = [
+    # Slow running tests
+    "slow",
+    # Unit, integration and functional tests
+    "unit",
+    "functional",
+    "integration",
+    "security",
+    # Internal API calls involved. Can be skipped if required
+    "api__internal"
+]
+addopts = [
+    "--import-mode=importlib",
+    "--strict-config",
+    "--strict-markers",
+]
+# addopts = "--cov --cov-report html --cov-report term-missing"
+
+# ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+# │                                          Pyrefly config                                          │
+# └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+[tool.pyrefly]
+project-includes = ["src/*"]
+project-excludes = [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/*venv/**/*",
+]
+[tool.pyrefly.errors]
+no-matching-overload = false
+
+# ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+# │                                               tox                                                │
+# └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+[tool.tox]
+requires = ["tox>=4.15"]
+env_list = ["lint", "pytest_fast"]
+
+[tool.tox.env_run_base]
+runner = "uv-venv-lock-runner"
+description = "Run test under {base_python}"
+uv_sync_flags = ["--inexact", "--extra", "test"]
+
+[tool.tox.env.lint]
+description = "Run ruff linter & format checker along with pyright"
+commands = [
+    ["ruff", "check", "."],
+    ["ruff", "format", "--check", "."],
+    ["pyrefly", "check"],
+]
+
+[tool.tox.env.pytest_fast]
+description = "Run pytest (Skip slow tests)"
+commands = [["pytest", "-m", "not slow", "-n", "auto", "{posargs}"]]
+
+[tool.tox.env.pytest_all]
+description = "Run pytest (Complete)"
+commands = [["pytest", "-n", "auto", "{posargs}"]]

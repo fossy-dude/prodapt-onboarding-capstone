@@ -38,7 +38,7 @@ completedAt: '2026-06-18'
 | Fraud Detection Agent      | FR-60–62 | Async LLM escalation off the balance hot path            |
 | Security & Compliance      | FR-63–67 | PII encryption, PCI-DSS tokenisation, TRAI, JWT roles    |
 | Simulator & Dev Tools      | FR-68–70 | CDR generator, notification observer, trace display      |
-| Synthetic Dataset          | FR-71    | 300K subscribers, 5M CDRs, seed scripts                  |
+| Synthetic Dataset          | FR-71    | 1K plans, 300K subscribers, 5M CDRs, seed scripts        |
 | Eval, Observability, QA    | FR-72–77 | LangFuse, DeepEval, LLM-as-Judge, OTEL trace propagation |
 
 **Non-Functional Requirements:**
@@ -84,56 +84,58 @@ completedAt: '2026-06-18'
 
 ### 1.3.1. Decided Stack — MVP
 
-| Layer                      | Technology                          | Rationale                                                                     |
-| -------------------------- | ----------------------------------- | ----------------------------------------------------------------------------- |
-| **CDR Pipeline**           | Python (aiokafka consumer workers)  | Single-language MVP; sufficient for 10K eps PoC                               |
-| **Application Backend**    | Python 3.14 + FastAPI               | All non-pipeline services in one FastAPI monorepo                             |
-| **DB Client**              | Psycopg3 (async) + connection pool  | Native async protocol; binary mode; faster than asyncpg for most workloads; SQL-only, no ORM |
-| **DB Migrations**          | Flyway (SQL-native)                 | All schema DDL, views, materialized views, triggers managed as versioned SQL migrations |
-| **Event Bus**              | Redpanda (Kafka-compatible, Docker) | No ZooKeeper; Kafka-wire-compatible; simpler MVP ops                          |
-| **Balance Write Buffer**   | Valkey (Docker, MVP)                | Fast atomic INCRBY; session store; dedup SET; Redis-compatible; |
-| **Primary Database**       | PostgreSQL 16                       | Source of truth for balance, accounts, audit, plans                           |
-| **Vector Store**           | Milvus (Docker)                     | Fixed. Hybrid search: dense + BM25 + RRF reranker                             |
-| **Agent Orchestration**    | LangGraph (Python)                  | Stateful graph, native A2A, multi-turn memory                                 |
-| **LLM Provider**           | Azure OpenAI                        | GPT-5.4-mini and GPT-5.4 for agents; `text-embedding-3-small` for embeddings  |
-| **Frontend**               | React 18 + Vite + TailwindCSS       | Fast builds; single SPA with role-based routing                               |
-| **Chatbot UI**             | CopilotKit (`@copilotkit/react-ui`) | `<CopilotChat>` component; AG-UI event stream replacing SSE                   |
-| **Agent–UI Protocol**      | AG-UI (via CopilotKit runtime)      | Typed event stream: tool calls, state snapshots, text deltas                  |
-| **Config Management**      | pydantic-settings                   | Unified env / `.env` / Secrets Manager config; eager load; fails fast         |
-| **Auth**                   | AWS Cognito (via MiniStack)         | JWT issuance; OTP via Cognito; role claims in token                           |
-| **Observability (infra)**  | OTEL-TUI (Docker)                   | Low memory footprint; traces/logs/metrics in terminal                         |
-| **Observability (agents)** | LangFuse (self-hosted Docker)       | All agent/tool calls traced                                                   |
-| **Log routing**            | Fluentd                             | Routes Docker logs to OTEL-TUI (MVP) or LGTM (Target)                         |
-| **PDF Generation**         | WeasyPrint (Python)                 | HTML→PDF for receipts; no headless browser dep                                |
-| **ML Forecasting**         | scikit-learn                        | Subscriber growth/plan popularity; simple linear/gradient-boost               |
-| **CI/CD**                  | GitHub Actions                      | PR checks, lint, test, Docker build                                           |
-| **Container**              | Docker Compose                      | All services including Redpanda, Milvus, Redis, Postgres, LangFuse, MiniStack |
-| **CDR Simulator**          | Python Scripts                      | Manually generated via a UI. Limited to 100 CDRs in 1 shot                    |
+| Layer                      | Technology                                      | Rationale                                                                                                                                                                  |
+| -------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **CDR Pipeline**           | Python (aiokafka consumer workers)              | Single-language MVP; sufficient for 10K eps PoC                                                                                                                            |
+| **Application Backend**    | Python 3.14 + FastAPI                           | All non-pipeline services in one FastAPI monorepo                                                                                                                          |
+| **DB Client**              | Psycopg3 (async) + connection pool              | Native async protocol; binary mode; faster than asyncpg for most workloads; SQL-only, no ORM                                                                               |
+| **DB Migrations**          | Flyway (SQL-native)                             | All schema DDL, views, materialized views, triggers managed as versioned SQL migrations                                                                                    |
+| **Event Bus**              | Redpanda (Kafka-compatible, Docker)             | No ZooKeeper; Kafka-wire-compatible; simpler MVP ops                                                                                                                       |
+| **Balance Write Buffer**   | Valkey (Docker, MVP)                            | Fast atomic INCRBY; session store; dedup SET; Redis-compatible;                                                                                                            |
+| **Primary Database**       | PostgreSQL 16                                   | Source of truth for balance, accounts, audit, plans                                                                                                                        |
+| **Vector Store**           | Milvus Lite (Python, embedded)                  | Fixed. MVP uses `milvus-lite` — no separate container; runs in-process via `pymilvus[milvus-lite]`; data persisted to Docker volume                                        |
+| **Agent Orchestration**    | LangGraph (Python)                              | Stateful graph, native A2A, multi-turn memory                                                                                                                              |
+| **LLM Provider**           | Azure OpenAI                                    | GPT-5.4-mini and GPT-5.4 for agents; `text-embedding-3-small` for embeddings                                                                                               |
+| **Frontend**               | React 18 + Vite + TailwindCSS                   | Fast builds; single SPA with role-based routing                                                                                                                            |
+| **Chatbot UI**             | CopilotKit (`@copilotkit/react-ui`)             | `<CopilotChat>` component; AG-UI event stream replacing SSE                                                                                                                |
+| **Agent–UI Protocol**      | AG-UI (via CopilotKit runtime)                  | Typed event stream: tool calls, state snapshots, text deltas                                                                                                               |
+| **Config Management**      | pydantic-settings                               | Unified env / `.env` / Secrets Manager config; eager load; fails fast                                                                                                      |
+| **Auth**                   | AWS Cognito (via MiniStack)                     | JWT issuance; OTP via Cognito; role claims in token                                                                                                                        |
+| **Observability (infra)**  | OTEL-TUI (Docker)                               | Low memory footprint; traces/logs/metrics in terminal                                                                                                                      |
+| **Observability (agents)** | LangFuse (self-hosted Docker)                   | All agent/tool calls traced                                                                                                                                                |
+| **Log routing**            | Fluentd                                         | Routes Docker logs to OTEL-TUI (MVP) or LGTM (Target)                                                                                                                      |
+| **PDF Generation**         | WeasyPrint (Python)                             | HTML→PDF for receipts; no headless browser dep                                                                                                                             |
+| **ML Forecasting**         | scikit-learn                                    | Subscriber growth/plan popularity; simple linear/gradient-boost                                                                                                            |
+| **Linting / Formatting**   | ruff (lint + format) + pyrefly (static linting) | Single tool replaces flake8 + isort + Black; configured in `pyproject.toml` [Source](https://github.com/fossy-dude/pydantic-config-mgmt-template/blob/main/pyproject.toml) |
+| **Test runner**            | `uv tox` (tox-uv plugin)                        | Runs lint, typecheck, and pytest in isolated envs; `uv` for fast dep install                                                                                               |
+| **CI/CD**                  | GitHub Actions                                  | PR checks: `uv tox` (all envs), Docker build                                                                                                                               |
+| **Container**              | Docker Compose                                  | All services including Redpanda, Valkey, Postgres, LangFuse, MiniStack (Milvus Lite runs embedded in app-backend — no separate container)                                  |
+| **CDR Simulator**          | Python Scripts                                  | Manually generated via a UI. Limited to 100 CDRs in 1 shot                                                                                                                 |
 
 ### 1.3.2. Decided Stack — Target State
 
-| Layer                       | Technology                                                    | Rationale                                                               |
-| --------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| **CDR Pipeline**            | Rust (tokio + rdkafka)                                        | 100K eps; sub-200ms P95; zero-GC; max throughput on Kafka consumers     |
-| **Application Backend**     | Python 3.14 + FastAPI                                         | Microservices; each domain service independently deployed               |
-| **Event Bus**               | Amazon MSK (Apache Kafka)                                     | Managed, 100K eps capable, 24 partitions; `ap-south-1`                  |
-| **Balance Write Buffer**    | Amazon ElastiCache Valkey                                     | Managed Redis-compatible; higher throughput than Redis                  |
-| **Primary Database**        | Amazon RDS PostgreSQL (Multi-AZ)                              | Managed HA; read replicas for reporting; `ap-south-1`                   |
-| **OLTP Hot Write Layer**    | Valkey INCRBY → async bulk upsert → RDS                       | As per decision log: Valkey absorbs write spikes; RDS for audit/SQL     |
-| **Vector Store**            | Milvus (self-managed on EKS)                                  | Fixed. Same Milvus collection schema as MVP; scaled replicas            |
-| **Agent Orchestration**     | LangGraph (Python)                                            | Unchanged from MVP                                                      |
-| **LLM Provider**            | Azure OpenAI                                                  | Unchanged; consider Bedrock for future data residency                   |
-| **Frontend**                | React 18 + Vite + TailwindCSS                                 | Built as static assets; S3 origin; served via CloudFront (CDN, `ap-south-1`) |
+| Layer                       | Technology                                                    | Rationale                                                                      |
+| --------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| **CDR Pipeline**            | Rust (tokio + rdkafka)                                        | 100K eps; sub-200ms P95; zero-GC; max throughput on Kafka consumers            |
+| **Application Backend**     | Python 3.14 + FastAPI                                         | Microservices; each domain service independently deployed                      |
+| **Event Bus**               | Amazon MSK (Apache Kafka)                                     | Managed, 100K eps capable, 24 partitions; `ap-south-1`                         |
+| **Balance Write Buffer**    | Amazon ElastiCache Valkey                                     | Managed Redis-compatible; higher throughput than Redis                         |
+| **Primary Database**        | Amazon RDS PostgreSQL (Multi-AZ)                              | Managed HA; read replicas for reporting; `ap-south-1`                          |
+| **OLTP Hot Write Layer**    | Valkey INCRBY → async bulk upsert → RDS                       | As per decision log: Valkey absorbs write spikes; RDS for audit/SQL            |
+| **Vector Store**            | Milvus Distributed (self-managed on EKS)                      | Fixed. Same collection schema as MVP; horizontally scaled query/data nodes     |
+| **Agent Orchestration**     | LangGraph (Python)                                            | Unchanged from MVP                                                             |
+| **LLM Provider**            | Azure OpenAI                                                  | Unchanged; consider Bedrock for future data residency                          |
+| **Frontend**                | React 18 + Vite + TailwindCSS                                 | Built as static assets; S3 origin; served via CloudFront (CDN, `ap-south-1`)   |
 | **CDN**                     | AWS CloudFront                                                | Static asset caching; global PoPs for low-latency delivery; origin = S3 bucket |
-| **Auth**                    | Keycloak (self-hosted on EKS)                                 | Enterprise RBAC; scale warrants full IdP over Cognito                   |
-| **API Gateway**             | AWS API Gateway + ALB                                         | Rate limiting (FR-36); JWT validation; subscriber blacklist enforcement |
-| **Observability (infra)**   | OTEL → LGTM (Grafana, Loki, Tempo, Mimir)                     | Managed Grafana on AWS; `ap-south-1`                                    |
-| **Observability (agents)**  | LangFuse (self-hosted on EKS)                                 | Same as MVP; scaled deployment                                          |
-| **Log routing**             | Fluentd (DaemonSet on EKS)                                    | Routes pod logs to Loki; unchanged Fluentd config from MVP              |
-| **ML Forecasting**          | To be evaluated: TimesFM / Chronos / Prophet / NeuralForecast | Deep learning forecast models; choice deferred post-MVP                 |
-| **Container Orchestration** | AWS EKS (Kubernetes)                                          | Service-level scaling; Milvus, Keycloak, LangFuse all on cluster        |
-| **CDR Simulator**           | Rust binary (same codebase as pipeline, feature-flagged)      | Generates synthetic CDR events at target throughput for load testing    |
-| **Audit Archive**           | S3 + S3 Glacier                                               | 6-year TRAI-compliant retention; lifecycle policies                     |
+| **Auth**                    | Keycloak (self-hosted on EKS)                                 | Enterprise RBAC; scale warrants full IdP over Cognito                          |
+| **API Gateway**             | AWS API Gateway + ALB                                         | Rate limiting (FR-36); JWT validation; subscriber blacklist enforcement        |
+| **Observability (infra)**   | OTEL → LGTM (Grafana, Loki, Tempo, Mimir)                     | Managed Grafana on AWS; `ap-south-1`                                           |
+| **Observability (agents)**  | LangFuse (self-hosted on EKS)                                 | Same as MVP; scaled deployment                                                 |
+| **Log routing**             | Fluentd (DaemonSet on EKS)                                    | Routes pod logs to Loki; unchanged Fluentd config from MVP                     |
+| **ML Forecasting**          | To be evaluated: TimesFM / Chronos / Prophet / NeuralForecast | Deep learning forecast models; choice deferred post-MVP                        |
+| **Container Orchestration** | AWS EKS (Kubernetes)                                          | Service-level scaling; Milvus, Keycloak, LangFuse all on cluster               |
+| **CDR Simulator**           | Rust binary (same codebase as pipeline, feature-flagged)      | Generates synthetic CDR events at target throughput for load testing           |
+| **Audit Archive**           | S3 + S3 Glacier                                               | 6-year TRAI-compliant retention; lifecycle policies                            |
 
 ---
 
@@ -358,18 +360,18 @@ Root Cause Analysis Agent (FR-75):
 
 **Naming pattern:** `{domain}_{table_name}` — all in `public` schema.
 
-| Domain prefix    | Tables                                                                                                                                                                         |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `identity_`      | `identity_subscribers`, `identity_registrations`, `identity_kyc_records`, `identity_caf_submissions`                                                                           |
-| `billing_`       | `billing_wallet_balances`, `billing_cdr_events`, `billing_transactions`, `billing_audit_log`                                                                                   |
-| `plans_`         | `plans_plans`, `plans_subscriptions`, `plans_plan_config`                                                                                                                      |
-| `recharge_`      | `recharge_orders`, `recharge_payment_methods`, `recharge_receipts`                                                                                                             |
-| `notifications_` | `notifications_events`, `notifications_config`, `notifications_preferences`                                                                                                    |
-| `support_`       | `support_tickets`, `support_chat_sessions`, `support_session_learnings`                                                                                                        |
-| `fraud_`         | `fraud_cases`, `fraud_rules`, `fraud_blacklist`                                                                                                                                |
+| Domain prefix    | Tables                                                                                                                                                                              |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `identity_`      | `identity_subscribers`, `identity_registrations`, `identity_kyc_records`, `identity_caf_submissions`                                                                                |
+| `billing_`       | `billing_wallet_balances`, `billing_cdr_events`, `billing_transactions`, `billing_audit_log`                                                                                        |
+| `plans_`         | `plans_plans`, `plans_subscriptions`, `plans_plan_config`                                                                                                                           |
+| `recharge_`      | `recharge_orders`, `recharge_payment_methods`, `recharge_receipts`                                                                                                                  |
+| `notifications_` | `notifications_events`, `notifications_config`, `notifications_preferences`                                                                                                         |
+| `support_`       | `support_tickets`, `support_chat_sessions`, `support_session_learnings`                                                                                                             |
+| `fraud_`         | `fraud_cases`, `fraud_rules`, `fraud_blacklist`                                                                                                                                     |
 | `segmentation_`  | `segmentation_segment_rules`, `segmentation_labels`, `segmentation_recommendation_feedback`, `segmentation_upsell_feedback`; materialized view: `segmentation_subscriber_kpi_r_mvw` |
-| `ops_`           | `ops_order_fulfilment`, `ops_forecast_results`                                                                                                                                 |
-| `sop_`           | `sop_rules`, `sop_knowledge_chunks`                                                                                                                                            |
+| `ops_`           | `ops_order_fulfilment`, `ops_forecast_results`                                                                                                                                      |
+| `sop_`           | `sop_rules`, `sop_knowledge_chunks`                                                                                                                                                 |
 
 **Migration path to Target State:** if separate schemas become warranted at scale, migrations can rename tables and reassign schema — prefix naming makes the mapping unambiguous.
 
@@ -377,9 +379,53 @@ Root Cause Analysis Agent (FR-75):
 
 **Table standards (applies to every table):**
 
-- `id UUID DEFAULT gen_random_uuid() PRIMARY KEY`
+- `id UUID PRIMARY KEY` — see UUID strategy below
 - `created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL`
 - `modified_at TIMESTAMPTZ DEFAULT NOW() NOT NULL` — updated via `set_modified_at()` trigger (defined once in a base migration, applied per table)
+
+**UUID Strategy — v4 vs v7:**
+
+UUID version choice is driven by sortability and index locality, not a blanket rule.
+
+| UUID version | When to use                                               | Rationale                                                                                                    |
+| ------------ | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **UUIDv7**   | All transactional / high-insert-rate tables               | Time-ordered; B-tree index locality; avoids random page splits at scale; naturally sortable by creation time |
+| **UUIDv4**   | Reference / configuration tables (plans, SOP rules, etc.) | Insert rate is negligible; random UUID is fine                                                               |
+
+**Transactional tables that MUST use UUIDv7** (DDL: `id UUID DEFAULT uuid_generate_v7() PRIMARY KEY`):
+
+- `billing_cdr_events` — CDR records (5M+ rows; high insert rate)
+- `billing_transactions` — payment and deduction transactions
+- `billing_audit_log` — append-only audit events
+- `fraud_cases` — fraud case entries
+- `fraud_blacklist` — blacklist entries
+- `support_tickets` — ticket entries
+- `support_chat_sessions` — chat session records
+- `notifications_events` — notification event log
+- `recharge_orders` — recharge transactions
+- `segmentation_labels` — LLM-assigned segment labels (batch-written)
+- `segmentation_recommendation_feedback` — real-time feedback events
+- `segmentation_upsell_feedback` — upsell response events
+- `identity_registrations` — SIM/KYC registration events
+- `identity_kyc_records` — KYC submission records
+
+**Reference tables that use UUIDv4** (DDL: `id UUID DEFAULT gen_random_uuid() PRIMARY KEY`):
+
+- `plans_plans`, `plans_plan_config` — seeded once; low churn
+- `sop_rules`, `sop_knowledge_chunks` — seeded; rarely updated
+- `fraud_rules` — rule definitions; manually managed
+- `notifications_config`, `notifications_preferences` — configuration
+- `identity_subscribers` — subscriber master record (created at registration; not a transaction stream)
+- All other lookup / configuration tables
+
+**PostgreSQL extension requirement:** `uuid_generate_v7()` requires the `pg_uuidv7` extension (available for PostgreSQL 16). Add to V1 baseline migration:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS "pg_uuidv7";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";  -- already required for PII encryption
+```
+
+**Python library:** Use `uuid7` package (`pip install uuid7`) for application-side UUID generation when needed (e.g., Synthetic CRD event creation, or synthetic data creation).
 
 ---
 
@@ -401,16 +447,16 @@ app-backend/db/migrations/
 
 **Encoding in migrations:**
 
-| DDL Object         | Encoded in migrations?  | Notes                                                                 |
-| ------------------ | ----------------------- | --------------------------------------------------------------------- |
-| Tables             | ✅ Yes                  | All domains in V1 baseline                                            |
-| Indexes            | ✅ Yes                  | Co-located with table DDL; follow access-pattern rules                |
-| FK constraints     | ✅ Yes                  | Explicit `REFERENCES` clauses in CREATE TABLE                         |
-| Views (`_vw`)      | ✅ Yes                  | `CREATE OR REPLACE VIEW` in dedicated migration                       |
+| DDL Object         | Encoded in migrations? | Notes                                                                     |
+| ------------------ | ---------------------- | ------------------------------------------------------------------------- |
+| Tables             | ✅ Yes                  | All domains in V1 baseline                                                |
+| Indexes            | ✅ Yes                  | Co-located with table DDL; follow access-pattern rules                    |
+| FK constraints     | ✅ Yes                  | Explicit `REFERENCES` clauses in CREATE TABLE                             |
+| Views (`_vw`)      | ✅ Yes                  | `CREATE OR REPLACE VIEW` in dedicated migration                           |
 | Materialized views | ✅ Yes                  | `CREATE MATERIALIZED VIEW` + `CREATE UNIQUE INDEX` for concurrent refresh |
-| Triggers           | ✅ Yes                  | `modified_at` trigger function + `CREATE TRIGGER` per table           |
-| Grants / roles     | ✅ Yes                  | App role grants (read-only on audit tables, etc.)                     |
-| Alembic            | ❌ Removed              | Replaced by Flyway SQL-native approach                                |
+| Triggers           | ✅ Yes                  | `modified_at` trigger function + `CREATE TRIGGER` per table               |
+| Grants / roles     | ✅ Yes                  | App role grants (read-only on audit tables, etc.)                         |
+| Alembic            | ❌ Removed              | Replaced by Flyway SQL-native approach                                    |
 
 **SQL-only rule:** All database queries in application code use raw SQL strings (via psycopg3). No SQLAlchemy ORM, no Django ORM, no query builder. CQRS split (`queries.py` / `commands.py`) organises SQL by read vs. write — see §1.12.1.
 
@@ -451,7 +497,75 @@ CREATE TRIGGER trg_identity_subscribers_modified_at
 
 - **Rate limiting — not in MVP; API Gateway in Target State:** MVP has no per-subscriber rate limiting. In Target State, AWS API Gateway enforces the business-level per-subscriber limit (FR-36) natively — no application-layer Redis key needed.
 
-### 1.7.3. Milvus Collections
+### 1.7.3. Milvus Deployment Strategy
+
+**MVP — Milvus Lite (embedded, Python dependency):**
+
+Milvus Lite runs fully in-process as a Python library via `pymilvus[milvus-lite]`. There is no separate Milvus container or server process. The embedded server starts automatically when `MilvusClient` is instantiated with a file path. Data is written to a local `.db` file mounted on a Docker volume for persistence across container restarts.
+
+**Why Milvus Lite for MVP:**
+
+- Zero-ops: no separate container, no etcd, no MinIO required
+- Same `pymilvus` client API — collection creation, upsert, hybrid search all identical to Milvus standalone/distributed
+- Docker volume ensures data persists; re-seeding is a `just seed-milvus` command, not a cluster restart
+
+**Milvus Lite Dockerfile (`app-backend/Dockerfile`):**
+
+```dockerfile
+FROM python:3.11-slim
+
+# Build tools required by pymilvus native extensions (grpc, hnswlib)
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    gcc \
+    g++ \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install dependencies including Milvus Lite
+# pymilvus[milvus-lite] bundles the embedded Milvus server
+COPY pyproject.toml .
+RUN pip install --no-cache-dir "uv" \
+    && uv pip install --system --no-cache "pymilvus[milvus-lite]" \
+    && uv pip install --system --no-cache -e ".[dev]"
+
+# Data directory for Milvus Lite persistence (mounted as Docker volume)
+RUN mkdir -p /app/data/milvus
+
+COPY src/ src/
+
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+**Docker Compose volume mount for Milvus Lite persistence:**
+
+```yaml
+services:
+  app-backend:
+    build: ./app-backend
+    volumes:
+      - milvus_lite_data:/app/data/milvus   # Milvus Lite .db file persisted here
+
+volumes:
+  milvus_lite_data:
+```
+
+**MilvusClient instantiation (MVP):**
+
+```python
+from pymilvus import MilvusClient
+
+# Lite: file path → embedded server, data persisted to Docker volume
+client = MilvusClient(uri="/app/data/milvus/sboai.db")
+```
+
+**Target State — Milvus Distributed (on EKS):**
+
+Switch from Lite to Distributed by changing only the `uri` in config — the collection schema, index configuration, and all query/upsert code remain identical. Milvus Distributed on EKS uses the same `pymilvus` client pointed at the cluster endpoint (`grpc://milvus.cluster.internal:19530`). Horizontal scaling via query nodes and data nodes handles RAG query throughput at production scale.
+
+### 1.7.3a. Milvus Collections
 
 | Collection     | Embedding Model        | Dimensions | Metadata Fields                     |
 | -------------- | ---------------------- | ---------- | ----------------------------------- |
@@ -484,16 +598,16 @@ Index type: HNSW. BM25 lexical index on same collections for hybrid search. RRF 
 
 ### 1.8.2. Security Controls
 
-| Control                  | Implementation                                                                                                       |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| PII encryption at rest   | PostgreSQL column encryption (pgcrypto); AES-256                                                                     |
-| TLS in transit           | TLS 1.2+ enforced at ALB and API Gateway                                                                             |
-| PII in logs              | Fluentd redaction filter strips MSISDN, name, address fields before forwarding                                       |
-| Card tokenisation        | Simulated tokenisation: raw PAN → UUID token at point of entry; raw PAN never written to DB                          |
-| Rate limiting (FR-36)    | MVP: not enforced at application layer. Target State: AWS API Gateway per-role throttle                        |
+| Control                  | Implementation                                                                                                                                                           |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| PII encryption at rest   | PostgreSQL column encryption (pgcrypto); AES-256                                                                                                                         |
+| TLS in transit           | TLS 1.2+ enforced at ALB and API Gateway                                                                                                                                 |
+| PII in logs              | Fluentd redaction filter strips MSISDN, name, address fields before forwarding                                                                                           |
+| Card tokenisation        | Simulated tokenisation: raw PAN → UUID token at point of entry; raw PAN never written to DB                                                                              |
+| Rate limiting (FR-36)    | MVP: not enforced at application layer. Target State: AWS API Gateway per-role throttle                                                                                  |
 | Account takeover (FR-66) | SIM swap confirmed → `fraud_blacklist` table write + Cognito account disable + all tokens revoked via Cognito admin API → subsequent JWT validation at API Gateway fails |
-| TRAI data localisation   | All AWS resources in `ap-south-1`; no cross-region data transfer                                                     |
-| Audit immutability       | Postgres app role: INSERT only on `audit_log`; no UPDATE/DELETE grants                                               |
+| TRAI data localisation   | All AWS resources in `ap-south-1`; no cross-region data transfer                                                                                                         |
+| Audit immutability       | Postgres app role: INSERT only on `audit_log`; no UPDATE/DELETE grants                                                                                                   |
 
 ---
 
@@ -516,7 +630,7 @@ JWT `role` claim determines which route subtree is accessible. Role mismatch →
 
 | Context      | Serving                                                                |
 | ------------ | ---------------------------------------------------------------------- |
-| MVP          | Vite dev server (Docker) or nginx container serving built assets        |
+| MVP          | Vite dev server (Docker) or nginx container serving built assets       |
 | Target State | `npm run build` → static assets uploaded to S3 → served via CloudFront |
 
 **Target State CDN (CloudFront):**
@@ -644,18 +758,18 @@ settings = Settings()   # loaded once at module import; fails fast on missing va
 
 **View naming — suffix convention:**
 
-| Suffix         | Meaning             | Example                                  |
-| -------------- | ------------------- | ---------------------------------------- |
-| `_vw`          | Regular view        | `billing_usage_summary_i_vw`             |
-| `_mvw`         | Materialized view   | `segmentation_subscriber_kpi_r_mvw`      |
+| Suffix | Meaning           | Example                             |
+| ------ | ----------------- | ----------------------------------- |
+| `_vw`  | Regular view      | `billing_usage_summary_i_vw`        |
+| `_mvw` | Materialized view | `segmentation_subscriber_kpi_r_mvw` |
 
 **Confidentiality flags (part of name, before `_vw`/`_mvw`):**
 
-| Flag | Meaning       | When to apply                                           |
-| ---- | ------------- | ------------------------------------------------------- |
-| `_i` | Internal      | Operational data not for external exposure              |
-| `_c` | Confidential  | Sensitive business data; access restricted by role      |
-| `_r` | Restricted    | Contains PII or regulated data (MSISDN, name, address)  |
+| Flag | Meaning      | When to apply                                          |
+| ---- | ------------ | ------------------------------------------------------ |
+| `_i` | Internal     | Operational data not for external exposure             |
+| `_c` | Confidential | Sensitive business data; access restricted by role     |
+| `_r` | Restricted   | Contains PII or regulated data (MSISDN, name, address) |
 
 Full naming pattern: `{domain}_{descriptor}_{confidentiality}_{vw|mvw}` — e.g. `segmentation_subscriber_kpi_r_mvw`, `billing_usage_summary_i_vw`.
 
@@ -743,9 +857,35 @@ Trace ID always in Kafka message header `traceparent` AND in JSON body `trace_id
 - Never include PII in OTEL span attributes — use subscriber UUID only
 - Fluentd redaction filter is a safety net, not the primary guard
 
-### 1.11.6. Testing Patterns
+### 1.11.6. Linting, Formatting, and Code Quality
 
-- Python backend: pytest; test files co-located in `tests/` per service codebase
+**Python linting and formatting tools** (configured in each codebase's `pyproject.toml`):
+Refer to `docs/Ref-Linting-config-pyproject.toml`
+```
+
+**Running quality checks:**
+
+```bash
+# All checks (lint + typecheck + test) via uv tox:
+uv tox
+
+# Individual environments:
+uv tox -e lint
+uv tox -e typecheck
+uv tox -e test
+
+# Or via justfile shortcuts:
+just lint      # ruff check across both codebases
+just format    # ruff format across both codebases
+just test      # uv tox -e test in app-backend
+just test-cdr  # uv tox -e test in cdr-pipeline
+```
+
+**GitHub Actions CI** (`.github/workflows/ci-pipeline.yml`) runs `uv tox` (all environments) on every PR — lint, typecheck, and test must all pass before merge is permitted.
+
+### 1.11.7. Testing Patterns
+
+- Python backend: pytest (via `uv tox -e test`); test files in `tests/` per service codebase
 - FastAPI: `httpx.AsyncClient` for API tests; no mocking of Postgres — use `testcontainers`
 - LangGraph agents: unit test each node function independently; integration test full graph with mocked LLM (record/replay)
 - Frontend: Vitest + React Testing Library; no Cypress for MVP
@@ -771,14 +911,14 @@ sboai_capstone/
 │       ├── ci-pipeline.yml          # lint, test, build on PR
 │       └── ci-cdr.yml               # CDR pipeline specific checks
 ├── docker/
-│   ├── docker-compose-dependencies.yaml  # infra only: Redpanda, Redis, Postgres, Milvus, etc.
+│   ├── docker-compose-dependencies.yaml  # infra only: Redpanda, Valkey, Postgres, LangFuse, MiniStack (no Milvus container — Lite is embedded)
 │   ├── docker-compose.yaml               # full stack: extends dependencies + app services
 │   └── docker-compose.override.yaml      # local dev overrides (port mappings, hot reload)
 ├── .env.example
 ├── justfile                         # cross-platform task runner (just up, just test, etc.)
 │
 ├── cdr-pipeline/                    # CDR ingestion codebase (MVP: Python, Target: Rust)
-│   ├── pyproject.toml               # MVP Python deps (aiokafka, psycopg[async,pool], valkey[asyncio], pydantic-settings)
+│   ├── pyproject.toml               # deps + ruff/pyrefly/tox config; dev extras: ruff, pyrefly, pytest, tox, tox-uv
 │   ├── src/
 │   │   ├── main.py                  # Consumer entrypoint (async)
 │   │   ├── core/
@@ -804,7 +944,7 @@ sboai_capstone/
 │   └── Dockerfile
 │
 ├── app-backend/                     # All other backend (FastAPI monorepo for MVP)
-│   ├── pyproject.toml               # psycopg[async,pool], valkey[asyncio], aiokafka, pymilvus, copilotkit, pydantic-settings
+│   ├── pyproject.toml               # deps + ruff/pyrefly/tox config; dev extras: ruff, pyrefly, pytest, tox, tox-uv, testcontainers
 │   ├── src/
 │   │   ├── main.py                  # FastAPI app entrypoint + middleware registration
 │   │   ├── core/
@@ -896,7 +1036,7 @@ sboai_capstone/
 │   │       │   ├── queries.py
 │   │       │   └── commands.py
 │   │       └── seed/
-│   │           ├── synthetic_generator.py # FR-71: 300K subs, 5M CDRs
+│   │           ├── synthetic_generator.py # FR-71: 1K plans → 300K subscribers → 5M CDRs (seed order matters)
 │   │           └── sop_generator.py       # SOP knowledge base seed
 │   ├── tests/
 │   │   ├── unit/
@@ -966,6 +1106,47 @@ sboai_capstone/
     └── generate_synthetic_data.py         # FR-71
 ```
 
+### 1.12.1a. Synthetic Data Generation (FR-71)
+
+**Scale targets:** 1,000 plans · 300,000 subscribers · 5,000,000 CDRs
+
+**Generation order is critical** — each layer depends on the previous:
+
+```
+1. Plans (1,000)
+   └─► Realistic prepaid plan catalogue: voice, data, SMS bundles
+       Fields: plan_id (UUIDv4), name, category, price, validity_days,
+               data_mb, voice_minutes, sms_count, roaming_enabled
+
+2. Subscribers (300,000)
+   └─► Each subscriber is assigned a plan from step 1
+       Fields: subscriber_id (UUIDv4), msisdn (10-digit), name (PII),
+               plan_id (FK → plans), registration_date, kyc_status,
+               initial_balance_paise
+
+3. CDRs (5,000,000)
+   └─► Generated referencing subscriber_id from step 2
+       Fields: cdr_record_id (UUIDv7), subscriber_id (FK → subscribers),
+               cdr_type (voice/data/sms), duration_seconds, data_mb,
+               destination_msisdn, call_start_utc, amount_paise,
+               cell_id, roaming_flag
+       Distribution: ~17 CDRs per subscriber average;
+                     realistic intra-day distribution (peak hours 9–11am, 6–9pm)
+```
+
+**Script location:** `app-backend/db/seed/synthetic_generator.py`
+
+**Key design decisions:**
+
+- Plans seeded first via `V5__seed_plans.sql` Flyway migration (static, version-controlled)
+- Subscriber and CDR generation runs via `generate_synthetic_data.py` script (not a migration — idempotent via UPSERT with `ON CONFLICT DO NOTHING`)
+- CDR records use UUIDv7 for `cdr_record_id` — ensures time-ordered index locality in PostgreSQL
+- PII fields (name, MSISDN) generated with realistic Indian phone number patterns (91xxxxxxxxxx) and faker-generated names
+- Balance amounts in paise (integer) — avoids floating-point precision issues
+- Fraud signals embedded in ~0.5% of subscribers (unusual CDR velocity, SIM swap flags) to support fraud agent testing
+
+**Generation performance:** 5M CDRs inserted via `psycopg3` COPY protocol (binary format) in batches of 50,000 — target < 5 minutes total generation time on a standard dev machine.
+
 **OTEL trace middleware (FastAPI):**
 
 ```python
@@ -1009,11 +1190,12 @@ migrate:      flyway -url=jdbc:postgresql://localhost:5432/sboai -locations=file
 seed:         cd app-backend && python scripts/generate_synthetic_data.py
 seed-milvus:  cd app-backend && python scripts/seed_milvus.sh
 
-test:         cd app-backend && pytest tests/ -v
-test-cdr:     cd cdr-pipeline && pytest tests/ -v
+test:         cd app-backend && uv tox -e test
+test-cdr:     cd cdr-pipeline && uv tox -e test
 test-fe:      cd frontend && npm run test
+tox:          cd app-backend && uv tox && cd ../cdr-pipeline && uv tox  # lint + typecheck + test
 
-lint:         cd app-backend && ruff check src/ && cd ../cdr-pipeline && ruff check src/
+lint:         cd app-backend && uv tox -e lint && cd ../cdr-pipeline && uv tox -e lint
 format:       cd app-backend && ruff format src/ && cd ../cdr-pipeline && ruff format src/
 lint-fe:      cd frontend && npm run lint
 ```
@@ -1040,7 +1222,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data   # persisted across restarts
 
-  milvus:            # Vector store (+ etcd + minio as deps)
+  # Milvus: NOT a separate container in MVP — Milvus Lite runs embedded in app-backend (Python dep)
+  # Data persisted via milvus_lite_data volume mounted into app-backend container
   langfuse:          # Agent observability
   ministack:         # AWS Cognito + S3 simulation (no Redis bundled — Valkey is separate)
     volumes:
@@ -1056,6 +1239,7 @@ volumes:
   valkey_data:
   ministack_cognito:
   ministack_s3:
+  milvus_lite_data:    # Milvus Lite .db file — persisted across app-backend container restarts
 ```
 
 **`docker/docker-compose.yaml` — full stack (extends dependencies):**
@@ -1070,7 +1254,9 @@ services:
   frontend:          # Vite dev server (or nginx for built assets)
 ```
 
-**Non-persisted services (acceptable to reset on restart):** Valkey, Redpanda, Milvus, LangFuse. Valkey balance state cold-starts from Postgres; Redpanda offset reset is safe during dev; Milvus collections are re-seeded via `just seed-milvus`.
+**Non-persisted services (acceptable to reset on restart):** Valkey, Redpanda, LangFuse. Valkey balance state cold-starts from Postgres; Redpanda offset reset is safe during dev.
+
+**Milvus Lite persistence:** The `milvus_lite_data` Docker volume persists the embedded Milvus `.db` file across `app-backend` container restarts. If the volume is wiped, re-seed with `just seed-milvus`.
 
 ---
 
@@ -1078,27 +1264,28 @@ services:
 
 ### 1.13.1. Decision Compatibility ✅
 
+- UUIDv7 (`pg_uuidv7` extension, PostgreSQL 16): time-ordered primary keys on transactional tables; same UUID wire format as v4 — no client-side changes required
 - Redpanda (Kafka-wire-compatible) → aiokafka consumer works unchanged
 - Valkey (Docker, standalone) → Redis-compatible; Python `valkey[asyncio]` client; same wire protocol as Redis
 - LangGraph + Azure OpenAI: supported; `langchain-openai` with Azure base URL
 - OTEL-TUI + OTEL Collector: standard OTLP receiver
-- Milvus: `pymilvus` client; HNSW + BM25 hybrid supported in Milvus 2.4+
+- Milvus Lite: `pymilvus[milvus-lite]` embedded in-process; HNSW + BM25 hybrid supported; same client API as Milvus Distributed; data file on Docker volume
 - WeasyPrint: pure Python; no browser dep; works in Docker Alpine
 
 ### 1.13.2. NFR Coverage ✅
 
-| NFR                           | Architecture Support                                                      |
-| ----------------------------- | ------------------------------------------------------------------------- |
-| P95 ≤ 200ms balance deduction | Valkey/Redis INCRBY; Postgres async flush; agents off hot path            |
-| 100K eps (Target)             | Rust consumer + MSK 24 partitions + Valkey                                |
-| Idempotency                   | Valkey SET dedup + recharge idempotency key + notification once-per-event |
-| TRAI data localisation        | All AWS in `ap-south-1`; no cross-region                                  |
-| 6-year audit retention        | Postgres append-only + S3 archive                                         |
-| PCI-DSS                       | Tokenisation at entry; raw PAN never persisted                            |
-| PII encryption                | pgcrypto AES-256 + Fluentd redaction                                      |
-| FR-36 rate limiting           | MVP: not enforced; Target State: API Gateway per-subscriber throttle      |
+| NFR                           | Architecture Support                                                                                                             |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| P95 ≤ 200ms balance deduction | Valkey/Redis INCRBY; Postgres async flush; agents off hot path                                                                   |
+| 100K eps (Target)             | Rust consumer + MSK 24 partitions + Valkey                                                                                       |
+| Idempotency                   | Valkey SET dedup + recharge idempotency key + notification once-per-event                                                        |
+| TRAI data localisation        | All AWS in `ap-south-1`; no cross-region                                                                                         |
+| 6-year audit retention        | Postgres append-only + S3 archive                                                                                                |
+| PCI-DSS                       | Tokenisation at entry; raw PAN never persisted                                                                                   |
+| PII encryption                | pgcrypto AES-256 + Fluentd redaction                                                                                             |
+| FR-36 rate limiting           | MVP: not enforced; Target State: API Gateway per-subscriber throttle                                                             |
 | FR-66 account takeover        | Postgres `fraud_blacklist` + Cognito account disable + token revocation → API Gateway JWT validation blocks all subsequent calls |
-| FR-77 health checks           | `/health` + `/ready` on every FastAPI service                             |
+| FR-77 health checks           | `/health` + `/ready` on every FastAPI service                                                                                    |
 
 ### 1.13.3. FR Coverage ✅
 
@@ -1116,7 +1303,7 @@ All 77 FRs are architecturally addressed:
 - FR-60–62 (Fraud Agent): rule screener + LangGraph Fraud Agent + `fraud_cases` table
 - FR-63–67 (Security): pgcrypto + TLS + Fluentd redaction + Postgres/Cognito blacklist + JWT roles
 - FR-68–70 (Simulator): `simulator` router + WebSocket trace stream + MiniStack
-- FR-71 (Synthetic Dataset): `synthetic_generator.py` — 300K subs, 5M CDRs, 1K plans
+- FR-71 (Synthetic Dataset): `synthetic_generator.py` — 1K plans, 300K subscribers, 5M CDRs (plans and subscribers generated first as seed data; CDRs reference subscriber IDs)
 - FR-72–77 (Eval/Obs): LangFuse + OTEL + DeepEval + LLM-as-Judge + `/health`+`/ready`
 
 ### 1.13.4. Gap Analysis
@@ -1200,9 +1387,9 @@ All 77 FRs are architecturally addressed:
 
 **First Implementation Priorities:**
 
-1. `docker-compose.yml` — bring up all infra (Redpanda, Redis, Postgres, Milvus, MiniStack, LangFuse, OTEL-TUI, Fluentd)
+1. `docker-compose.yml` — bring up all infra (Redpanda, Valkey, Postgres, MiniStack, LangFuse, OTEL-TUI, Fluentd); Milvus Lite starts embedded in app-backend — no separate container
 2. Postgres schema migrations (Flyway SQL) — all domains, views, triggers
-3. Synthetic dataset generation (`scripts/generate_synthetic_data.py`) — 300K subs, 5M CDRs
+3. Synthetic dataset generation (`scripts/generate_synthetic_data.py`) — 1K plans, 300K subscribers, 5M CDRs (in that order)
 4. CDR pipeline consumer (`cdr-pipeline/`) — dedup + balance write + fan-out
 5. Core FastAPI app (`app-backend/`) — account, balance, recharge routers
 6. LangGraph chatbot graph — Support Agent + RAG tool + Milvus ingest
