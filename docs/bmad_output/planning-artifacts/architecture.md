@@ -12,51 +12,52 @@ status: 'complete'
 completedAt: '2026-06-18'
 ---
 
-# Architecture Decision Document
-## AI-Powered Prepaid Billing System
+# 1. Architecture Decision Document
+
+## 1.1. AI-Powered Prepaid Billing System
 
 ---
 
-## 1. Project Context Analysis
+## 1.2. Project Context Analysis
 
-### 1.1. Requirements Overview
+### 1.2.1. Requirements Overview
 
 **Functional Requirements — 77 FRs across 14 domains:**
 
-| Domain | FRs | Key Architectural Driver |
-|---|---|---|
-| Account & Identity | FR-1–7 | Auth service, KYC state machine, OTP pipeline |
-| Balance & Usage | FR-8–11 | Real-time read path, CDR-triggered write buffer |
-| Recharge & Payments | FR-12–17 | Idempotent payment flow, PDF receipt gen |
-| Notifications | FR-18–21 | Event-driven, threshold-triggered, simulated delivery |
-| Self-Care Chatbot | FR-22–36 | Multi-agent orchestration, RAG, A2A, LangGraph |
-| USSD Interface | FR-37–41 | Stateful callback handler, session store in Valkey/Redis |
-| Ops & Marketing Dashboard | FR-42–52 | Materialised views, time-series ML, LLM segmentation |
-| Fraud Management Dashboard | FR-53–56 | Real-time anomaly feed, case queue, WebSocket push |
-| CDR Ingestion Pipeline | FR-57–59 | Streaming backbone, 100K eps target, DLQ |
-| Fraud Detection Agent | FR-60–62 | Async LLM escalation off the balance hot path |
-| Security & Compliance | FR-63–67 | PII encryption, PCI-DSS tokenisation, TRAI, JWT roles |
-| Simulator & Dev Tools | FR-68–70 | CDR generator, notification observer, trace display |
-| Synthetic Dataset | FR-71 | 300K subscribers, 5M CDRs, seed scripts |
-| Eval, Observability, QA | FR-72–77 | LangFuse, DeepEval, LLM-as-Judge, OTEL trace propagation |
+| Domain                     | FRs      | Key Architectural Driver                                 |
+| -------------------------- | -------- | -------------------------------------------------------- |
+| Account & Identity         | FR-1–7   | Auth service, KYC state machine, OTP pipeline            |
+| Balance & Usage            | FR-8–11  | Real-time read path, CDR-triggered write buffer          |
+| Recharge & Payments        | FR-12–17 | Idempotent payment flow, PDF receipt gen                 |
+| Notifications              | FR-18–21 | Event-driven, threshold-triggered, simulated delivery    |
+| Self-Care Chatbot          | FR-22–36 | Multi-agent orchestration, RAG, A2A, AG-UI, LangGraph    |
+| USSD Interface             | FR-37–41 | Stateful callback handler, session store in Valkey/Redis |
+| Ops & Marketing Dashboard  | FR-42–52 | Materialised views, time-series ML, LLM segmentation     |
+| Fraud Management Dashboard | FR-53–56 | Real-time anomaly feed, case queue, WebSocket push       |
+| CDR Ingestion Pipeline     | FR-57–59 | Streaming backbone, 100K eps target, DLQ                 |
+| Fraud Detection Agent      | FR-60–62 | Async LLM escalation off the balance hot path            |
+| Security & Compliance      | FR-63–67 | PII encryption, PCI-DSS tokenisation, TRAI, JWT roles    |
+| Simulator & Dev Tools      | FR-68–70 | CDR generator, notification observer, trace display      |
+| Synthetic Dataset          | FR-71    | 300K subscribers, 5M CDRs, seed scripts                  |
+| Eval, Observability, QA    | FR-72–77 | LangFuse, DeepEval, LLM-as-Judge, OTEL trace propagation |
 
 **Non-Functional Requirements:**
 
-| NFR | Target | Architecture Implication |
-|---|---|---|
-| Balance deduction latency | P95 ≤ 200ms | Valkey write buffer; agents strictly off hot path |
-| CDR throughput (Target) | 100,000 eps | 24-partition Kafka/Redpanda; Rust consumer workers |
-| CDR throughput (MVP) | ~10,000 eps | Redpanda + aiokafka; Python consumer |
-| Idempotency | Exactly-once deduction | Valkey SET on `cdr_record_id`, 24h TTL |
-| Data localisation | India only | AWS `ap-south-1` (Mumbai) for all target infra |
-| Audit retention | 6 years (TRAI) | Immutable Postgres audit log; archival to S3 |
-| PCI-DSS | Card tokenisation | Raw PAN never persisted; tokenised reference only |
-| PII | AES-256 at rest | Encrypted columns; PII never in logs |
-| Auth | JWT + OTP step-up | 4 role-separated dashboards |
+| NFR                       | Target                 | Architecture Implication                           |
+| ------------------------- | ---------------------- | -------------------------------------------------- |
+| Balance deduction latency | P95 ≤ 200ms            | Valkey write buffer; agents strictly off hot path  |
+| CDR throughput (Target)   | 100,000 eps            | 24-partition Kafka/Redpanda; Rust consumer workers |
+| CDR throughput (MVP)      | ~10,000 eps            | Redpanda + aiokafka; Python consumer               |
+| Idempotency               | Exactly-once deduction | Valkey SET on `cdr_record_id`, 24h TTL             |
+| Data localisation         | India only             | AWS `ap-south-1` (Mumbai) for all target infra     |
+| Audit retention           | 6 years (TRAI)         | Immutable Postgres audit log; archival to S3       |
+| PCI-DSS                   | Card tokenisation      | Raw PAN never persisted; tokenised reference only  |
+| PII                       | AES-256 at rest        | Encrypted columns; PII never in logs               |
+| Auth                      | JWT + OTP step-up      | 4 role-separated dashboards                        |
 
 **Scale & Complexity:** Enterprise. ~18 services/agents. Two deployment contexts: MVP (local Docker Compose / MiniStack) and Target State (AWS EKS, Mumbai).
 
-### 1.2. Technical Constraints
+### 1.2.2. Technical Constraints
 
 - Fraud/conclusion/notification agents **must** be async to balance deduction
 - All subscriber data physically in India (TRAI mandate)
@@ -66,74 +67,75 @@ completedAt: '2026-06-18'
 - Payment is fully simulated — no real gateway in MVP
 - USSD is inbound callback only — system never initiates USSD sessions
 
-### 1.3. Cross-Cutting Concerns
+### 1.2.3. Cross-Cutting Concerns
 
-| Concern | How Addressed |
-|---|---|
-| Distributed trace ID | Propagated CDR → balance → fraud → notification → LangFuse via OTEL |
-| Idempotency | Recharge guard (idempotency key) + CDR deduction (Valkey SET) + notification (once-per-event flag) |
-| Async agent execution | Fraud, Conclusion, Notification agents publish to Kafka topic post-deduction; never in P95 path |
-| Role-based auth | JWT with `role` claim; 4 dashboards (Subscriber, Ops, Fraud, Simulator) |
-| Event-driven backbone | CDR ingestion fans out to balance, fraud-screening, and notification in parallel |
-| PII hygiene | AES-256 at rest; Postgres encrypted columns; stripped from all OTEL/Fluentd log pipelines |
-
----
-
-## 2. Technology Stack
-
-### 2.1. Decided Stack — MVP
-
-| Layer | Technology | Rationale |
-|---|---|---|
-| **CDR Pipeline** | Python (aiokafka consumer workers) | Single-language MVP; sufficient for 10K eps PoC |
-| **Application Backend** | Python 3.12 + FastAPI | All non-pipeline services in one FastAPI monorepo |
-| **Event Bus** | Redpanda (Kafka-compatible, Docker) | No ZooKeeper; Kafka-wire-compatible; simpler MVP ops |
-| **Balance Write Buffer** | Redis (Docker, MVP) | Fast atomic INCRBY; session store; dedup SET; rate-limit counters |
-| **Primary Database** | PostgreSQL 16 | Source of truth for balance, accounts, audit, plans |
-| **Vector Store** | Milvus (Docker) | Fixed. Hybrid search: dense + BM25 + RRF reranker |
-| **Agent Orchestration** | LangGraph (Python) | Stateful graph, native A2A, multi-turn memory |
-| **LLM Provider** | Azure OpenAI | GPT-4o for agents; `text-embedding-3-small` for embeddings |
-| **Frontend** | React 18 + Vite + TailwindCSS | Fast builds; single SPA with role-based routing |
-| **Auth** | AWS Cognito (via LocalStack/MiniStack) | JWT issuance; OTP via Cognito; role claims in token |
-| **Observability (infra)** | OTEL-TUI (Docker) | Low memory footprint; traces/logs/metrics in terminal |
-| **Observability (agents)** | LangFuse (self-hosted Docker) | All agent/tool calls traced |
-| **Log routing** | Fluentd | Routes Docker logs to OTEL-TUI (MVP) or LGTM (Target) |
-| **PDF Generation** | WeasyPrint (Python) | HTML→PDF for receipts; no headless browser dep |
-| **ML Forecasting** | scikit-learn | Subscriber growth/plan popularity; simple linear/gradient-boost |
-| **CI/CD** | GitHub Actions | PR checks, lint, test, Docker build |
-| **Container** | Docker Compose | All services including Redpanda, Milvus, Redis, Postgres, LangFuse, LocalStack |
-
-### 2.2. Decided Stack — Target State
-
-| Layer | Technology | Rationale |
-|---|---|---|
-| **CDR Pipeline** | Rust (tokio + rdkafka) | 100K eps; sub-200ms P95; zero-GC; max throughput on Kafka consumers |
-| **Application Backend** | Python 3.12 + FastAPI | Microservices; each domain service independently deployed |
-| **Event Bus** | Amazon MSK (Apache Kafka) | Managed, 100K eps capable, 24 partitions; `ap-south-1` |
-| **Balance Write Buffer** | Amazon ElastiCache Valkey | Managed Redis-compatible; higher throughput than Redis |
-| **Primary Database** | Amazon RDS PostgreSQL (Multi-AZ) | Managed HA; read replicas for reporting; `ap-south-1` |
-| **OLTP Hot Write Layer** | Valkey INCRBY → async bulk upsert → RDS | As per decision log: Valkey absorbs write spikes; RDS for audit/SQL |
-| **Vector Store** | Milvus (self-managed on EKS) | Fixed. Same Milvus collection schema as MVP; scaled replicas |
-| **Agent Orchestration** | LangGraph (Python) | Unchanged from MVP |
-| **LLM Provider** | Azure OpenAI | Unchanged; consider Bedrock for future data residency |
-| **Frontend** | React 18 + Vite + TailwindCSS | Built as static assets; served via CloudFront + S3 |
-| **Auth** | Keycloak (self-hosted on EKS) | Enterprise RBAC; scale warrants full IdP over Cognito |
-| **API Gateway** | AWS API Gateway + ALB | Rate limiting (FR-36); JWT validation; subscriber blacklist enforcement |
-| **Observability (infra)** | OTEL → LGTM (Grafana, Loki, Tempo, Mimir) | Managed Grafana on AWS; `ap-south-1` |
-| **Observability (agents)** | LangFuse (self-hosted on EKS) | Same as MVP; scaled deployment |
-| **Log routing** | Fluentd (DaemonSet on EKS) | Routes pod logs to Loki; unchanged Fluentd config from MVP |
-| **ML Forecasting** | To be evaluated: TimesFM / Chronos / Prophet / NeuralForecast | Deep learning forecast models; choice deferred post-MVP |
-| **Container Orchestration** | AWS EKS (Kubernetes) | Service-level scaling; Milvus, Keycloak, LangFuse all on cluster |
-| **CDR Simulator** | Rust binary (same codebase as pipeline, feature-flagged) | Generates synthetic CDR events at target throughput |
-| **Audit Archive** | S3 + S3 Glacier | 6-year TRAI-compliant retention; lifecycle policies |
+| Concern               | How Addressed                                                                                                                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Distributed trace ID  | Propagated CDR → balance → fraud → notification → OTEL (to LangFuse/OTEL-TUI/LGTM);<br>Similarly, for agents, Session and Trace ID need to be distributed in the multi-agent workflow |
+| Idempotency           | Recharge guard (idempotency key) + CDR deduction (Valkey SET) + notification (once-per-event flag)                                                                                    |
+| Async agent execution | Fraud, Conclusion, Notification agents publish to Kafka topic post-deduction; never in P95 path                                                                                       |
+| Role-based auth       | JWT with `role` claim; 4 dashboards (Subscriber, Ops, Fraud, Simulator)                                                                                                               |
+| Event-driven backbone | CDR ingestion fans out to balance, fraud-screening, and notification in parallel                                                                                                      |
+| PII hygiene           | AES-256 at rest; Postgres encrypted columns; stripped from all OTEL/Fluentd log pipelines                                                                                             |
 
 ---
 
-## 3. CDR Pipeline Architecture (Decision Log Reference)
+## 1.3. Technology Stack
+
+### 1.3.1. Decided Stack — MVP
+
+| Layer                      | Technology                             | Rationale                                                                      |
+| -------------------------- | -------------------------------------- | ------------------------------------------------------------------------------ |
+| **CDR Pipeline**           | Python (aiokafka consumer workers)     | Single-language MVP; sufficient for 10K eps PoC                                |
+| **Application Backend**    | Python 3.14 + FastAPI                  | All non-pipeline services in one FastAPI monorepo                              |
+| **Event Bus**              | Redpanda (Kafka-compatible, Docker)    | No ZooKeeper; Kafka-wire-compatible; simpler MVP ops                           |
+| **Balance Write Buffer**   | Redis (Docker, MVP)                    | Fast atomic INCRBY; session store; dedup SET; rate-limit counters              |
+| **Primary Database**       | PostgreSQL 16                          | Source of truth for balance, accounts, audit, plans                            |
+| **Vector Store**           | Milvus (Docker)                        | Fixed. Hybrid search: dense + BM25 + RRF reranker                              |
+| **Agent Orchestration**    | LangGraph (Python)                     | Stateful graph, native A2A, multi-turn memory                                  |
+| **LLM Provider**           | Azure OpenAI                           | GPT-5.4-mini and GPT-5.4 for agents; `text-embedding-3-small` for embeddings   |
+| **Frontend**               | React 18 + Vite + TailwindCSS          | Fast builds; single SPA with role-based routing                                |
+| **Auth**                   | AWS Cognito (via LocalStack/MiniStack) | JWT issuance; OTP via Cognito; role claims in token                            |
+| **Observability (infra)**  | OTEL-TUI (Docker)                      | Low memory footprint; traces/logs/metrics in terminal                          |
+| **Observability (agents)** | LangFuse (self-hosted Docker)          | All agent/tool calls traced                                                    |
+| **Log routing**            | Fluentd                                | Routes Docker logs to OTEL-TUI (MVP) or LGTM (Target)                          |
+| **PDF Generation**         | WeasyPrint (Python)                    | HTML→PDF for receipts; no headless browser dep                                 |
+| **ML Forecasting**         | scikit-learn                           | Subscriber growth/plan popularity; simple linear/gradient-boost                |
+| **CI/CD**                  | GitHub Actions                         | PR checks, lint, test, Docker build                                            |
+| **Container**              | Docker Compose                         | All services including Redpanda, Milvus, Redis, Postgres, LangFuse, LocalStack |
+| **CDR Simulator**          | Python Scripts                         | Manually generated via a UI. Limited to 100 CDRs in 1 shot                     |
+
+### 1.3.2. Decided Stack — Target State
+
+| Layer                       | Technology                                                    | Rationale                                                               |
+| --------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| **CDR Pipeline**            | Rust (tokio + rdkafka)                                        | 100K eps; sub-200ms P95; zero-GC; max throughput on Kafka consumers     |
+| **Application Backend**     | Python 3.14 + FastAPI                                         | Microservices; each domain service independently deployed               |
+| **Event Bus**               | Amazon MSK (Apache Kafka)                                     | Managed, 100K eps capable, 24 partitions; `ap-south-1`                  |
+| **Balance Write Buffer**    | Amazon ElastiCache Valkey                                     | Managed Redis-compatible; higher throughput than Redis                  |
+| **Primary Database**        | Amazon RDS PostgreSQL (Multi-AZ)                              | Managed HA; read replicas for reporting; `ap-south-1`                   |
+| **OLTP Hot Write Layer**    | Valkey INCRBY → async bulk upsert → RDS                       | As per decision log: Valkey absorbs write spikes; RDS for audit/SQL     |
+| **Vector Store**            | Milvus (self-managed on EKS)                                  | Fixed. Same Milvus collection schema as MVP; scaled replicas            |
+| **Agent Orchestration**     | LangGraph (Python)                                            | Unchanged from MVP                                                      |
+| **LLM Provider**            | Azure OpenAI                                                  | Unchanged; consider Bedrock for future data residency                   |
+| **Frontend**                | React 18 + Vite + TailwindCSS                                 | Built as static assets; served via CloudFront + S3                      |
+| **Auth**                    | Keycloak (self-hosted on EKS)                                 | Enterprise RBAC; scale warrants full IdP over Cognito                   |
+| **API Gateway**             | AWS API Gateway + ALB                                         | Rate limiting (FR-36); JWT validation; subscriber blacklist enforcement |
+| **Observability (infra)**   | OTEL → LGTM (Grafana, Loki, Tempo, Mimir)                     | Managed Grafana on AWS; `ap-south-1`                                    |
+| **Observability (agents)**  | LangFuse (self-hosted on EKS)                                 | Same as MVP; scaled deployment                                          |
+| **Log routing**             | Fluentd (DaemonSet on EKS)                                    | Routes pod logs to Loki; unchanged Fluentd config from MVP              |
+| **ML Forecasting**          | To be evaluated: TimesFM / Chronos / Prophet / NeuralForecast | Deep learning forecast models; choice deferred post-MVP                 |
+| **Container Orchestration** | AWS EKS (Kubernetes)                                          | Service-level scaling; Milvus, Keycloak, LangFuse all on cluster        |
+| **CDR Simulator**           | Rust binary (same codebase as pipeline, feature-flagged)      | Generates synthetic CDR events at target throughput for load testing    |
+| **Audit Archive**           | S3 + S3 Glacier                                               | 6-year TRAI-compliant retention; lifecycle policies                     |
+
+---
+
+## 1.4. CDR Pipeline Architecture (Decision Log Reference)
 
 > Full decision log: `docs/decision_logs/Event Stream and CDR Pipeline.md`
 
-### 3.1. MVP Data Flow
+### 1.4.1. MVP Data Flow
 
 ```
 CDR Source (Simulator or upstream)
@@ -155,7 +157,7 @@ Python Consumer Pool  [aiokafka, group_id='cdr-balance-updater']
                               └─► Notification Trigger (Kafka consumer, same Python codebase)
 ```
 
-### 3.2. Target State Data Flow
+### 1.4.2. Target State Data Flow
 
 ```
 CDR Source (upstream operator)
@@ -178,7 +180,7 @@ Rust Consumer Service  [tokio + rdkafka, consumer group 'cdr-balance-updater']
                     └─► Analytics/Reporting sink
 ```
 
-### 3.3. Key Invariants (Both MVP and Target)
+### 1.4.3. Key Invariants (Both MVP and Target)
 
 - Offset committed only after full batch success (at-least-once + idempotent dedup)
 - Balance deduction P95 ≤ 200ms: Valkey/Redis write path; Postgres is async flush
@@ -186,12 +188,13 @@ Rust Consumer Service  [tokio + rdkafka, consumer group 'cdr-balance-updater']
 - FastAPI = management plane only (DLQ inspection, worker pause/resume, metrics) — never on record hot path
 - Dead-Letter Queue: `cdr.dlq` topic; poison records isolated; manual replay via DLQ inspector API
 - Trace ID stamped at CDR ingest; propagated through all downstream stages
+- Session & Trace IDs are also stamped for all interactions on the self-serve portal (incl agentic workflows)
 
 ---
 
-## 4. Service Architecture
+## 1.5. Service Architecture
 
-### 4.1. MVP — Two-Codebase Structure
+### 1.5.1. MVP — Two-Codebase Structure
 
 **MVP uses two primary codebases** (no inter-service HTTP calls between them):
 
@@ -206,28 +209,28 @@ sboai_capstone/
 
 All non-CDR domain logic (auth, accounts, balance reads, recharge, chatbot agents, USSD, notifications, dashboards, fraud case management, ML forecasting) lives in `app-backend` as FastAPI routers and internal Python modules. No HTTP between the two codebases — they share Postgres and Redis.
 
-### 4.2. Target State — Microservices
+### 1.5.2. Target State — Microservices
 
-| Service | Language | Responsibility |
-|---|---|---|
-| `cdr-ingestion` | Rust | Kafka consumer; dedup; Valkey balance write; fan-out |
-| `account-service` | Python/FastAPI | Registration, KYC, SIM activation, profile |
-| `balance-service` | Python/FastAPI | Balance reads, usage, plan details, transaction history |
-| `recharge-service` | Python/FastAPI | Plan catalogue, payment sim, idempotent recharge, PDF receipt |
-| `notification-service` | Python/FastAPI | Threshold checks, simulated SMS/push, Notification Portal |
-| `chatbot-service` | Python/FastAPI + LangGraph | Multi-agent orchestration: Support, Rating, Balance, Conclusion, Notification agents |
-| `ussd-service` | Python/FastAPI | USSD callback handler, session state via Valkey |
-| `fraud-service` | Python/FastAPI + LangGraph | Pre-screener consumer + Fraud Detection Agent |
-| `ops-service` | Python/FastAPI | Ops dashboard APIs: plan stock, order fulfilment, forecasts, segmentation |
-| `auth-service` | Keycloak | JWT issuance, OTP, role management |
-| `simulator-service` | Rust (shared with cdr-ingestion) | CDR event generator, trace viewer |
-| `eval-service` | Python | DeepEval, LLM-as-Judge, offline eval runner |
+| Service                | Language                         | Responsibility                                                                       |
+| ---------------------- | -------------------------------- | ------------------------------------------------------------------------------------ |
+| `cdr-ingestion`        | Rust                             | Kafka consumer; dedup; Valkey balance write; fan-out                                 |
+| `account-service`      | Python/FastAPI                   | Registration, KYC, SIM activation, profile                                           |
+| `balance-service`      | Python/FastAPI                   | Balance reads, usage, plan details, transaction history                              |
+| `recharge-service`     | Python/FastAPI                   | Plan catalogue, payment sim, idempotent recharge, PDF receipt                        |
+| `notification-service` | Python/FastAPI                   | Threshold checks, simulated SMS/push, Notification Portal                            |
+| `chatbot-service`      | Python/FastAPI + LangGraph       | Multi-agent orchestration: Support, Rating, Balance, Conclusion, Notification agents |
+| `ussd-service`         | Python/FastAPI                   | USSD callback handler, session state via Valkey                                      |
+| `fraud-service`        | Python/FastAPI + LangGraph       | Pre-screener consumer + Fraud Detection Agent                                        |
+| `ops-service`          | Python/FastAPI                   | Ops dashboard APIs: plan stock, order fulfilment, forecasts, segmentation            |
+| `auth-service`         | Keycloak                         | JWT issuance, OTP, role management                                                   |
+| `simulator-service`    | Rust (shared with cdr-ingestion) | CDR event generator, trace viewer                                                    |
+| `eval-service`         | Python                           | DeepEval, LLM-as-Judge, offline eval runner                                          |
 
 ---
 
-## 5. Agent Architecture
+## 1.6. Agent Architecture
 
-### 5.1. Self-Care Chatbot (LangGraph)
+### 1.6.1. Self-Care Chatbot (LangGraph)
 
 ```
 Subscriber HTTP Request
@@ -237,7 +240,7 @@ Support Agent  (LangGraph supervisor node)
   ├── Tool: balance_lookup  ──► Balance Management Agent
   ├── Tool: charge_explain  ──► Rating Agent
   ├── Tool: rag_search      ──► Milvus (hybrid: dense + BM25 + RRF)
-  ├── Tool: recharge_flow   ──► Recharge Service API
+  ├── Tool: recharge_flow   ──► Link for Recharging in portal
   ├── Tool: ticket_create   ──► Postgres (support_tickets table)
   ├── Tool: recommend_plan  ──► Plan Recommendation (hybrid search + usage signals)
   │
@@ -249,18 +252,20 @@ Support Agent  (LangGraph supervisor node)
 **A2A protocol:** LangGraph inter-node calls with shared state graph. All inter-agent calls traced in LangFuse.
 
 **RAG Pipeline:**
+
 - Dense: `text-embedding-3-small` → Milvus HNSW index
 - Sparse: BM25 lexical search with metadata filtering (plan type, category)
 - Fusion: Reciprocal Rank Fusion (RRF) reranker
 - Knowledge base: Telecom FAQ + plan/billing content (seeded from synthetic dataset)
 
 **Plan Recommendation (FR-32):**
+
 - Hybrid search on plan vectors (plan attributes encoded)
 - Usage signals: pre-aggregated CDR feature summaries from Postgres materialised view
 - Returns 1–3 plans; rationale surfaced in natural language
 - Acceptance/dismissal logged to `recommendation_feedback` table
 
-### 5.2. Fraud Detection Agent (LangGraph)
+### 1.6.2. Fraud Detection Agent (LangGraph)
 
 ```
 cdr.enriched.filtered (Kafka consumer)
@@ -283,14 +288,14 @@ Rule-Based Pre-Screener (deterministic, in-process)
           └── LangFuse trace on every escalation
 ```
 
-### 5.3. Ops/Marketing Agents
+### 1.6.3. Ops/Marketing Agents
 
 ```
 Target Base Builder (FR-46–50):
   Marketing Manager → filter UI
     │
     ├─► SQL: materialised subscriber KPI view (dynamic columns from schema)
-    ├─► Sample 100 → LLM (Azure OpenAI): per-customer segment labels
+    ├─► Stratified Sample 100 → LLM (Azure OpenAI): per-customer segment labels
     ├─► Rule Induction Agent (LangGraph): KPI-predicate rules → Postgres
     └─► Deterministic classification of full pool (no LLM)
 
@@ -304,87 +309,87 @@ Root Cause Analysis Agent (FR-75):
 
 ---
 
-## 6. Data Architecture
+## 1.7. Data Architecture
 
-### 6.1. PostgreSQL Schema Domains
+### 1.7.1. PostgreSQL Schema Domains
 
-| Schema / Domain | Key Tables |
-|---|---|
-| `identity` | `subscribers`, `registrations`, `kyc_records`, `caf_submissions` |
-| `billing` | `wallet_balances`, `cdr_events`, `transactions`, `audit_log` |
-| `plans` | `plans`, `plan_subscriptions`, `plan_config` |
-| `recharge` | `recharge_orders`, `payment_methods`, `receipts` |
-| `notifications` | `notification_events`, `notification_config`, `notification_preferences` |
-| `support` | `support_tickets`, `chat_sessions`, `session_learnings` |
-| `fraud` | `fraud_cases`, `fraud_rules`, `blacklist` |
-| `segmentation` | `subscriber_kpi_view` (materialised), `segment_rules`, `segment_labels`, `recommendation_feedback`, `upsell_feedback` |
-| `ops` | `order_fulfilment`, `forecast_results` |
-| `eval` | `llm_evaluations`, `deepeval_results` |
-| `sop` | `sop_rules`, `sop_knowledge_chunks` |
+| Schema / Domain | Key Tables                                                                                                            |
+| --------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `identity`      | `subscribers`, `registrations`, `kyc_records`, `caf_submissions`                                                      |
+| `billing`       | `wallet_balances`, `cdr_events`, `transactions`, `audit_log`                                                          |
+| `plans`         | `plans`, `plan_subscriptions`, `plan_config`                                                                          |
+| `recharge`      | `recharge_orders`, `payment_methods`, `receipts`                                                                      |
+| `notifications` | `notification_events`, `notification_config`, `notification_preferences`                                              |
+| `support`       | `support_tickets`, `chat_sessions`, `session_learnings`                                                               |
+| `fraud`         | `fraud_cases`, `fraud_rules`, `blacklist`                                                                             |
+| `segmentation`  | `subscriber_kpi_view` (materialised), `segment_rules`, `segment_labels`, `recommendation_feedback`, `upsell_feedback` |
+| `ops`           | `order_fulfilment`, `forecast_results`                                                                                |
+| `eval`          | `llm_evaluations`, `deepeval_results`                                                                                 |
+| `sop`           | `sop_rules`, `sop_knowledge_chunks`                                                                                   |
 
 **Audit log (FR-59):** Append-only (`INSERT` only; no `UPDATE`/`DELETE` via app role). Retained 6 years; archived to S3 after 2 years via pg_partman + lifecycle policy.
 
-### 6.2. Valkey / Redis Data Domains
+### 1.7.2. Valkey / Redis Data Domains
 
-| Key Pattern | Type | TTL | Purpose |
-|---|---|---|---|
-| `dedup:{cdr_record_id}` | SET | 24h | Idempotency guard |
-| `balance:{msisdn}` | STRING (INCRBY) | None | Hot write buffer |
-| `session:{session_id}` | HASH | 30m | USSD session state |
-| `rate:{msisdn}:{window}` | STRING (INCR) | 60s | 100 RPM rate limiter |
-| `otp:{msisdn}` | STRING | 5m | OTP validation |
-| `blacklist:{msisdn}` | SET | None | Account takeover block |
-| `chat_context:{session_id}` | HASH | 2h | Chatbot multi-turn context |
+| Key Pattern                 | Type            | TTL  | Purpose                    |
+| --------------------------- | --------------- | ---- | -------------------------- |
+| `dedup:{cdr_record_id}`     | SET             | 24h  | Idempotency guard          |
+| `balance:{msisdn}`          | STRING (INCRBY) | None | Hot write buffer           |
+| `session:{session_id}`      | HASH            | 30m  | USSD session state         |
+| `rate:{msisdn}:{window}`    | STRING (INCR)   | 60s  | 100 RPM rate limiter       |
+| `otp:{msisdn}`              | STRING          | 5m   | OTP validation             |
+| `blacklist:{msisdn}`        | SET             | None | Account takeover block     |
+| `chat_context:{session_id}` | HASH            | 2h   | Chatbot multi-turn context |
 
-### 6.3. Milvus Collections
+### 1.7.3. Milvus Collections
 
-| Collection | Embedding Model | Dimensions | Metadata Fields |
-|---|---|---|---|
-| `faq_chunks` | text-embedding-3-small | 1536 | category, source_doc, plan_type |
-| `plan_vectors` | text-embedding-3-small | 1536 | plan_id, plan_type, price, validity |
-| `sop_chunks` | text-embedding-3-small | 1536 | rule_id, severity, domain |
+| Collection     | Embedding Model        | Dimensions | Metadata Fields                     |
+| -------------- | ---------------------- | ---------- | ----------------------------------- |
+| `faq_chunks`   | text-embedding-3-small | 1536       | category, source_doc, plan_type     |
+| `plan_vectors` | text-embedding-3-small | 1536       | plan_id, plan_type, price, validity |
+| `sop_chunks`   | text-embedding-3-small | 1536       | rule_id, severity, domain           |
 
 Index type: HNSW. BM25 lexical index on same collections for hybrid search. RRF reranker at query time.
 
-### 6.4. Kafka / Redpanda Topics
+### 1.7.4. Kafka / Redpanda Topics
 
-| Topic | Partitions | Key | Consumers |
-|---|---|---|---|
-| `cdr.raw` | 24 | `subscriber_id` | cdr-balance-updater consumer group |
-| `cdr.enriched.filtered` | 24 | `subscriber_id` | fraud-pre-screener, notification-trigger |
-| `cdr.fraud.flagged` | 6 | `msisdn` | fraud-detection-agent |
-| `fraud.alerts` | 6 | `msisdn` | fraud-dashboard (WebSocket relay), notification-service |
-| `notification.events` | 12 | `msisdn` | notification-service |
-| `cdr.dlq` | 6 | `cdr_record_id` | DLQ inspector (manual) |
+| Topic                   | Partitions | Key             | Consumers                                               |
+| ----------------------- | ---------- | --------------- | ------------------------------------------------------- |
+| `cdr.raw`               | 24         | `subscriber_id` | cdr-balance-updater consumer group                      |
+| `cdr.enriched.filtered` | 24         | `subscriber_id` | fraud-pre-screener, notification-trigger                |
+| `cdr.fraud.flagged`     | 6          | `msisdn`        | fraud-detection-agent                                   |
+| `fraud.alerts`          | 6          | `msisdn`        | fraud-dashboard (WebSocket relay), notification-service |
+| `notification.events`   | 12         | `msisdn`        | notification-service                                    |
+| `cdr.dlq`               | 6          | `cdr_record_id` | DLQ inspector (manual)                                  |
 
 ---
 
-## 7. Authentication & Security Architecture
+## 1.8. Authentication & Security Architecture
 
-### 7.1. Auth Flow
+### 1.8.1. Auth Flow
 
 **MVP:** AWS Cognito (LocalStack) issues JWTs. OTP sent via Cognito (stored in Notification Portal for testing). Roles: `subscriber`, `ops`, `fraud`, `admin/simulator`.
 
 **Target:** Keycloak on EKS. Same JWT structure; role claims identical. API Gateway validates JWT on every request. Blacklist enforcement at API Gateway layer (FR-66).
 
-### 7.2. Security Controls
+### 1.8.2. Security Controls
 
-| Control | Implementation |
-|---|---|
-| PII encryption at rest | PostgreSQL column encryption (pgcrypto); AES-256 |
-| TLS in transit | TLS 1.2+ enforced at ALB and API Gateway |
-| PII in logs | Fluentd redaction filter strips MSISDN, name, address fields before forwarding |
-| Card tokenisation | Simulated tokenisation: raw PAN → UUID token at point of entry; raw PAN never written to DB |
-| Rate limiting (FR-36) | Valkey/Redis INCR + TTL per `msisdn:window`; API Gateway rate limit as outer layer |
+| Control                  | Implementation                                                                                                       |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| PII encryption at rest   | PostgreSQL column encryption (pgcrypto); AES-256                                                                     |
+| TLS in transit           | TLS 1.2+ enforced at ALB and API Gateway                                                                             |
+| PII in logs              | Fluentd redaction filter strips MSISDN, name, address fields before forwarding                                       |
+| Card tokenisation        | Simulated tokenisation: raw PAN → UUID token at point of entry; raw PAN never written to DB                          |
+| Rate limiting (FR-36)    | Valkey/Redis INCR + TTL per `msisdn:window`; API Gateway rate limit as outer layer                                   |
 | Account takeover (FR-66) | SIM swap confirmed → write `blacklist:{msisdn}` to Valkey + `blacklist` table → API Gateway returns 403; JWT revoked |
-| TRAI data localisation | All AWS resources in `ap-south-1`; no cross-region data transfer |
-| Audit immutability | Postgres app role: INSERT only on `audit_log`; no UPDATE/DELETE grants |
+| TRAI data localisation   | All AWS resources in `ap-south-1`; no cross-region data transfer                                                     |
+| Audit immutability       | Postgres app role: INSERT only on `audit_log`; no UPDATE/DELETE grants                                               |
 
 ---
 
-## 8. Frontend Architecture
+## 1.9. Frontend Architecture
 
-### 8.1. Single SPA — Role-Based Dashboard Routing
+### 1.9.1. Single SPA — Role-Based Dashboard Routing
 
 ```
 React 18 + Vite + TailwindCSS (single build output)
@@ -397,24 +402,24 @@ React 18 + Vite + TailwindCSS (single build output)
 
 JWT `role` claim determines which route subtree is accessible. Role mismatch → redirect to login.
 
-### 8.2. Real-Time UI Channels
+### 1.9.2. Real-Time UI Channels
 
-| Feature | Mechanism |
-|---|---|
-| Balance display after CDR | Polling (500ms) or SSE from balance-service |
-| Fraud anomaly feed (FR-53) | WebSocket — fraud-service pushes on `fraud.alerts` Kafka consumer |
+| Feature                     | Mechanism                                                                 |
+| --------------------------- | ------------------------------------------------------------------------- |
+| Balance display after CDR   | Polling (500ms) or SSE from balance-service                               |
+| Fraud anomaly feed (FR-53)  | WebSocket — fraud-service pushes on `fraud.alerts` Kafka consumer         |
 | Notification Portal (FR-69) | WebSocket — notification-service pushes on `notification.events` consumer |
-| CDR Simulator trace (FR-68) | WebSocket — simulator streams per-stage trace events |
+| CDR Simulator trace (FR-68) | WebSocket — simulator streams per-stage trace events                      |
 
-### 8.3. State Management
+### 1.9.3. State Management
 
 React Query (TanStack Query) for server state. No global client state library (Redux etc.) — role-separated dashboards have no shared state. Local component state for UI interactions.
 
 ---
 
-## 9. Observability Architecture
+## 1.10. Observability Architecture
 
-### 9.1. MVP — OTEL-TUI + LangFuse + Fluentd
+### 1.10.1. MVP — OTEL-TUI + LangFuse + Fluentd
 
 ```
 All services → OTEL SDK (Python opentelemetry-sdk)
@@ -429,7 +434,7 @@ Docker container logs → Fluentd → OTEL-TUI
 
 Trace ID propagated via OTEL `traceparent` header across all service calls and Kafka message headers.
 
-### 9.2. Target State — LGTM + LangFuse + Fluentd
+### 1.10.2. Target State — LGTM + LangFuse + Fluentd
 
 ```
 All services → OTEL SDK
@@ -446,6 +451,7 @@ Grafana dashboards: CDR pipeline health, balance P95, fraud escalation rate, age
 ```
 
 **LangFuse instrumentation coverage:**
+
 - Every LangGraph node invocation
 - Every A2A inter-agent call
 - Every RAG retrieval (query + retrieved chunks + scores)
@@ -454,11 +460,12 @@ Grafana dashboards: CDR pipeline health, balance P95, fraud escalation rate, age
 
 ---
 
-## 10. Implementation Patterns & Consistency Rules
+## 1.11. Implementation Patterns & Consistency Rules
 
-### 10.1. Naming Conventions
+### 1.11.1. Naming Conventions
 
 **Database:**
+
 - Tables: `snake_case` plural — `subscribers`, `wallet_balances`, `cdr_events`
 - Columns: `snake_case` — `subscriber_id`, `msisdn`, `created_at`
 - Foreign keys: `{referenced_table_singular}_id` — `subscriber_id`, `plan_id`
@@ -467,12 +474,14 @@ Grafana dashboards: CDR pipeline health, balance P95, fraud escalation rate, age
 - Timestamps: `created_at TIMESTAMPTZ DEFAULT NOW()`, `updated_at TIMESTAMPTZ`
 
 **API:**
+
 - REST endpoints: plural nouns, kebab-case — `GET /subscribers/{id}`, `POST /recharge-orders`
 - Query params: `snake_case` — `?subscriber_id=`, `?page_size=`
 - Path params: `{snake_case}` — `{subscriber_id}`
 - Headers: `X-Trace-Id`, `X-Request-Id` (custom); standard JWT in `Authorization: Bearer`
 
 **Python:**
+
 - Modules/files: `snake_case.py`
 - Classes: `PascalCase`
 - Functions/variables: `snake_case`
@@ -482,12 +491,13 @@ Grafana dashboards: CDR pipeline health, balance P95, fraud escalation rate, age
 **Kafka topics:** `domain.subdomain` dot-separated — `cdr.raw`, `cdr.enriched.filtered`, `fraud.alerts`
 
 **React:**
+
 - Components: `PascalCase.tsx` — `BalanceCard.tsx`, `FraudCaseQueue.tsx`
 - Hooks: `usePascalCase.ts` — `useBalance.ts`, `useChatSession.ts`
 - Utility files: `camelCase.ts`
 - CSS classes: TailwindCSS utility classes only; no custom CSS except `globals.css`
 
-### 10.2. API Response Format
+### 1.11.2. API Response Format
 
 All FastAPI responses use a standard envelope:
 
@@ -511,7 +521,7 @@ All FastAPI responses use a standard envelope:
 
 HTTP status codes: 200 (ok), 201 (created), 400 (client error), 401 (unauthenticated), 403 (forbidden / blacklisted), 404 (not found), 409 (conflict / duplicate), 422 (validation), 429 (rate limited), 500 (server error).
 
-### 10.3. Kafka Event Schema
+### 1.11.3. Kafka Event Schema
 
 All Kafka messages: JSON, with envelope:
 
@@ -527,20 +537,20 @@ All Kafka messages: JSON, with envelope:
 
 Trace ID always in Kafka message header `traceparent` AND in JSON body `trace_id`.
 
-### 10.4. Error Handling Patterns
+### 1.11.4. Error Handling Patterns
 
 - FastAPI: global exception handler → standard error envelope (never raw 500)
 - LangGraph agents: each node wraps in try/except; errors logged to LangFuse + returned as structured error state
 - Kafka consumers: failed record → publish to `cdr.dlq`; batch offset not committed until retry exhausted
 - Frontend: React Query error states + toast notifications; never raw error objects exposed to UI
 
-### 10.5. PII Hygiene Rules (All Agents MUST Follow)
+### 1.11.5. PII Hygiene Rules (All Agents MUST Follow)
 
 - Never log raw MSISDN, name, address, or card data — use `msisdn[-4:]` suffix or `[REDACTED]`
 - Never include PII in OTEL span attributes — use subscriber UUID only
 - Fluentd redaction filter is a safety net, not the primary guard
 
-### 10.6. Testing Patterns
+### 1.11.6. Testing Patterns
 
 - Python backend: pytest; test files co-located in `tests/` per service codebase
 - FastAPI: `httpx.AsyncClient` for API tests; no mocking of Postgres — use `testcontainers`
@@ -550,9 +560,9 @@ Trace ID always in Kafka message header `traceparent` AND in JSON body `trace_id
 
 ---
 
-## 11. Project Structure
+## 1.12. Project Structure
 
-### 11.1. Monorepo Layout
+### 1.12.1. Monorepo Layout
 
 ```
 sboai_capstone/
@@ -722,7 +732,7 @@ sboai_capstone/
     └── generate_synthetic_data.py         # FR-71
 ```
 
-### 11.2. Docker Compose Services (MVP)
+### 1.12.2. Docker Compose Services (MVP)
 
 ```yaml
 services:
@@ -742,9 +752,9 @@ services:
 
 ---
 
-## 12. Architecture Validation
+## 1.13. Architecture Validation
 
-### 12.1. Decision Compatibility ✅
+### 1.13.1. Decision Compatibility ✅
 
 - Redpanda (Kafka-wire-compatible) → aiokafka consumer works unchanged
 - Valkey → Redis-compatible; same Python `redis` client
@@ -753,24 +763,25 @@ services:
 - Milvus: `pymilvus` client; HNSW + BM25 hybrid supported in Milvus 2.4+
 - WeasyPrint: pure Python; no browser dep; works in Docker Alpine
 
-### 12.2. NFR Coverage ✅
+### 1.13.2. NFR Coverage ✅
 
-| NFR | Architecture Support |
-|---|---|
-| P95 ≤ 200ms balance deduction | Valkey/Redis INCRBY; Postgres async flush; agents off hot path |
-| 100K eps (Target) | Rust consumer + MSK 24 partitions + Valkey |
-| Idempotency | Valkey SET dedup + recharge idempotency key + notification once-per-event |
-| TRAI data localisation | All AWS in `ap-south-1`; no cross-region |
-| 6-year audit retention | Postgres append-only + S3 archive |
-| PCI-DSS | Tokenisation at entry; raw PAN never persisted |
-| PII encryption | pgcrypto AES-256 + Fluentd redaction |
-| FR-36 rate limiting | Valkey INCR/TTL per subscriber per window |
-| FR-66 account takeover | Blacklist Valkey + Postgres + API Gateway 403 on JWT |
-| FR-77 health checks | `/health` + `/ready` on every FastAPI service |
+| NFR                           | Architecture Support                                                      |
+| ----------------------------- | ------------------------------------------------------------------------- |
+| P95 ≤ 200ms balance deduction | Valkey/Redis INCRBY; Postgres async flush; agents off hot path            |
+| 100K eps (Target)             | Rust consumer + MSK 24 partitions + Valkey                                |
+| Idempotency                   | Valkey SET dedup + recharge idempotency key + notification once-per-event |
+| TRAI data localisation        | All AWS in `ap-south-1`; no cross-region                                  |
+| 6-year audit retention        | Postgres append-only + S3 archive                                         |
+| PCI-DSS                       | Tokenisation at entry; raw PAN never persisted                            |
+| PII encryption                | pgcrypto AES-256 + Fluentd redaction                                      |
+| FR-36 rate limiting           | Valkey INCR/TTL per subscriber per window                                 |
+| FR-66 account takeover        | Blacklist Valkey + Postgres + API Gateway 403 on JWT                      |
+| FR-77 health checks           | `/health` + `/ready` on every FastAPI service                             |
 
-### 12.3. FR Coverage ✅
+### 1.13.3. FR Coverage ✅
 
 All 77 FRs are architecturally addressed:
+
 - FR-1–7 (Account & Identity): `account` router + Cognito/Keycloak + `identity` schema
 - FR-8–11 (Balance & Usage): `balance` router + Valkey hot read + Postgres
 - FR-12–17 (Recharge): `recharge` router + idempotency key + WeasyPrint receipts
@@ -786,55 +797,62 @@ All 77 FRs are architecturally addressed:
 - FR-71 (Synthetic Dataset): `synthetic_generator.py` — 300K subs, 5M CDRs, 1K plans
 - FR-72–77 (Eval/Obs): LangFuse + OTEL + DeepEval + LLM-as-Judge + `/health`+`/ready`
 
-### 12.4. Gap Analysis
+### 1.13.4. Gap Analysis
 
 **Critical Gaps:** None.
 
 **Important Notes (not gaps — implementation decisions):**
+
 - Target State ML forecasting model (TimesFM/Chronos/Prophet) — deferred post-MVP by design
 - Keycloak Realm configuration detail — implementation-time decision
 - Milvus collection schema exact field types — implementation-time; architecture defines domains
 
 **Deferred to Production (by PRD):**
+
 - Real payment gateway integration
 - Real SMS/push gateway (Twilio, MSG91)
 - Consent management
 - Session timeout / token revocation
 - ML fraud classifier (architecture hook only)
 
-### 12.5. Architecture Completeness Checklist
+### 1.13.5. Architecture Completeness Checklist
 
 **Requirements Analysis**
+
 - [x] Project context thoroughly analyzed
 - [x] Scale and complexity assessed (Enterprise; MVP 10K eps, Target 100K eps)
 - [x] Technical constraints identified (200ms SLA, India data localisation, Milvus fixed, Postgres fixed)
 - [x] Cross-cutting concerns mapped (trace ID, idempotency, async agents, PII)
 
 **Architectural Decisions**
+
 - [x] Critical decisions documented with versions (all stack components specified)
 - [x] Technology stack fully specified (MVP and Target State separately)
 - [x] Integration patterns defined (Kafka topics, REST boundaries, A2A via LangGraph)
 - [x] Performance considerations addressed (Valkey write buffer, Rust target, async agent path)
 
 **Implementation Patterns**
+
 - [x] Naming conventions established (DB, API, Python, Kafka, React)
 - [x] Structure patterns defined (two-codebase MVP; microservices Target)
 - [x] Communication patterns specified (Kafka envelopes, REST envelope, WebSocket for real-time)
 - [x] Process patterns documented (error handling, PII hygiene, testing, DLQ)
 
 **Project Structure**
+
 - [x] Complete directory structure defined
 - [x] Component boundaries established (cdr-pipeline vs app-backend; FR mapping to routers/agents)
 - [x] Integration points mapped (Kafka topics, Valkey key patterns, Milvus collections)
 - [x] Requirements to structure mapping complete
 
-### 12.6. Architecture Readiness Assessment
+### 1.13.6. Architecture Readiness Assessment
 
 **Overall Status:** READY FOR IMPLEMENTATION
 
 **Confidence Level:** High
 
 **Key Strengths:**
+
 - Balance hot path is fully isolated from agent execution — 200ms SLA is structurally enforced
 - Two-codebase MVP structure minimises inter-service complexity while keeping Target State migration clean
 - Decision log (`Event Stream and CDR Pipeline.md`) pre-resolved the hardest pipeline decisions
@@ -842,14 +860,16 @@ All 77 FRs are architecturally addressed:
 - Fluentd as the single log routing layer means MVP→Target observability switch is a config change, not a code change
 
 **Areas for Future Enhancement (post-MVP):**
+
 - Rust CDR pipeline build and testing pipeline (GitHub Actions Rust workflow)
 - Keycloak realm export/import for reproducible Target State auth config
 - Deep learning forecasting model evaluation (TimesFM vs Chronos vs Prophet benchmarks on synthetic data)
 - Milvus collection schema versioning strategy as knowledge base grows
 
-### 12.7. Implementation Handoff
+### 1.13.7. Implementation Handoff
 
 **AI Agent Guidelines:**
+
 - The two-codebase boundary (`cdr-pipeline/` vs `app-backend/`) is hard — no HTTP calls across it in MVP
 - All agents must be async (never `await` an LLM call inside the Kafka batch processing loop)
 - Every FastAPI endpoint must emit OTEL spans with `trace_id`; LangGraph nodes must pass `trace_id` in LangFuse metadata
@@ -857,6 +877,7 @@ All 77 FRs are architecturally addressed:
 - All Kafka messages must include `traceparent` in headers AND `trace_id` in JSON body
 
 **First Implementation Priorities:**
+
 1. `docker-compose.yml` — bring up all infra (Redpanda, Redis, Postgres, Milvus, LocalStack, LangFuse, OTEL-TUI, Fluentd)
 2. Postgres schema migrations (Alembic) — all domains
 3. Synthetic dataset generation (`scripts/generate_synthetic_data.py`) — 300K subs, 5M CDRs
