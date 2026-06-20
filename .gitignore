@@ -233,3 +233,5 @@ coverage/
 .vite/
 *.tsbuildinfo
 .eslintcache
+
+docker/data

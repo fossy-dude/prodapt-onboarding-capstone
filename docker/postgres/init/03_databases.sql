@@ -26,5 +26,5 @@ WHERE NOT EXISTS (
         SELECT
         FROM pg_database
         WHERE datname = 'langfuse'
-    ) \ gexec
+    ) \gexec
 GRANT ALL PRIVILEGES ON DATABASE langfuse TO langfuse_app;

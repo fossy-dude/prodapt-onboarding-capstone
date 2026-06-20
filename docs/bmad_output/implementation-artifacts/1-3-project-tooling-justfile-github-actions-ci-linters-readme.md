@@ -268,6 +268,38 @@ Created:
 - `service_webapp/src/main.py`
 - `service_webapp/tests/test_smoke.py`
 
+## Review Findings
+
+### Decision Needed (User Input Required)
+
+- [ ] [Review][Decision] Seed recipes unconditionally fail — Should `seed` and `seed-milvus` recipes exit 1 (blocking until Epic 2 scripts land) or exit 0 with warning message (allowing README to reference stable commands)? Decision impacts CI/deploy pipeline expectations.
+- [ ] [Review][Decision] Database config mismatch — Story 1.4 (pydantic-settings) will choose between `DATABASE_URL` vs separate `DB__*` configuration. Should this story clarify which is canonical, or defer to Story 1.4?
+- [ ] [Review][Decision] Python version consistency — CI hardcodes 3.13, but Ref config targets py311. Pin pyproject.toml to 3.13 to match CI, or update CI to 3.11 to match Ref config?
+
+### Patches (Fixes Needed)
+
+- [ ] [Review][Patch] `.env.example` hardcodes development secrets (LANGFUSE passwords, ministack S3 keys) — Replace with placeholder strings; move actual secrets to `.env.dev` (gitignored)
+- [ ] [Review][Patch] Flyway migration path assumes repo root working directory — Convert `filesystem:service_webapp/db/migrations` to absolute path using `{{ justfile_directory() }}`
+- [ ] [Review][Patch] ESLint script has no configuration file — Create `frontend/.eslintrc.js` with strict rules or reference an npm config package
+- [ ] [Review][Patch] Vitest setup file not wired to test runner — Add `setupFiles: ['./src/test/setup.ts']` to `vitest.config.ts` or `package.json`
+- [ ] [Review][Patch] Backend recipe invokes non-existent FastAPI app — `src.main` only has `main()` function, no `app` object; add `app = FastAPI()` or change recipe to `python -m src.main`
+- [ ] [Review][Patch] Frontend missing npm ci prerequisite check — Add guard to `just frontend` recipe to validate `node_modules/` exists or run `npm ci`
+- [ ] [Review][Patch] CDR pipeline missing `__init__.py` directory check — Add guard to `just cdr` recipe to create or validate `src/__init__.py`
+- [ ] [Review][Patch] Postgres startup not validated before migrations — Add health check polling after `just up` or safeguard in `just migrate` to check `pg_isready`
+- [ ] [Review][Patch] `deps_destroy` recipe lacks confirmation prompt — Add `read -p` prompt before `podman volume rm postgres_data`
+- [ ] [Review][Patch] `docker/.env` file not validated to exist — Add safeguard to `just deps` recipe to check file existence and guide user to `cp .env.example docker/.env`
+- [ ] [Review][Patch] Placeholder password validation missing — Add validation in compose or `just up` hook to fail if passwords still contain `change_me_*` placeholders
+- [ ] [Review][Patch] format recipe fails if `src/` directory missing — Add guard to create or skip format if directory doesn't exist
+- [ ] [Review][Patch] `uvx` command not validated as installed — Add runtime check for `uv` installation; provide clear error message pointing to README prerequisites
+- [ ] [Review][Patch] `vite-env.d.ts` is a stub with no extension point — Add comments and examples for declaring custom Vite env vars (e.g., VITE_API_BASE)
+- [ ] [Review][Patch] Podman Desktop vs Engine distinction unclear in README — Clarify Prerequisites section: "Install Podman Desktop (includes compose) OR Podman Engine + podman-compose plugin"
+
+### Deferred (Pre-Existing or Story 1.4+)
+
+- [x] [Review][Defer] Empty API keys validation (AZURE_OPENAI_API_KEY, LANGFUSE_SECRET_KEY) — Pre-existing; deferred to Story 1.4 (pydantic-settings) for startup validation
+- [x] [Review][Defer] Test coverage threshold missing — Acceptable for MVP baseline; can add in Story 1.7 (frontend tooling enhancement)
+- [x] [Review][Defer] vite.config.ts types not checked in build — Acceptable for MVP; `tsconfig.node.json` removal is correct cleanup
+
 ## Change Log
 
 - 2026-06-20: Story 1.3 implemented — cross-platform justfile, Ref-canonical ruff/pyrefly/tox config for both Python codebases (src/ layout), frontend ESLint/TS-strict/Vitest toolchain (green), GitHub Actions CI (`ci-pipeline.yml`, `ci-cdr.yml`), root README (§1.15.1 structure), `.env.example`, `.gitignore` hardening. All ACs met; `just lint` + `just tox` + frontend gates green.
