@@ -78,12 +78,14 @@ services:
     command: migrate
     environment:
       FLYWAY_URL: jdbc:postgresql://postgres:5432/sboai
-      FLYWAY_USER: ${POSTGRES_FLYWAY_USERNAME:-flyway}
+      FLYWAY_USER: ${POSTGRES_FLYWAY_USERNAME:-admin}
       FLYWAY_PASSWORD: ${POSTGRES_FLYWAY_PASSWORD:-password}
       FLYWAY_SCHEMAS: public
       FLYWAY_CONNECT_RETRIES: 10
       FLYWAY_LOCATIONS: filesystem:/flyway/sql
       FLYWAY_CLEAN_DISABLED: "true"
+    env_file:
+      - ./.env
     volumes:
       - ../service_webapp/db/migrations:/flyway/sql
     depends_on:
@@ -127,7 +129,7 @@ services:
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: [ "CMD", "mc", "ready", "local" ]
       interval: 1s
       timeout: 5s
       retries: 5

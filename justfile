@@ -26,7 +26,6 @@ deps:
 
 # Destroy infrastructure-only stack (stop containers, remove volumes and networks).
 deps_destroy:
-    @read -p "Destroy postgres_data volume and all containers? (y/N) " -n 1 -r; echo; [[ $REPLY =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
     podman compose -f docker/docker-compose-dependencies.yaml down -v --remove-orphans
 
 # Start the full application stack (infra + cdr-pipeline + service_webapp + frontend).
