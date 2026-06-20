@@ -163,7 +163,8 @@ class PostgresRegistrationRepository:
                 raise DuplicateMsisdnError(detail={"msisdn": mask_msisdn(cmd.msisdn)}) from exc
             raise
         row = await cur.fetchone()
-        assert row is not None  # RETURNING always yields a row on success
+        if row is None:
+            raise RuntimeError("INSERT INTO identity_subscribers RETURNING id returned no row")
         return str(row[0])  # RETURNING id (single column)
 
     @staticmethod

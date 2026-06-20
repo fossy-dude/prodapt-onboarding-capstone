@@ -39,6 +39,7 @@ import contextvars
 import functools
 import json
 import logging
+import sys
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -250,8 +251,9 @@ def trace_agent(
                 return output
             finally:
                 # Always close the context manager, even on cancellation.
+                # Pass the active exception info so the CM can record failures.
                 try:
-                    observation_cm.__exit__(None, None, None)
+                    observation_cm.__exit__(*sys.exc_info())
                 except Exception:
                     pass
 

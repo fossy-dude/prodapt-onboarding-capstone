@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from functools import lru_cache
 from typing import Any
 
@@ -103,7 +104,7 @@ class PiiCipher:
 
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: PLC0415
 
-        nonce = hashlib.sha256(b"nonce" + self._aes_key).digest()[:12]  # deterministic per key
+        nonce = os.urandom(12)  # unique per call — AES-GCM nonce reuse is catastrophic
         ct = AESGCM(self._aes_key).encrypt(nonce, plaintext.encode("utf-8"), associated_data=None)
         return base64.urlsafe_b64encode(nonce + ct).decode("ascii")
 

@@ -1,5 +1,9 @@
 # Deferred Work
 
+## Deferred from: code review of 1-6-subscriber-registration-trai-caf-pii-encryption (2026-06-20)
+
+- **No retry on `registration_id` uniqueness collision** — `generate_registration_id` uses 4 random bytes (2^32 per day); a collision surfaces as a raw psycopg `UniqueViolation` → 500. Low probability at MVP scale but should be wrapped in a retry loop (max 3 attempts) before production load.
+
 ## Deferred from: MiniStack Cognito provisioning script (scripts/provision_cognito.py) (2026-06-20)
 
 - **OTP Custom Auth challenge Lambdas not provisioned** — `scripts/provision_cognito.py` creates the user pool, app client, role groups, and demo users only. The `DefineAuthChallenge` / `CreateAuthChallenge` / `VerifyAuthChallenge` Lambdas that actually issue + verify a passwordless login OTP are intentionally out of scope and land in Story 1.8 (login). Until then, the pool supports custom auth but no OTP can be issued.

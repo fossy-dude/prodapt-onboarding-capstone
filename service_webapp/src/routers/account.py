@@ -10,7 +10,7 @@ the generated Registration ID (AC #1, #2, #5, #8).
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Request
@@ -40,7 +40,7 @@ class RegisterRequest(BaseModel):
 
     # Step 1 — personal details (UX brief §5)
     full_name: str = Field(min_length=1, max_length=200)
-    email: str
+    email: str = Field(max_length=254)
     msisdn: str = Field(description="Mobile number being activated (10-15 digits).")
     alternate_mobile: str = Field(description="Alternate mobile for the pre-activation OTP (PRD A-6).")
 
@@ -79,8 +79,10 @@ class RegisterRequest(BaseModel):
     @field_validator("date_of_birth")
     @classmethod
     def _validate_dob(cls, v: str) -> str:
-        if not re.match(r"^\d{4}-\d{2}-\d{2}$", v):
-            raise ValueError("date_of_birth must be YYYY-MM-DD")
+        try:
+            date.fromisoformat(v)
+        except ValueError as exc:
+            raise ValueError("date_of_birth must be a valid calendar date (YYYY-MM-DD)") from exc
         return v
 
 

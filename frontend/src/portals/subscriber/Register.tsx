@@ -116,6 +116,7 @@ function Register() {
 
   const handleSubmit = (event: FormEvent): void => {
     event.preventDefault();
+    if (mutation.isPending) return;
     if (!validateStep2()) return;
     const payload: RegisterPayload = { ...form };
     mutation.mutate(payload);
@@ -279,13 +280,14 @@ interface FieldProps {
 }
 
 function Field({ label, value, onChange, type = 'text', inputMode = 'text' }: FieldProps) {
+  const fieldId = label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
   return (
     <div className="mb-3">
-      <label className="mb-1 block text-sm font-medium text-neutral-800" htmlFor={label}>
+      <label className="mb-1 block text-sm font-medium text-neutral-800" htmlFor={fieldId}>
         {label}
       </label>
       <input
-        id={label}
+        id={fieldId}
         className="w-full rounded-md border border-neutral-200 px-3 py-2 text-base"
         type={type}
         inputMode={inputMode}

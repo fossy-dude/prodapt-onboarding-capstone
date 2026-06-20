@@ -4,7 +4,7 @@ baseline_commit: a7d3d259e5943cefd9e2a346cb3f00c543c6955c
 
 # Story 1.6: Subscriber Registration, TRAI CAF & PII Encryption
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -204,3 +204,24 @@ Frontend:
 ## Change Log
 
 - 2026-06-20: Story 1.6 implemented — subscriber registration endpoint, Registration ID generation, TRAI CAF audit (SHA-256), initial fulfilment order, MiniStack Cognito provisioning + OTP, duplicate-MSISDN 409, 3-step Register UI; V3 migration added; backend (49 unit + 3 integration) and frontend (5) tests green.
+
+### Review Findings
+
+_Reviewed 2026-06-20. 3-layer review (adversarial · edge-case · acceptance) across 5 file chunks. 10 patch · 1 deferred · 5 dismissed._
+
+**Patch** (fix before marking done):
+
+- [x] [Review][Patch] CRITICAL — AES-GCM deterministic nonce breaks cipher entirely [`service_webapp/src/core/security.py:694`] — `nonce = hashlib.sha256(b"nonce" + self._aes_key).digest()[:12]` is the SAME nonce on every call. AES-GCM nonce reuse exposes keystream and allows tag forgery. Fix: `nonce = os.urandom(12)` (prepend to ciphertext).
+- [x] [Review][Patch] `_ensure_pool` TOCTOU race — two concurrent `provision_user` calls both see `self._user_pool_id is None`, both enter `asyncio.to_thread(_ensure_pool_sync)` without a lock [`service_webapp/src/adapters/cognito.py:133`]
+- [x] [Review][Patch] Fragile `UsernameExists` detection by class name string match [`service_webapp/src/adapters/cognito.py:165`] — `"UsernameExists" in type(exc).__name__` breaks if LocalStack exception class differs; check `exc.response["Error"]["Code"] == "UsernameExistsException"` instead.
+- [x] [Review][Patch] `pool.open()` silently swallows ALL exceptions [`service_webapp/src/adapters/postgres.py:248`] — `except Exception: pass` hides genuine connection failures; catch only `PoolAlreadyOpen` (or psycopg_pool equivalent).
+- [x] [Review][Patch] `assert row is not None` disabled under `python -O` [`service_webapp/src/services/registration.py:_insert_subscriber`] — replace with explicit `if row is None: raise RuntimeError(...)`.
+- [x] [Review][Patch] `id={label}` with spaces is invalid HTML, breaks a11y [`frontend/src/portals/subscriber/Register.tsx:783`] — all label strings have spaces ("Full name", "Date of birth" …); use a slugified id (e.g. `label.toLowerCase().replace(/\s+/g, '-')`).
+- [x] [Review][Patch] `date_of_birth` regex accepts invalid calendar dates (`2026-13-99`) [`service_webapp/src/routers/account.py:RegisterRequest`] — add Pydantic validator that parses via `datetime.date.fromisoformat()`.
+- [x] [Review][Patch] No `max_length` on `email` field [`service_webapp/src/routers/account.py:RegisterRequest`] — DB column has a length limit; add `max_length=254` (RFC 5321).
+- [x] [Review][Patch] `observation_cm.__exit__(None, None, None)` in `finally` ignores active exception [`service_webapp/src/core/observability/langfuse.py`] — capture `sys.exc_info()` before the `finally` and pass it to `__exit__` on exception paths.
+- [x] [Review][Patch] `handleSubmit` Enter-key bypass while mutation pending [`frontend/src/portals/subscriber/Register.tsx:handleSubmit`] — the Submit button is `disabled` but `noValidate` form allows Enter-key submission on focused fields; add an early `if (mutation.isPending) return` guard at the top of `handleSubmit`.
+
+**Deferred** (pre-existing or low-priority):
+
+- [x] [Review][Defer] No retry on `registration_id` uniqueness collision [`service_webapp/src/services/registration.py`] — deferred, low probability in MVP (2^32/day); raw `UniqueViolation` surfaces as 500 on collision. Add retry loop in a hardening pass.

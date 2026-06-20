@@ -86,6 +86,7 @@ class MinistackCognitoProvider:
         self._client: Any = None  # boto3 cognito-idp client (dynamically typed)
         self._user_pool_id: str | None = None
         self._client_id: str | None = None
+        self._pool_lock = asyncio.Lock()
 
     def _boto_client(self) -> Any:
         if self._client is None:
@@ -125,7 +126,9 @@ class MinistackCognitoProvider:
 
     async def _ensure_pool(self) -> tuple[str, str]:
         if self._user_pool_id is None or self._client_id is None:
-            self._user_pool_id, self._client_id = await asyncio.to_thread(self._ensure_pool_sync)
+            async with self._pool_lock:
+                if self._user_pool_id is None or self._client_id is None:
+                    self._user_pool_id, self._client_id = await asyncio.to_thread(self._ensure_pool_sync)
         return self._user_pool_id, self._client_id
 
     async def provision_user(self, username: str, phone_number: str | None) -> str:
@@ -157,7 +160,12 @@ class MinistackCognitoProvider:
             )
         except Exception as exc:
             # UsernameExistsException is acceptable for idempotent retries — anything else propagates.
-            if "UsernameExists" in type(exc).__name__:
+            error_code = ""
+            try:
+                error_code = exc.response["Error"]["Code"]  # type: ignore[attr-defined]
+            except (AttributeError, KeyError, TypeError):
+                pass
+            if error_code == "UsernameExistsException":
                 return
             raise
 

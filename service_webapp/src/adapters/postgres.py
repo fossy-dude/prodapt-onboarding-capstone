@@ -79,11 +79,7 @@ class Psycopg3AsyncAdapter(DatabaseProtocol):
         boot does not fail; the transaction commits on clean exit and rolls back on
         any exception.
         """
-        try:
-            await self._pool.open()
-        except Exception:
-            # Idempotent open: a second open raises PoolError, which is harmless here.
-            pass
+        await self._pool.open()
         async with self._pool.connection() as conn:
             async with conn.transaction():
                 yield conn
