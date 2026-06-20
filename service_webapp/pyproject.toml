@@ -307,7 +307,7 @@ deps = [
     "opentelemetry-instrumentation-fastapi>=0.46b0",
     "psycopg[binary,async,pool]>=3.2",
     "valkey[asyncio]>=6",
-    "langfuse>=2",
+    "langfuse>=4",
 ]
 commands = [
     ["ruff", "check", "."],
@@ -334,6 +334,6 @@ deps = [
     "psycopg[binary,async,pool]>=3.2",
     "valkey[asyncio]>=6",
     "testcontainers[postgres,redis]>=4",
-    "langfuse>=2",
+    "langfuse>=4",
 ]
 commands = [["pytest", "-m", "not slow", "{posargs}"]]

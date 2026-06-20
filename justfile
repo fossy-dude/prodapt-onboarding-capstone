@@ -34,7 +34,7 @@ up:
     @[ -f docker/.env ] || { echo "ERROR: docker/.env not found. Run: cp .env.example docker/.env"; exit 1; }
     @until podman exec postgres pg_isready -U sboai_superuser > /dev/null 2>&1; do sleep 1; done
     podman compose -f docker/docker-compose.yaml --env-file docker/.env up -d
-    @echo "→ LangFuse dashboard: http://localhost:3000  (Story 1.5; login via LANGFUSE_INIT_USER_* in docker/.env)"
+    @echo "→ LangFuse dashboard: http://localhost:3000  (requires 'just deps' first; login via LANGFUSE_INIT_USER_* in docker/.env)"
 
 # Stop the full application stack.
 down:

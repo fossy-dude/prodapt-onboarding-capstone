@@ -34,8 +34,11 @@ fields are sensitive per call site.
 
 from __future__ import annotations
 
+import atexit
 import contextvars
 import functools
+import json
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -50,6 +53,8 @@ __all__ = [
     "set_trace_usage",
     "trace_agent",
 ]
+
+_logger = logging.getLogger(__name__)
 
 # A generic async callable. ParamSpec is avoided: this pyrefly version rejects
 # ``P.args``/``P.kwargs`` annotations and the codebase doesn't use it elsewhere.
@@ -79,6 +84,10 @@ def get_langfuse_client() -> Langfuse | None:
     the :class:`langfuse.Langfuse` constructor runs, so disabled operation is
     connection-free. Callers (and :func:`trace_agent`) short-circuit on the
     ``None`` return (AC #4).
+
+    If the constructor raises (bad host, invalid keys), the error is logged,
+    ``None`` is returned, and the singleton is cached as disabled — graceful
+    degradation rather than crashing every agent call.
     """
     global _langfuse_client, _langfuse_client_initialised
     if _langfuse_client_initialised:
@@ -88,11 +97,16 @@ def get_langfuse_client() -> Langfuse | None:
         _langfuse_client = None
         return None
     # Built from settings only — no hard-coded host/keys (architecture §1.11.1).
-    _langfuse_client = Langfuse(
-        host=settings.langfuse_host,
-        public_key=settings.langfuse_public_key,
-        secret_key=settings.langfuse_secret_key,
-    )
+    try:
+        _langfuse_client = Langfuse(
+            host=settings.langfuse_host,
+            public_key=settings.langfuse_public_key,
+            secret_key=settings.langfuse_secret_key,
+        )
+        atexit.register(_langfuse_client.flush)
+    except Exception as exc:
+        _logger.warning("LangFuse client init failed, observability disabled: %s", exc)
+        _langfuse_client = None
     return _langfuse_client
 
 
@@ -125,9 +139,17 @@ def set_trace_usage(usage: dict[str, int] | None) -> contextvars.Token[dict[str,
 def _capture_input(args: tuple[Any, ...], kwargs: dict[str, Any]) -> dict[str, Any]:
     """Build the trace input payload from the call's positional/keyword args.
 
-    No scrubbing happens here on purpose — see the module PII hygiene contract.
+    Falls back to repr() strings if the payload is not JSON-serializable, so
+    non-serializable objects (Pydantic models, dataclasses, etc.) never crash
+    the SDK at the network boundary. See module PII hygiene contract for why
+    no scrubbing occurs here.
     """
-    return {"args": list(args), "kwargs": dict(kwargs)}
+    payload: dict[str, Any] = {"args": list(args), "kwargs": dict(kwargs)}
+    try:
+        json.dumps(payload)
+    except (TypeError, ValueError):
+        payload = {"args": repr(args), "kwargs": repr(kwargs)}
+    return payload
 
 
 def trace_agent(
@@ -139,14 +161,21 @@ def trace_agent(
 
     Captures trace **name** (default = the wrapped function's ``__name__``,
     overridable), **input** args/kwargs, **output**/return value, **model**, and
-    **token usage** (when :func:`set_trace_usage` was bound for the call). The
-    OTEL ``trace_id`` (when :func:`set_trace_id` was bound) is carried in the
+    **token usage** (when :func:`set_trace_usage` was bound *during* the wrapped
+    call — read after ``await fn(...)`` so LLM-response usage is captured).
+    The OTEL ``trace_id`` (when :func:`set_trace_id` was bound) is carried in the
     observation metadata so OTEL and LangFuse traces correlate (§1.13.7).
 
     When ``LANGFUSE_ENABLED=false`` the wrapper is a **pure pass-through**: it
     calls the wrapped function directly with zero LangFuse overhead and no
     client construction (AC #4) — identical signature, return value and
     exceptions to the undecorated function.
+
+    If LangFuse is enabled but the observation fails to open (network error,
+    SDK bug), the decorator falls back to a transparent pass-through so the
+    business call is never sacrificed for observability. Similarly, SDK errors
+    on ``observation.update()`` are suppressed (logged) after the business call
+    returns successfully.
 
     Usable in any of these forms::
 
@@ -179,26 +208,52 @@ def trace_agent(
             trace_name = explicit_name or fn.__name__
             trace_id = current_trace_id()
             metadata = {"trace_id": trace_id} if trace_id else {}
-            usage = _usage_var.get()
 
-            with client.start_as_current_observation(
-                name=trace_name,
-                as_type="generation",
-                input=_capture_input(args, kwargs),
-                model=model,
-                metadata=metadata,
-            ) as observation:
+            # Guard __enter__: if LangFuse fails to open the observation (bad
+            # host, SDK error), fall back to untraced execution — observability
+            # must never kill a business call.
+            try:
+                observation_cm = client.start_as_current_observation(
+                    name=trace_name,
+                    as_type="generation",
+                    input=_capture_input(args, kwargs),
+                    model=model,
+                    metadata=metadata,
+                )
+                observation = observation_cm.__enter__()
+            except Exception as exc:
+                _logger.warning("LangFuse observation open failed, running untraced: %s", exc)
+                return await fn(*args, **kwargs)
+
+            try:
                 try:
                     output = await fn(*args, **kwargs)
-                except Exception:
-                    # Flag the observation, then let the error propagate untouched.
-                    observation.update(level="ERROR")
+                except BaseException:
+                    # Catches both Exception and CancelledError / KeyboardInterrupt.
+                    # Flag the observation, suppress any secondary SDK error, then
+                    # re-raise the original so the caller sees the real failure.
+                    try:
+                        observation.update(level="ERROR")
+                    except Exception:
+                        pass
                     raise
+                # Read usage AFTER fn() completes — agents call set_trace_usage()
+                # from inside the LLM response handler (FR-72).
+                usage = _usage_var.get()
                 update_kwargs: dict[str, Any] = {"output": output}
                 if usage is not None:
                     update_kwargs["usage_details"] = usage
-                observation.update(**update_kwargs)
+                try:
+                    observation.update(**update_kwargs)
+                except Exception as exc:
+                    _logger.warning("LangFuse observation update failed: %s", exc)
                 return output
+            finally:
+                # Always close the context manager, even on cancellation.
+                try:
+                    observation_cm.__exit__(None, None, None)
+                except Exception:
+                    pass
 
         return wrapper
 

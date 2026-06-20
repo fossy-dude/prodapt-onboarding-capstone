@@ -4,7 +4,7 @@ baseline_commit: 47be78dde59d40f9f81fb836e9f5de9dd5f718ee
 
 # Story 1.5: LangFuse Self-Hosted Setup & Client Instrumentation Scaffold
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -149,6 +149,24 @@ GLM-5.2 (via Claude Code, `bmad-dev-story` workflow)
 - `service_webapp/pyproject.toml` — modified (added `langfuse>=2` to `[tool.tox.env.lint]` and `[tool.tox.env.test]` `deps`)
 - `justfile` — modified (LangFuse dashboard URL echo in `up` and `deps` recipes)
 - `docs/bmad_output/implementation-artifacts/1-5-langfuse-self-hosted-setup-client-instrumentation-scaffold.md` — this story file (status/record/checkboxes)
+
+### Review Findings
+
+- [x] [Review][Patch] Dependency pin too loose: `langfuse>=2` satisfies with v2/v3 which lack `start_as_current_observation`; pin to `>=4` [service_webapp/pyproject.toml, both tox envs]
+- [x] [Review][Patch] Usage timing bug: `_usage_var.get()` read before `await fn(...)` — token usage bound during LLM call is always None; move read to after the await [service_webapp/src/core/observability/langfuse.py:182]
+- [x] [Review][Patch] `Langfuse()` constructor exception leaves bad singleton state: `_langfuse_client_initialised=True` is set before the constructor runs; if it raises, all subsequent calls silently return None (disabled-like) with no error [langfuse.py:86,91-95]
+- [x] [Review][Patch] `observation.update()` not guarded: exceptions from the LangFuse SDK on the success path kill the business call; wrap both `.update()` calls in try/except [langfuse.py:195,199-200]
+- [x] [Review][Patch] `asyncio.CancelledError` not caught: it is a BaseException (not Exception) in Python 3.8+; task cancellation leaves the observation open with no terminal status; add a `finally` block [langfuse.py:193]
+- [x] [Review][Patch] Bare `@trace_agent` (no parentheses) path is not covered by any test; add a disabled and enabled test for the bare decorator form [service_webapp/tests/unit/test_langfuse.py]
+- [x] [Review][Patch] `_capture_input` and output have no guard for non-JSON-serializable objects; any Pydantic model, bytes, datetime, or numpy array causes SDK serialization failure; add try/except with repr() fallback [langfuse.py:125-130, 197]
+- [x] [Review][Patch] Test fixture `_reset_langfuse_state` annotated `AsyncIterator[None]` but is a plain sync generator; correct to `Iterator[None]` (import from collections.abc, under TYPE_CHECKING) [test_langfuse.py:30]
+- [x] [Review][Patch] No `flush()`/`shutdown()` hook: LangFuse v4 OTEL-based SDK buffers spans; without `atexit.register(client.flush)` or ASGI lifespan shutdown, all buffered traces are dropped on clean process exit [langfuse.py:get_langfuse_client]
+- [x] [Review][Patch] `start_as_current_observation __enter__` exception kills the agent call entirely: if LangFuse raises before yielding the context manager, the wrapped function is never called; guard with try/except and fall back to direct fn() call [langfuse.py:184-190]
+- [x] [Review][Patch] AC #5 echo in `up` recipe is misleading: `just up` starts `docker-compose.yaml` (app stack only); LangFuse runs in `docker-compose-dependencies.yaml` (deps stack); the echo implies LangFuse is available but `just up` alone never starts it; add prerequisite note or guard [justfile:37]
+- [x] [Review][Defer] AC #1: no `healthcheck` block on the langfuse service in docker-compose-dependencies.yaml [docker/docker-compose-dependencies.yaml] — deferred, pre-existing (Story 1.2 gap)
+- [x] [Review][Defer] Post-fork stale singleton: module-level globals inherited by forked workers (Gunicorn/multiprocessing); not relevant for single-worker uvicorn MVP [langfuse.py:module-level] — deferred, pre-existing
+- [x] [Review][Defer] `@trace_agent` on instance methods leaks `self` into trace input (potential PII): no agents exist until Epic 5; document the limitation at that time [langfuse.py:_capture_input] — deferred, Epic 5 scope
+- [x] [Review][Defer] ContextVar Token objects from `set_trace_id`/`set_trace_usage` are discarded; asyncio task-isolation mitigates in production (each request task gets a context copy); revisit if non-asyncio callers appear [langfuse.py:110-112,120-122] — deferred, mitigated by asyncio
 
 ## Change Log
 

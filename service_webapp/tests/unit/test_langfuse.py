@@ -13,6 +13,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
 from core.config import settings
 from core.observability.langfuse import (
     current_trace_id,
@@ -22,12 +25,9 @@ from core.observability.langfuse import (
     trace_agent,
 )
 
-if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
 
 @pytest.fixture(autouse=True)
-def _reset_langfuse_state() -> AsyncIterator[None]:
+def _reset_langfuse_state() -> Iterator[None]:
     """Isolate each test: disabled singleton cache + contextvars + settings flag.
 
     The module-level singleton caches the client and reads ``settings`` at call
@@ -248,3 +248,34 @@ def test_current_trace_id_roundtrip() -> None:
     """set_trace_id / current_trace_id propagate the OTEL trace id per context."""
     set_trace_id("trace-xyz")
     assert current_trace_id() == "trace-xyz"
+
+
+# ── @trace_agent: bare decorator form (no parentheses) ──────────────────────────
+
+
+def test_trace_agent_bare_disabled_preserves_name() -> None:
+    """@trace_agent (no parens) disabled → transparent pass-through, __name__ preserved."""
+    settings.langfuse_enabled = False
+
+    @trace_agent
+    async def bare_agent() -> str:
+        return "bare"
+
+    assert bare_agent.__name__ == "bare_agent"
+    assert hasattr(bare_agent, "__wrapped__")
+
+
+async def test_trace_agent_bare_enabled_records_trace(monkeypatch: pytest.MonkeyPatch) -> None:
+    """@trace_agent (no parens) enabled → trace name defaults to function __name__."""
+    client, _ = _wire_mock_client()
+    monkeypatch.setattr("core.observability.langfuse.get_langfuse_client", lambda: client)
+    settings.langfuse_enabled = True
+
+    @trace_agent
+    async def bare_fn() -> str:
+        return "ok"
+
+    result = await bare_fn()
+    assert result == "ok"
+    call_kwargs = client.start_as_current_observation.call_args.kwargs
+    assert call_kwargs["name"] == "bare_fn"

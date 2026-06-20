@@ -17,6 +17,13 @@
 - **Postgres adapter cannot self-recover after network loss via `ping()` alone** — once the pool is in a degraded state (successful `open()` followed by connection loss), repeated `ping()` calls correctly return `False` but never re-open the pool. Recovery requires `close()` + adapter reconstruction; wire up a lifespan health-check loop or connection-pool reconnect config in a later story.
 - **`kafka_brokers: str` is a comma-separated list disguised as a plain string** — every consumer must split on `,` manually. Refactor to `list[str]` with a `@field_validator` when the CDR pipeline consumer (Epic 2) actually uses it.
 
+## Deferred from: code review of 1-5-langfuse-self-hosted-setup-client-instrumentation-scaffold (2026-06-20)
+
+- **AC #1: no healthcheck on langfuse compose service** — langfuse service in `docker-compose-dependencies.yaml` has no `healthcheck` block; other infra services (postgres, clickhouse, minio, valkey) all have healthchecks. Pre-existing Story 1.2 gap; add when stabilising the deps stack.
+- **Post-fork stale singleton** — module-level `_langfuse_client` inherited by forked workers (Gunicorn, `multiprocessing`); background threads and file descriptors do not survive `fork()`. Register `os.register_at_fork(after_in_child=_reset_langfuse_client_for_tests)` or equivalent if multi-worker deployments are needed.
+- **`@trace_agent` on instance methods leaks `self` into trace input** — `_capture_input` records `args[0]` verbatim; on methods this is `self`, potentially exposing credentials or subscriber data. Document as unsupported and add a guard or `self`/`cls` stripping when agents are wired in Epic 5.
+- **ContextVar tokens discarded by callers** — `set_trace_id`/`set_trace_usage` return `contextvars.Token` objects that are never used for `var.reset(token)`; asyncio task-isolation mitigates in production (each request task copies the context). Revisit if non-asyncio or threaded callers are introduced.
+
 ## Deferred from: Story 1.4 — pydantic-settings singleton, health endpoints, OTEL middleware (2026-06-20)
 
 - **`service_webapp` Dockerfile does not exist** — `docker/docker-compose.yaml` `service_webapp` declares `build: context: ../service_webapp` but no `Dockerfile` is present, so `just up` / `podman compose build` cannot build the service. Pre-existing Story 1.2 gap; containerising the app is its own concern (no Story 1.4 task). The app serves on :8000 via the dev path `just backend` (verified live). Add a Dockerfile (system libs for weasyprint etc.) when the service must run under compose.
