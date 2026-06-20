@@ -1,0 +1,127 @@
+# generated: 2026-06-19
+# last_updated: 2026-06-19
+# project: sboai_capstone
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: docs/bmad_output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-06-19
+last_updated: 2026-06-19
+project: sboai_capstone
+# Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
+project_key: NOKEY
+tracking_system: file-system
+story_location: docs/bmad_output/implementation-artifacts
+
+development_status:
+  # Epic 1: Core Infrastructure, Tooling & Subscriber Identity
+  epic-1: in-progress
+  1-1-ux-brief-subscriber-registration-identity-flows: ready-for-dev
+  1-2-docker-compose-stack-postgres-init-flyway-baseline: ready-for-dev
+  1-3-project-tooling-justfile-github-actions-ci-linters-readme: ready-for-dev
+  1-4-pydantic-settings-singleton-health-endpoints-otel-trace-middleware: ready-for-dev
+  1-5-langfuse-self-hosted-setup-client-instrumentation-scaffold: ready-for-dev
+  1-6-subscriber-registration-trai-caf-pii-encryption: ready-for-dev
+  1-7-sim-activation-order-tracker-ui: ready-for-dev
+  1-8-login-otp-step-up-jwt-role-based-auth: ready-for-dev
+  1-9-profile-management-kyc-status-view: ready-for-dev
+  1-10-saved-payment-methods-pci-dss-tokenisation: ready-for-dev
+  epic-1-retrospective: optional
+
+  # Epic 2: CDR Pipeline, Balance Engine, Synthetic Data & Simulator Tools
+  epic-2: backlog
+  2-1-redpanda-topic-provisioning-kafka-envelope-contract: backlog
+  2-2-cdr-ingestion-consumer-dedup-dlq: backlog
+  2-3-balance-deduction-engine-valkey-write-buffer-postgres-flush: backlog
+  2-4-audit-log-distributed-trace-propagation: backlog
+  2-5-cdr-management-api-dlq-inspect-worker-control: backlog
+  2-6-synthetic-dataset-generation-plans-subscribers-cdrs: backlog
+  2-7-milvus-lite-initialisation-vector-seeding: backlog
+  2-8-cdr-simulator-ui-form-dispatch-websocket-trace-display: backlog
+  2-9-sim-activation-simulator-notification-portal: backlog
+  epic-2-retrospective: optional
+
+  # Epic 3: Subscriber Self-Care Portal
+  epic-3: backlog
+  3-1-ux-brief-balance-usage-recharge-portal-flows: backlog
+  3-2-real-time-balance-display-usage-breakdown: backlog
+  3-3-transaction-history-ledger: backlog
+  3-4-plan-details-view-plan-catalogue: backlog
+  3-5-recharge-purchase-plan-selection-simulated-payment: backlog
+  3-6-pdf-receipt-generation: backlog
+  3-7-refund-view: backlog
+  epic-3-retrospective: optional
+
+  # Epic 4: Notifications & USSD Interface
+  epic-4: backlog
+  4-1-notification-service-low-balance-depletion-plan-expiry-alerts: backlog
+  4-2-notification-preferences-delivery-simulation: backlog
+  4-3-rate-limiting-per-subscriber-100-rpm: backlog
+  4-4-ussd-session-handler-menu-router: backlog
+  epic-4-retrospective: optional
+
+  # Epic 5: Self-Care Chatbot — Multi-Agent (TDD-first)
+  epic-5: backlog
+  5-1-ux-brief-chatbot-interface-ag-ui-stream-flows: backlog
+  5-2-eval-harness-llm-as-judge-deepeval-scaffolding: backlog
+  5-3-rag-pipeline-milvus-hybrid-search: backlog
+  5-4-copilotkit-runtime-support-agent-graph: backlog
+  5-5-input-validation-guardrails: backlog
+  5-6-recharge-via-chatbot-multi-agent-tool-calls: backlog
+  5-7-rating-agent-charge-breakdown-explanation: backlog
+  5-8-dispute-workflow-balance-management-agent: backlog
+  5-9-plan-recommendation-tool-feedback-loop: backlog
+  5-10-conclusion-agent-notification-agent-session-end: backlog
+  epic-5-retrospective: optional
+
+  # Epic 6: Fraud Detection (TDD-first)
+  epic-6: backlog
+  6-1-eval-harness-fraud-detection-agent-accuracy: backlog
+  6-2-rule-based-cdr-pre-screener: backlog
+  6-3-fraud-detection-agent-llm-powered-risk-analysis: backlog
+  6-4-real-time-anomaly-feed-fraud-case-queue-ui: backlog
+  6-5-sim-swap-suspicious-recharge-alerts: backlog
+  6-6-account-takeover-prevention-blacklist-cognito-disable-jwt-revocation: backlog
+  epic-6-retrospective: optional
+
+  # Epic 7: Ops & Marketing Dashboard (TDD-first)
+  epic-7: backlog
+  7-1-eval-harness-ml-forecast-upsell-quality: backlog
+  7-2-plan-stock-dashboard-order-fulfilment-view: backlog
+  7-3-subscriber-growth-forecast-ml-3-month: backlog
+  7-4-plan-demand-forecast-30-90-day: backlog
+  7-5-target-base-builder-dynamic-kpi-filter: backlog
+  7-6-llm-segment-labelling-rule-induction-agent: backlog
+  7-7-segment-classification-at-scale-upsell-strategy-agent: backlog
+  7-8-ops-observability-dashboard-cdr-monitor-pipeline-health: backlog
+  7-9-root-cause-analysis-agent: backlog
+  epic-7-retrospective: optional

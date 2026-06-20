@@ -1,0 +1,2 @@
+format:
+    @echo "Formatted"
