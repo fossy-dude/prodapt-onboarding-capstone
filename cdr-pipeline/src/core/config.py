@@ -11,7 +11,7 @@ Import as ``from core.config import settings``. Missing **required** values rais
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,7 +22,7 @@ class DatabaseSettings(BaseModel):
     port: int = 5432
     name: str
     user: str
-    password: str
+    password: SecretStr
 
 
 class Settings(BaseSettings):

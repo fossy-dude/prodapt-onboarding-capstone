@@ -21,11 +21,15 @@ async def test_no_pii_in_span_attributes() -> None:
     """Span attributes are method + path only; query-string PII is excluded (AC #7)."""
     from main import create_app
 
+    # create_app() installs the real TracerProvider via _setup_tracer().
+    # The exporter must be attached AFTER that call so it goes on the correct
+    # provider — not a prior no-op proxy that create_app() will replace.
+    app = create_app()
+
     exporter = InMemorySpanExporter()
     provider = trace.get_tracer_provider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
 
-    app = create_app()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         # PII smuggled in via the query string — must not reach span attributes.

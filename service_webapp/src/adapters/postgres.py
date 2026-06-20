@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import psycopg.conninfo
 from psycopg_pool import AsyncConnectionPool
 
 from core.protocols.db import DatabaseProtocol
@@ -23,10 +24,19 @@ _CONNECT_TIMEOUT_SECONDS = 2
 
 
 def conninfo_from(db: DatabaseSettings) -> str:
-    """Build a libpq conninfo string from the nested DB settings."""
-    return (
-        f"host={db.host} port={db.port} dbname={db.name} "
-        f"user={db.user} password={db.password} connect_timeout={_CONNECT_TIMEOUT_SECONDS}"
+    """Build a libpq conninfo string from the nested DB settings.
+
+    Uses ``psycopg.conninfo.make_conninfo`` so special characters in the
+    password or username (spaces, single-quotes, backslashes, equals signs)
+    are properly quoted and never break the libpq parser.
+    """
+    return psycopg.conninfo.make_conninfo(
+        host=db.host,
+        port=db.port,
+        dbname=db.name,
+        user=db.user,
+        password=db.password.get_secret_value(),
+        connect_timeout=_CONNECT_TIMEOUT_SECONDS,
     )
 
 

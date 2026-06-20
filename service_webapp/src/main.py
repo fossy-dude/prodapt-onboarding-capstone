@@ -47,16 +47,26 @@ def _setup_tracer() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Create adapters on startup (unless injected) and close them on shutdown."""
+    """Create adapters on startup (unless injected) and close them on shutdown.
+
+    Only adapters created here are closed on shutdown; injected adapters (e.g.
+    from tests) are left for the caller to manage so lifespan never destroys
+    externally-owned resources.
+    """
+    owned: list[str] = []
     if getattr(app.state, "db_adapter", None) is None:
         app.state.db_adapter = Psycopg3AsyncAdapter(conninfo_from(settings.db))
+        owned.append("db_adapter")
     if getattr(app.state, "cache_adapter", None) is None:
         app.state.cache_adapter = ValkeyAdapter(settings.valkey_url)
+        owned.append("cache_adapter")
     try:
         yield
     finally:
-        await getattr(app.state, "db_adapter").close()
-        await getattr(app.state, "cache_adapter").close()
+        if "db_adapter" in owned:
+            await app.state.db_adapter.close()
+        if "cache_adapter" in owned:
+            await app.state.cache_adapter.close()
 
 
 def create_app(
@@ -83,8 +93,13 @@ app = create_app()
 
 
 def main() -> None:
-    """Run the app with uvicorn on port 8000 (matches the README verify step)."""
-    uvicorn.run("src.main:app", host="0.0.0.0", port=8000)
+    """Run the app with uvicorn on port 8000 (matches the README verify step).
+
+    The string ``"main:app"`` (not ``"src.main:app"``) is correct when the app
+    is launched with ``PYTHONPATH=src``, which puts ``src/`` on sys.path so the
+    ``main`` module resolves to ``service_webapp/src/main.py``.
+    """
+    uvicorn.run("main:app", host="0.0.0.0", port=8000)
 
 
 if __name__ == "__main__":

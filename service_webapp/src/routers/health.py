@@ -10,6 +10,7 @@ and require no auth (architecture §1.11.3 envelope, §1.15.1 verify step).
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
@@ -37,11 +38,23 @@ def _error_envelope(request: Request, code: str, message: str, detail: dict[str,
 @router.get("/ready")
 async def ready(request: Request) -> JSONResponse:
     """Readiness probe — 200 only when Postgres and Valkey are both reachable."""
-    db_adapter = getattr(request.app.state, "db_adapter")
-    cache_adapter = getattr(request.app.state, "cache_adapter")
+    db_adapter = getattr(request.app.state, "db_adapter", None)
+    cache_adapter = getattr(request.app.state, "cache_adapter", None)
 
-    postgres_ok = await db_adapter.ping()
-    valkey_ok = await cache_adapter.ping()
+    if db_adapter is None or cache_adapter is None:
+        return JSONResponse(
+            status_code=503,
+            content=_error_envelope(
+                request,
+                code="NOT_READY",
+                message="Adapters not initialized — lifespan may not have run",
+                detail={"postgres": False, "valkey": False},
+            ),
+        )
+
+    # Probe both dependencies concurrently so worst-case latency is max(ping_db, ping_cache),
+    # not their sum (NFR-19: each is bounded to 2 s; serial would allow 4 s total).
+    postgres_ok, valkey_ok = await asyncio.gather(db_adapter.ping(), cache_adapter.ping())
     detail = {"postgres": postgres_ok, "valkey": valkey_ok}
 
     if postgres_ok and valkey_ok:
