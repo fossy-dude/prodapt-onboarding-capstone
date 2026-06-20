@@ -23,6 +23,7 @@ deps:
     @[ -f docker/.env ] || { echo "ERROR: docker/.env not found. Run: cp .env.example docker/.env"; exit 1; }
     @grep -q "change_me" docker/.env && { echo "ERROR: docker/.env contains placeholder passwords. Edit the file with real values."; exit 1; } || true
     podman compose -f docker/docker-compose-dependencies.yaml --env-file docker/.env up -d
+    @echo "→ LangFuse dashboard: http://localhost:3000  (Story 1.5; login via LANGFUSE_INIT_USER_* in docker/.env)"
 
 # Destroy infrastructure-only stack (stop containers, remove volumes and networks).
 deps_destroy:
@@ -33,6 +34,7 @@ up:
     @[ -f docker/.env ] || { echo "ERROR: docker/.env not found. Run: cp .env.example docker/.env"; exit 1; }
     @until podman exec postgres pg_isready -U sboai_superuser > /dev/null 2>&1; do sleep 1; done
     podman compose -f docker/docker-compose.yaml --env-file docker/.env up -d
+    @echo "→ LangFuse dashboard: http://localhost:3000  (Story 1.5; login via LANGFUSE_INIT_USER_* in docker/.env)"
 
 # Stop the full application stack.
 down:

@@ -1,6 +1,10 @@
+---
+baseline_commit: 47be78dde59d40f9f81fb836e9f5de9dd5f718ee
+---
+
 # Story 1.5: LangFuse Self-Hosted Setup & Client Instrumentation Scaffold
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -20,27 +24,27 @@ so that agent observability is available from the first agent story without per-
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Confirm/complete LangFuse in the dependency compose** (AC: #1, #5)
-  - [ ] Verify `langfuse` service exists in `docker/docker-compose-dependencies.yaml` (added in Story 1.2) and is reachable on `http://localhost:3000`
-  - [ ] LangFuse self-hosted requires its own Postgres + secrets — configure per the LangFuse self-host docs (it can use a dedicated DB or the shared Postgres with a separate database; prefer a separate DB to avoid coupling with `sboai`). Document the choice.
-  - [ ] Ensure `just up` echoes the LangFuse dashboard URL after startup (add an echo to the `up` recipe or a post-up note)
-- [ ] **Task 2: Implement the LangFuse client singleton** (AC: #2, #4)
-  - [ ] Create `service_webapp/src/core/observability/langfuse.py`
-  - [ ] `get_langfuse_client()` returns a cached singleton `Langfuse` client built from `settings` (host, public key, secret key)
-  - [ ] When `settings.langfuse_enabled is False`, `get_langfuse_client()` returns `None` (or a null client) and callers/decorator short-circuit — no network calls
-- [ ] **Task 3: Implement the `@trace_agent` decorator** (AC: #3, #4)
-  - [ ] Async-function decorator that wraps any `async def`, creating a LangFuse trace capturing: trace name (default = wrapped fn name, overridable), input args, output/return, model, token usage
-  - [ ] When `LANGFUSE_ENABLED=false`: pure pass-through — calls the wrapped function with zero LangFuse overhead and no client construction
-  - [ ] Propagate `trace_id` into LangFuse metadata so OTEL trace (Story 1.4) and LangFuse trace correlate (architecture §1.13.7: "LangGraph nodes must pass trace_id in LangFuse metadata")
-  - [ ] Follow PII hygiene: do NOT capture raw MSISDN/name/card data as trace input; if subscriber context is passed, it must already be sanitised (UUID / `[-4:]`). The decorator should not itself leak PII it is handed — document this contract for callers.
-- [ ] **Task 4: Add config keys** (AC: #2, #4)
-  - [ ] Extend `service_webapp/src/core/config.py` (Story 1.4) with: `langfuse_enabled: bool = False`, `langfuse_host: str`, `langfuse_public_key: str`, `langfuse_secret_key: str`
-  - [ ] Ensure these keys have placeholders in `.env.example` (Story 1.3) — add if missing
-- [ ] **Task 5: Tests** (AC: #2, #3, #4)
-  - [ ] Unit test: with `LANGFUSE_ENABLED=false`, `@trace_agent`-wrapped async fn returns the correct value and makes NO LangFuse calls (assert client not constructed / not called)
-  - [ ] Unit test: with enabled + a mocked Langfuse client, the decorator records a trace with name/input/output/model/token-usage fields populated
-  - [ ] Unit test: `get_langfuse_client()` returns the same instance on repeated calls (singleton)
-  - [ ] Do NOT require a live LangFuse container for tests — the no-op path + mock are the test surface (this is the whole point of AC #4)
+- [x] **Task 1: Confirm/complete LangFuse in the dependency compose** (AC: #1, #5)
+  - [x] Verify `langfuse` service exists in `docker/docker-compose-dependencies.yaml` (added in Story 1.2) and is reachable on `http://localhost:3000`
+  - [x] LangFuse self-hosted requires its own Postgres + secrets — configure per the LangFuse self-host docs (it can use a dedicated DB or the shared Postgres with a separate database; prefer a separate DB to avoid coupling with `sboai`). Document the choice.
+  - [x] Ensure `just up` echoes the LangFuse dashboard URL after startup (add an echo to the `up` recipe or a post-up note)
+- [x] **Task 2: Implement the LangFuse client singleton** (AC: #2, #4)
+  - [x] Create `service_webapp/src/core/observability/langfuse.py`
+  - [x] `get_langfuse_client()` returns a cached singleton `Langfuse` client built from `settings` (host, public key, secret key)
+  - [x] When `settings.langfuse_enabled is False`, `get_langfuse_client()` returns `None` (or a null client) and callers/decorator short-circuit — no network calls
+- [x] **Task 3: Implement the `@trace_agent` decorator** (AC: #3, #4)
+  - [x] Async-function decorator that wraps any `async def`, creating a LangFuse trace capturing: trace name (default = wrapped fn name, overridable), input args, output/return, model, token usage
+  - [x] When `LANGFUSE_ENABLED=false`: pure pass-through — calls the wrapped function with zero LangFuse overhead and no client construction
+  - [x] Propagate `trace_id` into LangFuse metadata so OTEL trace (Story 1.4) and LangFuse trace correlate (architecture §1.13.7: "LangGraph nodes must pass trace_id in LangFuse metadata")
+  - [x] Follow PII hygiene: do NOT capture raw MSISDN/name/card data as trace input; if subscriber context is passed, it must already be sanitised (UUID / `[-4:]`). The decorator should not itself leak PII it is handed — document this contract for callers.
+- [x] **Task 4: Add config keys** (AC: #2, #4)
+  - [x] Extend `service_webapp/src/core/config.py` (Story 1.4) with: `langfuse_enabled: bool = False`, `langfuse_host: str`, `langfuse_public_key: str`, `langfuse_secret_key: str`
+  - [x] Ensure these keys have placeholders in `.env.example` (Story 1.3) — add if missing
+- [x] **Task 5: Tests** (AC: #2, #3, #4)
+  - [x] Unit test: with `LANGFUSE_ENABLED=false`, `@trace_agent`-wrapped async fn returns the correct value and makes NO LangFuse calls (assert client not constructed / not called)
+  - [x] Unit test: with enabled + a mocked Langfuse client, the decorator records a trace with name/input/output/model/token-usage fields populated
+  - [x] Unit test: `get_langfuse_client()` returns the same instance on repeated calls (singleton)
+  - [x] Do NOT require a live LangFuse container for tests — the no-op path + mock are the test surface (this is the whole point of AC #4)
 
 ## Dev Notes
 
@@ -107,10 +111,45 @@ AC #4 is the highest-value, easiest-to-get-wrong part. The decorator must be a *
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+GLM-5.2 (via Claude Code, `bmad-dev-story` workflow)
 
 ### Debug Log References
 
+- Lint gate `uvx --with tox-uv tox -e lint` (service_webapp): ruff check + ruff format --check + pyrefly check → **0 errors**.
+- Test gate `uvx --with tox-uv tox -e test` (service_webapp): **26 passed, 1 deselected** (the pre-existing `slow` testcontainers integration test, unchanged).
+- New module isolated: `tests/unit/test_langfuse.py` → **11 passed**.
+
 ### Completion Notes List
 
+**Infra + config layers were already delivered by Stories 1.2 & 1.4 and only verified/extended here:**
+
+- LangFuse v3 self-host stack is already present in `docker/docker-compose-dependencies.yaml` (`langfuse/langfuse:3`, port `3000:3000`) using the **separate-DB topology** the dev notes prefer: a dedicated `langfuse` database + `langfuse_app` role (`docker/postgres/init/03_databases.sql`, `04_langfuse_permissions.sh`), backed by ClickHouse (event store) + MinIO (blob store) + Valkey — no coupling to the `sboai` DB. AC #1 satisfied at the compose-wiring level.
+- The four config keys (`langfuse_enabled` / `langfuse_host` / `langfuse_secret_key` / `langfuse_public_key`) and the matching `LANGFUSE_*` placeholders were already in `service_webapp/src/core/config.py` and `service_webapp/.env.example` (added during Story 1.4 scaffolding, labelled "Story 1.5"). Verified, no change needed. `pytest` already sets `LANGFUSE_ENABLED=false`, so collection and the no-op path run without a live instance.
+
+**This story's net deliverable — the reusable client + decorator primitive:**
+
+- `service_webapp/src/core/observability/langfuse.py`:
+  - `get_langfuse_client()` singleton built from `settings` only; returns `None` and **never constructs `Langfuse`** when `langfuse_enabled` is False (the AC #4 no-op gate).
+  - `@trace_agent` async decorator recording **name / input / output / model / token usage** (FR-72); `trace_id` + `usage` contextvars propagate the OTEL trace id (§1.13.7) and let agents feed token usage from the LLM response.
+  - Bare `@trace_agent`, `@trace_agent()`, and `@trace_agent("name", model=...)` all supported; exceptions re-raised (observation flagged `ERROR`); `functools.wraps` preserves the signature.
+- `justfile`: `just up` **and** `just deps` now echo the LangFuse dashboard URL after startup (AC #5).
+- `tests/unit/test_langfuse.py`: 11 tests — disabled pass-through (no construction, exceptions preserved, signature preserved), enabled recording (name/input/output/model/usage/metadata, default name, usage-omitted, error-flag+reraise), and singleton identity (single construction).
+
+**Key implementation decision — SDK version:** `langfuse>=2` resolves to **langfuse 4.9.1**, which is OTEL-based and **removed** the v2 `client.trace()` / `.generation()` API the dev notes listed as a fallback. Per the dev note's directive to "use the current decorator/context-manager API, not a deprecated one", `@trace_agent` uses the v4 `client.start_as_current_observation(name, as_type="generation", input, model, metadata)` context manager + `observation.update(output, usage_details)` — both the current API and cleanly mockable (tests assert on those exact calls). The compose server is langfuse v3; the v4 SDK is compatible with its ingestion API.
+
+**Typing note:** ParamSpec was avoided — this pyrefly version rejects `P.args`/`P.kwargs` annotations and the codebase uses ParamSpec nowhere else — so the decorator is typed with `Callable[..., Awaitable[Any]]`.
+
+**Verification scope / known gap:** Lint + unit tests are green via `uv tox`. A live `just up` runtime smoke (LangFuse UI reachable at `http://localhost:3000`, AC #1 end-to-end) is **not** exercised here: it needs rootless podman + the deps stack, and `just up` for the app layer is blocked by the pre-existing, deferred `service_webapp` Dockerfile gap (see `deferred-work.md`, Story 1.2). The deps-only path (`just deps`) brings up LangFuse identically (URL echo added there too). AC #1 wiring is verified; runtime reachability remains the Story 1.2 deps stack's responsibility. Logged here for the reviewer.
+
 ### File List
+
+- `service_webapp/src/core/observability/__init__.py` — new (package marker)
+- `service_webapp/src/core/observability/langfuse.py` — new (`get_langfuse_client`, `@trace_agent`, trace_id/usage contextvars)
+- `service_webapp/tests/unit/test_langfuse.py` — new (11 unit tests)
+- `service_webapp/pyproject.toml` — modified (added `langfuse>=2` to `[tool.tox.env.lint]` and `[tool.tox.env.test]` `deps`)
+- `justfile` — modified (LangFuse dashboard URL echo in `up` and `deps` recipes)
+- `docs/bmad_output/implementation-artifacts/1-5-langfuse-self-hosted-setup-client-instrumentation-scaffold.md` — this story file (status/record/checkboxes)
+
+## Change Log
+
+- 2026-06-20: Story 1.5 implemented — LangFuse v4 client singleton + no-op-gated `@trace_agent` decorator (name/input/output/model/token-usage, OTEL trace_id correlation), `just up`/`just deps` LangFuse URL echo, 11 unit tests. Tox `lint` and `test` gates green. Config keys + compose stack verified (pre-delivered by Stories 1.2/1.4). Status → review.
