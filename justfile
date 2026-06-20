@@ -114,3 +114,8 @@ format:
     @command -v uvx > /dev/null || { echo "ERROR: uv not installed. See README prerequisites."; exit 1; }
     @mkdir -p service_webapp/src cdr-pipeline/src
     cd service_webapp && uvx ruff format src/ && cd ../cdr-pipeline && uvx ruff format src/
+
+
+# Monitoring
+just monitor_otel:
+    podman attach otel-tui
