@@ -17,7 +17,9 @@ and the diagrams in [`docs/architecture_diagrams.md`](docs/architecture_diagrams
 
 Install these once on your machine:
 
-- **Podman** — Podman Desktop or Podman Engine + the `podman-compose` plugin (replaces Docker)
+- **Podman** — One of:
+  - **Podman Desktop** (bundles `podman` and `podman-compose` together; easiest for Mac/Windows), OR
+  - **Podman Engine** + manually install the `podman-compose` plugin (for Linux; more control)
 - **just** — cross-platform task runner ([install](https://github.com/casey/just))
 - **uv** — Python package/environment manager ([install](https://docs.astral.sh/uv/))
 - **Node.js 20+** and **npm** — for the React/Vite frontend

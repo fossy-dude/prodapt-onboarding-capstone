@@ -1509,7 +1509,7 @@ All 77 FRs are architecturally addressed:
 - Session timeout / token revocation
 - ML fraud classifier (architecture hook only)
 
-### 1.13.4a. Known Limitations & Accepted Risk Callouts
+### 1.13.5. Known Limitations & Accepted Risk Callouts
 
 The following are acknowledged architectural limitations accepted for MVP velocity. Each has a documented rationale and a stated remediation path for Target State or post-MVP hardening.
 
@@ -1546,7 +1546,7 @@ The following are acknowledged architectural limitations accepted for MVP veloci
 | **MVP acceptance**    | Accepted for local dev environment only. Credentials are in `.env` (gitignored); blast radius is limited to the local Postgres container.                                                                                                                                                                 |
 | **Target State path** | Remove `CREATEROLE` from `sboai_flyway`. Grant only: `CONNECT` on database `sboai`, `CREATE` on `schema public`, ownership of objects created by migrations. Role management in Target State is handled by Terraform (`aws_rds_cluster` parameter group + Secrets Manager rotation).                      |
 
-### 1.13.5. Architecture Completeness Checklist
+### 1.13.6. Architecture Completeness Checklist
 
 **Requirements Analysis**
 
@@ -1576,7 +1576,7 @@ The following are acknowledged architectural limitations accepted for MVP veloci
 - [x] Integration points mapped (Kafka topics, Valkey key patterns, Milvus collections)
 - [x] Requirements to structure mapping complete
 
-### 1.13.6. Architecture Readiness Assessment
+### 1.13.7. Architecture Readiness Assessment
 
 **Overall Status:** READY FOR IMPLEMENTATION
 
@@ -1597,7 +1597,7 @@ The following are acknowledged architectural limitations accepted for MVP veloci
 - Deep learning forecasting model evaluation (TimesFM vs Chronos vs Prophet benchmarks on synthetic data)
 - Milvus collection schema versioning strategy as knowledge base grows
 
-### 1.13.7. Implementation Handoff
+### 1.13.8. Implementation Handoff
 
 **AI Agent Guidelines:**
 

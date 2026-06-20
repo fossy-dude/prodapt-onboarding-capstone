@@ -20,14 +20,19 @@ default:
 
 # Start infrastructure-only stack (Postgres, Redpanda, Valkey, LangFuse, OTEL, Fluentd).
 deps:
+    @[ -f docker/.env ] || { echo "ERROR: docker/.env not found. Run: cp .env.example docker/.env"; exit 1; }
+    @grep -q "change_me" docker/.env && { echo "ERROR: docker/.env contains placeholder passwords. Edit the file with real values."; exit 1; } || true
     podman compose -f docker/docker-compose-dependencies.yaml --env-file docker/.env up -d
 
 # Destroy infrastructure-only stack (stop containers, remove volumes and networks).
 deps_destroy:
+    @read -p "Destroy postgres_data volume and all containers? (y/N) " -n 1 -r; echo; [[ $REPLY =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
     podman compose -f docker/docker-compose-dependencies.yaml down -v --remove-orphans
 
 # Start the full application stack (infra + cdr-pipeline + service_webapp + frontend).
 up:
+    @[ -f docker/.env ] || { echo "ERROR: docker/.env not found. Run: cp .env.example docker/.env"; exit 1; }
+    @until podman exec postgres pg_isready -U sboai_superuser > /dev/null 2>&1; do sleep 1; done
     podman compose -f docker/docker-compose.yaml --env-file docker/.env up -d
 
 # Stop the full application stack.
@@ -46,7 +51,7 @@ restart svc:
 
 # Apply Flyway migrations against the local `sboai` database (Postgres must be up).
 migrate:
-    flyway -url=jdbc:postgresql://localhost:5432/sboai -locations=filesystem:service_webapp/db/migrations migrate
+    flyway -url=jdbc:postgresql://localhost:5432/sboai -locations=filesystem:{{ justfile_directory() }}/service_webapp/db/migrations migrate
 
 # Generate synthetic data (1K plans -> 300K subscribers -> 5M CDRs). Script lands in Epic 2.
 seed:
@@ -65,14 +70,16 @@ seed-milvus:
 
 # Run the backend dev server (FastAPI/uvicorn) with hot reload. App wired in Story 1.4.
 backend:
-    cd service_webapp && uvicorn src.main:app --reload --port 8000
+    cd service_webapp && uvicorn src.main:app --reload --port 8000  # Story 1.4 will add FastAPI app object
 
 # Run the frontend dev server (Vite).
 frontend:
+    @[ -d frontend/node_modules ] || (cd frontend && npm ci && echo "Dependencies installed")
     cd frontend && npm run dev
 
 # Run the CDR pipeline consumer. Consumer lands in Epic 2.
 cdr:
+    @[ -f cdr-pipeline/src/__init__.py ] || (touch cdr-pipeline/src/__init__.py && echo "Created src/__init__.py")
     cd cdr-pipeline && python -m src.main
 
 # ── Tests ────────────────────────────────────────────────────────────────────────
@@ -105,4 +112,6 @@ tox:
 
 # Auto-format both Python codebases (ruff format).
 format:
+    @command -v uvx > /dev/null || { echo "ERROR: uv not installed. See README prerequisites."; exit 1; }
+    @mkdir -p service_webapp/src cdr-pipeline/src
     cd service_webapp && uvx ruff format src/ && cd ../cdr-pipeline && uvx ruff format src/
