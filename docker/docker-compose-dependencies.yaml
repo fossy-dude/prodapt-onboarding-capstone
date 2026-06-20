@@ -1,0 +1,159 @@
+services:
+  redpanda:
+    image: redpandadata/redpanda:latest
+    command:
+      - redpanda
+      - start
+      - --kafka-addr=PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
+      - --mode dev-container
+      - --smp 1
+      - --memory 256M
+      - --reserve-memory 0M
+      - --node-id 0
+      - --check=false
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    command: >
+      valkey-server
+      --maxmemory 512mb
+      --maxmemory-policy noeviction
+    # maxmemory rationale (ARCH-1.7.3):
+    #   balance keys:     300K × ~50B  ≈  15MB
+    #   USSD sessions:    peak 10K × ~1KB ≈ 10MB
+    #   OTP keys:         peak 50K × ~50B ≈  2MB
+    #   chat contexts:    peak 5K  × ~2KB ≈ 10MB
+    #   overhead + headroom:             ≈ 475MB
+    # noeviction is MANDATORY: balance:{msisdn} keys must never be evicted.
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - valkey_data:/data
+    ports:
+      - "6379:6379"
+
+  postgres:
+    build:
+      context: ./postgres
+      dockerfile: Dockerfile
+    environment:
+      POSTGRES_DB: sboai
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+    env_file:
+      - ../.env
+    healthcheck:
+      # Wait for pg_isready AND confirm sboai_flyway role exists (created by 02_roles.sh initdb script).
+      # Prevents Flyway from connecting before the role is created — pg_isready alone fires too early.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sboai && psql -U postgres -d sboai -tAc \"SELECT 1 FROM pg_roles WHERE rolname='sboai_flyway'\" | grep -q 1"]
+      interval: 5s
+      timeout: 10s
+      retries: 15
+      start_period: 10s
+    ports:
+      - "5432:5432"
+
+  flyway:
+    image: flyway/flyway:10-alpine
+    command: migrate
+    environment:
+      FLYWAY_URL: jdbc:postgresql://postgres:5432/sboai
+      FLYWAY_USER: sboai_flyway
+      FLYWAY_PASSWORD: ${POSTGRES_FLYWAY_PASSWORD}
+      FLYWAY_SCHEMAS: public
+      FLYWAY_CONNECT_RETRIES: 10
+      FLYWAY_LOCATIONS: filesystem:/flyway/sql
+      FLYWAY_CLEAN_DISABLED: "true"
+    env_file:
+      - ../.env
+    volumes:
+      - ../service_webapp/db/migrations:/flyway/sql
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  langfuse:
+    image: langfuse/langfuse:3
+    environment:
+      DATABASE_URL: postgresql://langfuse_app:${LANGFUSE_DB_PASSWORD}@postgres:5432/langfuse
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-dev_secret_change_me_32chars_min}
+      SALT: ${LANGFUSE_SALT:-dev_salt_change_me}
+      NEXTAUTH_URL: http://localhost:3000
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_AUTO_MIGRATE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
+  ministack:
+    image: ministackorg/ministack:latest
+    environment:
+      # General state persistence (Cognito pools, keys, tables)
+      PERSIST_STATE: 1
+      STATE_DIR: /tmp/ministack-state
+      # S3 object file storage persistence
+      S3_PERSIST: 1
+      S3_DATA_DIR: /tmp/ministack-data/s3
+      # RDS engine persistence (declared for completeness; no RDS volume needed in dev)
+      RDS_PERSIST: 1
+    volumes:
+      # Cognito/general state — satisfies ministack_cognito persistence (ARCH-29)
+      - ./data/state:/tmp/ministack-state
+      # S3 object payloads — satisfies ministack_s3 persistence (ARCH-29)
+      - ./data/s3:/tmp/ministack-data/s3
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "4566:4566"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./otel/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8888:8888"   # Prometheus metrics
+
+  otel-tui:
+    image: ymtdzzz/otel-tui:latest
+    stdin_open: true
+    tty: true
+    ports:
+      - "14317:4317"
+    environment:
+      OTEL_TUI_LISTEN_ON_OTLP: "true"
+
+  fluentd:
+    image: fluent/fluentd:v1.17-debian-1
+    volumes:
+      - ./fluentd/fluent.conf:/fluentd/etc/fluent.conf
+    ports:
+      - "24224:24224"
+      - "24224:24224/udp"
+
+volumes:
+  postgres_data:
+  valkey_data:
+  milvus_lite_data:  # Milvus Lite .db file — persisted via service_webapp container (ARCH-1.7.4)
+  # ministack_cognito and ministack_s3 replaced by bind mounts in docker/data/ (ARCH-29)
+  # Bind mounts: ./data/state (Cognito/general) and ./data/s3 (S3 payloads)

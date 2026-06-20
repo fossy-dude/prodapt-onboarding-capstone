@@ -1,0 +1,49 @@
+include:
+  - docker-compose-dependencies.yaml
+
+services:
+  cdr-pipeline:
+    build:
+      context: ../cdr-pipeline
+    environment:
+      DATABASE_URL: postgresql://sboai_app:${POSTGRES_APP_PASSWORD}@postgres:5432/sboai
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:29092
+      VALKEY_URL: redis://valkey:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      flyway:
+        condition: service_completed_successfully
+
+  service_webapp:
+    build:
+      context: ../service_webapp
+    environment:
+      DATABASE_URL: postgresql://sboai_app:${POSTGRES_APP_PASSWORD}@postgres:5432/sboai
+      VALKEY_URL: redis://valkey:6379
+    volumes:
+      # Milvus Lite .db file; HARD CONSTRAINT: deploy.replicas must stay at 1.
+      # Milvus Lite embeds a single-process SQLite-backed file; >1 replica corrupts it.
+      # Scale-out requires migrating to Milvus Distributed (Target State, EKS).
+      - milvus_lite_data:/app/data/milvus
+    deploy:
+      replicas: 1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      flyway:
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build:
+      context: ../frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - service_webapp

@@ -1,0 +1,20 @@
+# Local development overrides: port forwarding, hot reload, debug flags.
+# Not committed to CI — applied automatically when running:
+#   docker compose -f docker-compose.yaml -f docker-compose.override.yaml up
+
+services:
+  service_webapp:
+    environment:
+      DEBUG: "true"
+      RELOAD: "true"
+    command: >
+      uvicorn main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+    volumes:
+      - ../service_webapp:/app
+
+  frontend:
+    environment:
+      VITE_API_URL: http://localhost:8000
