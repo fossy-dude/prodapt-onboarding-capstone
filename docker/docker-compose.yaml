@@ -12,6 +12,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      valkey:
+        condition: service_healthy
+      flyway:
+        condition: service_completed_successfully
 
   service_webapp:
     build:
@@ -29,6 +33,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      valkey:
+        condition: service_healthy
+      flyway:
+        condition: service_completed_successfully
     ports:
       - "8000:8000"
 

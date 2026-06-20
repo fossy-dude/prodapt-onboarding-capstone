@@ -10,8 +10,8 @@ processors:
   batch:
 
 exporters:
-  otlphttp/otel-tui:
-    endpoint: http://otel-tui:14317
+  otlp/otel-tui:
+    endpoint: otel-tui:4317
     tls:
       insecure: true
   debug:
@@ -22,7 +22,7 @@ service:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlphttp/otel-tui, debug]
+      exporters: [otlp/otel-tui, debug]
     metrics:
       receivers: [otlp]
       processors: [batch]

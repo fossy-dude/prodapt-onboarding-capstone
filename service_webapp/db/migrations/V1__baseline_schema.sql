@@ -8,19 +8,27 @@
 --
 -- All tables: created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 -- Most tables: modified_at TIMESTAMPTZ DEFAULT NOW() NOT NULL  (V2 trigger applies)
--- Exceptions: billing_cdr_events, billing_audit_log (append-only; no modified_at)
+-- Exceptions: billing_cdr_events, billing_audit_log, billing_transactions (append-only; no modified_at)
 
 -- ============================================================
 -- ENUMS
 -- ============================================================
 
-CREATE TYPE cdr_type_enum AS ENUM ('voice', 'sms', 'data');
-CREATE TYPE cdr_status_enum AS ENUM ('pending', 'rated', 'failed');
-CREATE TYPE call_direction_enum AS ENUM ('MO', 'MT');
-CREATE TYPE call_status_enum AS ENUM ('answered', 'no_answer', 'busy', 'failed');
-CREATE TYPE sms_status_enum AS ENUM ('delivered', 'failed', 'pending');
-CREATE TYPE network_type_enum AS ENUM ('2G', '3G', '4G', '5G');
-CREATE TYPE subscriber_status_enum AS ENUM ('active', 'suspended', 'terminated');
+-- Idempotent enum creation: DO blocks catch duplicate_object on Flyway repair + retry.
+DO $$ BEGIN CREATE TYPE cdr_type_enum AS ENUM ('voice', 'sms', 'data');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE cdr_status_enum AS ENUM ('pending', 'rated', 'failed');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE call_direction_enum AS ENUM ('MO', 'MT');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE call_status_enum AS ENUM ('answered', 'no_answer', 'busy', 'failed');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE sms_status_enum AS ENUM ('delivered', 'failed', 'pending');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE network_type_enum AS ENUM ('2G', '3G', '4G', '5G');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN CREATE TYPE subscriber_status_enum AS ENUM ('active', 'suspended', 'terminated');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- ============================================================
 -- IDENTITY DOMAIN
@@ -206,7 +214,7 @@ CREATE INDEX idx_billing_cdr_events_status ON billing_cdr_events (status);
 CREATE INDEX idx_billing_cdr_events_start_time ON billing_cdr_events (start_time);
 CREATE INDEX idx_billing_cdr_events_cdr_type ON billing_cdr_events (cdr_type);
 
--- Payment and deduction transactions (UUIDv7: high insert rate)
+-- Payment and deduction transactions (UUIDv7; append-only ledger — corrections use new offsetting rows)
 CREATE TABLE billing_transactions (
     id                   UUID DEFAULT uuid_generate_v7() PRIMARY KEY,
     subscriber_id        UUID NOT NULL REFERENCES identity_subscribers (id),
@@ -217,8 +225,8 @@ CREATE TABLE billing_transactions (
     description          TEXT,
     balance_before_paise BIGINT NOT NULL,
     balance_after_paise  BIGINT NOT NULL,
-    created_at           TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-    modified_at          TIMESTAMPTZ DEFAULT NOW() NOT NULL
+    created_at           TIMESTAMPTZ DEFAULT NOW() NOT NULL
+    -- No modified_at: append-only ledger (ARCH-1.7.1); do NOT add UPDATE trigger
 );
 
 CREATE INDEX idx_billing_transactions_subscriber_id ON billing_transactions (subscriber_id);

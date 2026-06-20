@@ -10,6 +10,17 @@ GRANT USAGE ON SCHEMA public TO sboai_flyway;
 GRANT USAGE ON SCHEMA public TO sboai_app;
 GRANT USAGE ON SCHEMA public TO sboai_readonly;
 
--- LangFuse gets its own database; auto-migrated by LangFuse on startup
-CREATE DATABASE langfuse;
-GRANT ALL PRIVILEGES ON DATABASE langfuse TO postgres;
+-- Default privileges: objects created by sboai_flyway are automatically accessible
+-- by sboai_app (DML) and sboai_readonly (SELECT). Required because Flyway runs as
+-- sboai_flyway, not postgres, so newly created tables would otherwise be inaccessible.
+ALTER DEFAULT PRIVILEGES FOR ROLE sboai_flyway IN SCHEMA public
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO sboai_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE sboai_flyway IN SCHEMA public
+    GRANT USAGE, SELECT ON SEQUENCES TO sboai_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE sboai_flyway IN SCHEMA public
+    GRANT SELECT ON TABLES TO sboai_readonly;
+
+-- LangFuse gets its own database; auto-migrated by LangFuse on startup via LANGFUSE_AUTO_MIGRATE
+SELECT 'CREATE DATABASE langfuse'
+    WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'langfuse') \gexec
+GRANT ALL PRIVILEGES ON DATABASE langfuse TO langfuse_app;

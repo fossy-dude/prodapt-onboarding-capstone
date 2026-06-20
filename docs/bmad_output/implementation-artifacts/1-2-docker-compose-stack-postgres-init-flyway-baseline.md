@@ -4,7 +4,7 @@ baseline_commit: c2e8a04aa1643dc9e802bc121f1501367beb3f7d
 
 # Story 1.2: Docker Compose Stack, Postgres Init & Flyway Baseline
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -61,6 +61,47 @@ so that any team member can onboard in under 15 minutes and all services share a
 - [x] **Task 7: Wire `just deps` / `just up` and verify** (AC: #1, #6, #7)
   - [x] Ensure `just deps` and `just up` invoke the correct compose files (the justfile itself is finalised in Story 1.3 — here, only verify the compose files work via raw `podman compose -f ...` commands)
   - [x] Verification commands documented in Debug Log; user to execute from Windows with Podman
+
+### Review Findings
+
+#### Decision Needed
+
+- [x] [Review][Decision] **billing_transactions mutability** — RESOLVED: Remove `modified_at` column and V2 trigger. `billing_transactions` is an append-only ledger; corrections use new offsetting rows.
+- [x] [Review][Decision] **LangFuse Postgres superuser in DATABASE_URL** — RESOLVED: Create dedicated `langfuse_app` role in `02_roles.sh` scoped to `langfuse` database only. Update LangFuse `DATABASE_URL` to use `langfuse_app`.
+- [x] [Review][Decision] **ministack_s3 volume orphaned — AC5 technically unmet** — RESOLVED: Switch to `ministackorg/ministack` image with separate S3 volume mount (`./data/s3:/tmp/ministack-data/s3`) and dedicated Cognito volume.
+- [x] [Review][Decision] **Fluentd PII redaction covers only msisdn + document_number** — RESOLVED: Expand filter to include `subscriber_name`, `email`, and `token` fields.
+
+#### Patch
+
+- [x] [Review][Patch] **OTEL Collector sends traces to wrong port + wrong protocol on otel-tui** [docker/otel/otel-collector-config.yaml] — Fixed: exporter changed from `otlphttp/otel-tui` to `otlp/otel-tui`; endpoint changed from `http://otel-tui:14317` to `otel-tui:4317`.
+- [x] [Review][Patch] **CREATE DATABASE langfuse not idempotent** [docker/postgres/init/03_databases.sql] — Fixed: replaced with `SELECT ... WHERE NOT EXISTS ... \gexec` pattern.
+- [x] [Review][Patch] **Missing ALTER DEFAULT PRIVILEGES — sboai_app/sboai_readonly cannot use Flyway-created tables** [docker/postgres/init/03_databases.sql] — Fixed: added `ALTER DEFAULT PRIVILEGES FOR ROLE sboai_flyway` grants for DML + SELECT.
+- [x] [Review][Patch] **02_roles.sh missing `set -euo pipefail`** [docker/postgres/init/02_roles.sh] — Fixed: changed `set -e` to `set -euo pipefail`.
+- [x] [Review][Patch] **V2 CREATE TRIGGER not idempotent — fails after Flyway repair** [service_webapp/db/migrations/V2__modified_at_trigger.sql] — Fixed: added `DROP TRIGGER IF EXISTS` before each `CREATE TRIGGER`.
+- [x] [Review][Patch] **V1 ENUM types not idempotent — fails after Flyway repair** [service_webapp/db/migrations/V1__baseline_schema.sql] — Fixed: each `CREATE TYPE` wrapped in `DO $$ BEGIN ... EXCEPTION WHEN duplicate_object THEN NULL; END $$`.
+- [x] [Review][Patch] **service_webapp + cdr-pipeline start before Flyway completes — race condition** [docker/docker-compose.yaml] — Fixed: added `flyway: condition: service_completed_successfully` + `valkey: condition: service_healthy` to both services.
+- [x] [Review][Patch] **Fluentd record_transformer injects null fields into every non-PII log** [docker/fluentd/fluent.conf] — Fixed: switched to `__pii_scratch__` key pattern with `remove_keys` to redact in-place only when key exists.
+- [x] [Review][Patch] **Postgres healthcheck passes before init scripts complete — Flyway connects before sboai_flyway role exists** [docker/docker-compose-dependencies.yaml] — Fixed: healthcheck now verifies `sboai_flyway` role exists; added `start_period: 10s`.
+- [x] [Review][Patch] **FLYWAY_CLEAN_DISABLED not set — accidental full schema wipe possible** [docker/docker-compose-dependencies.yaml] — Fixed: added `FLYWAY_CLEAN_DISABLED: "true"` to Flyway environment.
+- [x] [Review][Patch] **Valkey has no healthcheck — services start without waiting for Valkey ready** [docker/docker-compose-dependencies.yaml] — Fixed: added `valkey-cli ping` healthcheck; app services now depend on `valkey: condition: service_healthy`.
+- [x] [Review][Patch] **Flyway service missing env_file directive** [docker/docker-compose-dependencies.yaml] — Fixed: added `env_file: ../.env` to Flyway service.
+- [x] [Review][Patch] **Redpanda has no healthcheck** [docker/docker-compose-dependencies.yaml] — Fixed: added `rpk cluster health` healthcheck with `start_period: 10s`.
+
+#### Deferred
+
+- [x] [Review][Defer] **otel-tui may not render in detached mode** [docker/docker-compose-dependencies.yaml] — TUI app with `tty: true` may exit when run headless; low priority, likely acceptable for dev workflow — deferred, pre-existing
+- [x] [Review][Defer] **billing_audit_log append-only not enforced at DB level** — V5__grants.sql is the planned vehicle per architecture §1.12.1; REVOKE UPDATE/DELETE on `billing_audit_log` for `sboai_app` must be added there. Track via deferred work — deferred, pre-existing
+- [x] [Review][Defer] **Redpanda topic initialization (partition counts per ARCH-10)** — 6 topics with explicit partitions required; no init container. Epic 2 scope; cdr-pipeline doesn't exist yet — deferred, pre-existing
+- [x] [Review][Defer] **OTEL metrics + logs pipelines have no persistent exporter** [docker/otel/otel-collector-config.yaml] — Intentional dev-mode design; stdout/debug exporters acceptable for local — deferred, pre-existing
+- [x] [Review][Defer] **Unpinned image tags on redpanda, localstack, otel-collector, otel-tui** — Breaking changes possible across `docker pull`; pin to specific digests for reproducibility. Dev-environment decision for team — deferred, pre-existing
+- [x] [Review][Defer] **Flyway failed-migration recovery not documented** — If V1/V2 fail mid-run, `flyway repair` + retry is required; not documented in debug log. Low risk with correct setup — deferred, pre-existing
+
+#### Patches from resolved decisions
+
+- [x] [Review][Patch] **Remove billing_transactions.modified_at + V2 trigger** [V1__baseline_schema.sql, V2__modified_at_trigger.sql] — Fixed: removed `modified_at` column; table now append-only. `trg_billing_transactions_modified_at` removed from V2.
+- [x] [Review][Patch] **Create langfuse_app role; scope LangFuse DATABASE_URL** [02_roles.sh, 03_databases.sql, docker-compose-dependencies.yaml] — Fixed: `langfuse_app` role created in 02_roles.sh; granted to langfuse DB in 03_databases.sql; DATABASE_URL updated to `langfuse_app:${LANGFUSE_DB_PASSWORD}`.
+- [x] [Review][Patch] **Switch ministack to ministackorg/ministack; split S3 + Cognito volumes** [docker-compose-dependencies.yaml] — Fixed: image changed to `ministackorg/ministack:latest`; bind mounts `./data/state` and `./data/s3` replace named volumes.
+- [x] [Review][Patch] **Expand Fluentd PII redaction to subscriber_name, email, token** [fluent.conf] — Fixed: added redaction for `subscriber_name`, `email`, `token` in the PII filter.
 
 ## Dev Notes
 
@@ -160,6 +201,7 @@ POSTGRES_SUPERUSER_PASSWORD=change_me_superuser
 POSTGRES_APP_PASSWORD=change_me_app
 POSTGRES_READONLY_PASSWORD=change_me_readonly
 POSTGRES_FLYWAY_PASSWORD=change_me_flyway
+LANGFUSE_DB_PASSWORD=change_me_langfuse
 ```
 This story may seed these into a local `.env`; the committed `.env.example` is Story 1.3's deliverable. Do not commit a real `.env` (gitignored). [Source: architecture.md#1.12.4 (lines 1429–1436); ARCH-17]
 
