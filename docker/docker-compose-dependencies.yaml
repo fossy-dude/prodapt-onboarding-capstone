@@ -1,6 +1,6 @@
 services:
   redpanda:
-    image: redpandadata/redpanda:latest
+    image: docker.io/redpandadata/redpanda:latest
     command:
       - redpanda
       - start
@@ -13,7 +13,7 @@ services:
       - --node-id 0
       - --check=false
     healthcheck:
-      test: ["CMD-SHELL", "rpk cluster health || exit 1"]
+      test: [ "CMD-SHELL", "rpk cluster health || exit 1" ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -23,11 +23,9 @@ services:
       - "29092:29092"
 
   valkey:
-    image: valkey/valkey:8-alpine
+    image: docker.io/valkey/valkey:8-alpine
     command: >
-      valkey-server
-      --maxmemory 512mb
-      --maxmemory-policy noeviction
+      valkey-server --maxmemory 512mb --maxmemory-policy noeviction
     # maxmemory rationale (ARCH-1.7.3):
     #   balance keys:     300K × ~50B  ≈  15MB
     #   USSD sessions:    peak 10K × ~1KB ≈ 10MB
@@ -36,7 +34,7 @@ services:
     #   overhead + headroom:             ≈ 475MB
     # noeviction is MANDATORY: balance:{msisdn} keys must never be evicted.
     healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
+      test: [ "CMD", "valkey-cli", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -61,7 +59,7 @@ services:
     healthcheck:
       # Wait for pg_isready AND confirm sboai_flyway role exists (created by 02_roles.sh initdb script).
       # Prevents Flyway from connecting before the role is created — pg_isready alone fires too early.
-      test: ["CMD-SHELL", "pg_isready -U postgres -d sboai && psql -U postgres -d sboai -tAc \"SELECT 1 FROM pg_roles WHERE rolname='sboai_flyway'\" | grep -q 1"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d sboai && psql -U postgres -d sboai -tAc \"SELECT 1 FROM pg_roles WHERE rolname='sboai_flyway'\" | grep -q 1" ]
       interval: 5s
       timeout: 10s
       retries: 15
@@ -70,7 +68,7 @@ services:
       - "5432:5432"
 
   flyway:
-    image: flyway/flyway:10-alpine
+    image: docker.io/flyway/flyway:10-alpine
     command: migrate
     environment:
       FLYWAY_URL: jdbc:postgresql://postgres:5432/sboai
@@ -90,22 +88,50 @@ services:
     restart: "no"
 
   langfuse:
-    image: langfuse/langfuse:3
+    image: docker.io/langfuse/langfuse:3
     environment:
-      DATABASE_URL: postgresql://langfuse_app:${LANGFUSE_DB_PASSWORD}@postgres:5432/langfuse
-      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-dev_secret_change_me_32chars_min}
+      DATABASE_URL: postgresql://langfuse_app:${LANGFUSE_DB_PASSWORD:-password}@postgres:5432/langfuse
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-dev_secret_change_me_32chars_min}
       SALT: ${LANGFUSE_SALT:-dev_salt_change_me}
-      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
       TELEMETRY_ENABLED: "false"
       LANGFUSE_AUTO_MIGRATE: "true"
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-b641098cce47e643692550cbc82b968132f075f3b9279df86ea57dd0818e6c07}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://ministack:4566}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ACCESS_KEY_ID: ${LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID:-ministack}
+      S3_SECRET_ACCESS_KEY: ${LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY:-ministack}
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${LANGFUSE_S3_EVENT_UPLOAD_BUCKET:-langfuse-events}
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID:-ministack}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY:-ministack}
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: ${LANGFUSE_S3_MEDIA_UPLOAD_BUCKET:-langfuse-media}
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID:-ministack}
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY:-ministack}
+      LANGFUSE_S3_BATCH_EXPORT_BUCKET: ${LANGFUSE_S3_BATCH_EXPORT_BUCKET:-langfuse-batch-exports}
+      LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: ${LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID:-ministack}
+      LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: ${LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY:-ministack}
+      LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-dev-org}
+      LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-Dev Organization}
+      LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-dev-project}
+      LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-Dev Project}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:-pk_dev}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY:-sk_dev}
+      LANGFUSE_INIT_PROJECT_RETENTION: ${LANGFUSE_INIT_PROJECT_RETENTION:-30}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@langfuse.local}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-admin}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-admin}
+    env_file:
+      - ./.env
     depends_on:
       postgres:
         condition: service_healthy
+      ministack:
+        condition: service_started
     ports:
       - "3000:3000"
 
   ministack:
-    image: ministackorg/ministack:latest
+    image: docker.io/ministackorg/ministack:latest
     environment:
       # General state persistence (Cognito pools, keys, tables)
       PERSIST_STATE: 1
@@ -125,17 +151,17 @@ services:
       - "4566:4566"
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:latest
-    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    image: docker.io/otel/opentelemetry-collector-contrib:latest
+    command: [ "--config=/etc/otelcol-contrib/config.yaml" ]
     volumes:
       - ./otel/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml
     ports:
-      - "4317:4317"   # OTLP gRPC
-      - "4318:4318"   # OTLP HTTP
-      - "8888:8888"   # Prometheus metrics
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "8888:8888" # Prometheus metrics
 
   otel-tui:
-    image: ymtdzzz/otel-tui:latest
+    image: docker.io/ymtdzzz/otel-tui:latest
     stdin_open: true
     tty: true
     ports:
@@ -143,17 +169,10 @@ services:
     environment:
       OTEL_TUI_LISTEN_ON_OTLP: "true"
 
-  fluentd:
-    image: fluent/fluentd:v1.17-debian-1
-    volumes:
-      - ./fluentd/fluent.conf:/fluentd/etc/fluent.conf
-    ports:
-      - "24224:24224"
-      - "24224:24224/udp"
-
 volumes:
   postgres_data:
   valkey_data:
-  milvus_lite_data:  # Milvus Lite .db file — persisted via service_webapp container (ARCH-1.7.4)
-  # ministack_cognito and ministack_s3 replaced by bind mounts in docker/data/ (ARCH-29)
-  # Bind mounts: ./data/state (Cognito/general) and ./data/s3 (S3 payloads)
+  milvus_lite_data:
+    # Milvus Lite .db file — persisted via service_webapp container (ARCH-1.7.4)
+    # ministack_cognito and ministack_s3 replaced by bind mounts in docker/data/ (ARCH-29)
+    # Bind mounts: ./data/state (Cognito/general) and ./data/s3 (S3 payloads)

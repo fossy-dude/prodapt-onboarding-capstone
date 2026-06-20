@@ -2,6 +2,20 @@ include:
   - docker-compose-dependencies.yaml
 
 services:
+  # ---------------------------------------------------------------------------
+  # Logging / observability routing (replaces Fluentd):
+  # There is NO Fluentd or per-container log-driver layer. Each APP container
+  # emits OTLP (traces + metrics + logs) directly to otel-collector, which
+  # forwards every signal to otel-tui (see otel-collector-config.yaml).
+  # Infra containers (postgres/redpanda/valkey/ministack/langfuse) do NOT emit
+  # OTLP — view their logs via `podman logs <svc>`.
+  #
+  # App-side requirement (CODE, not compose): Python apps must export logs over
+  # OTLP — either attach opentelemetry-sdk's logging handler to the root logger,
+  # or run under the `opentelemetry-instrument` launcher. The OTEL_* env vars
+  # below only configure WHERE to export; they don't bridge Python logging → OTLP.
+  # ---------------------------------------------------------------------------
+
   cdr-pipeline:
     build:
       context: ../cdr-pipeline
@@ -9,6 +23,13 @@ services:
       DATABASE_URL: postgresql://sboai_app:${POSTGRES_APP_PASSWORD}@postgres:5432/sboai
       KAFKA_BOOTSTRAP_SERVERS: redpanda:29092
       VALKEY_URL: redis://valkey:6379
+      # OTLP export → otel-collector (no Fluentd). Collector forwards to otel-tui.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: cdr-pipeline
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_LOGS_EXPORTER: otlp
     depends_on:
       postgres:
         condition: service_healthy
@@ -16,6 +37,8 @@ services:
         condition: service_healthy
       flyway:
         condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
 
   service_webapp:
     build:
@@ -23,6 +46,13 @@ services:
     environment:
       DATABASE_URL: postgresql://sboai_app:${POSTGRES_APP_PASSWORD}@postgres:5432/sboai
       VALKEY_URL: redis://valkey:6379
+      # OTLP export → otel-collector (no Fluentd). Collector forwards to otel-tui.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: service_webapp
+      OTEL_TRACES_EXPORTER: otlp
+      OTEL_METRICS_EXPORTER: otlp
+      OTEL_LOGS_EXPORTER: otlp
     volumes:
       # Milvus Lite .db file; HARD CONSTRAINT: deploy.replicas must stay at 1.
       # Milvus Lite embeds a single-process SQLite-backed file; >1 replica corrupts it.
@@ -37,6 +67,8 @@ services:
         condition: service_healthy
       flyway:
         condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
     ports:
       - "8000:8000"
 
