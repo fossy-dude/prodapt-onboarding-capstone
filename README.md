@@ -54,6 +54,10 @@ just deps
 #         LangFuse, MiniStack, OTEL-TUI, Fluentd.
 # Postgres init scripts under docker/postgres/init/ run automatically on first start.
 # Wait for the Postgres healthcheck to pass before continuing.
+# After the stack is up, `just deps` also provisions MiniStack Cognito (user pool,
+# role groups, app client, demo test users) — re-runnable via `just provision-cognito`.
+# Pool/client IDs are written to service_webapp/.env; seeded users are listed in the
+# "MiniStack Cognito" section maintained at the end of this README.
 ```
 
 ### 2.3 Run database migrations
@@ -161,3 +165,28 @@ just seed-milvus
 
 # A `just seed*` recipe prints an "Epic 2" message: expected — the scripts don't exist yet.
 ```
+
+<!-- BEGIN COGNITO PROVISIONING -->
+### MiniStack Cognito — provisioned resources & seeded test users
+
+Provisioned by `scripts/provision_cognito.py` (run automatically by `just deps`).
+Idempotent — re-running refreshes this section.
+
+- **User Pool:** `sboai-subscribers` — ID: `ap-south-1_5OfJ0y4hM`
+- **App Client:** `sboai-webapp` — ID: `55vCDv2ci3VfzjiQxA1JwjF24i`
+- **Endpoint / region:** `http://localhost:4566` / `ap-south-1` (MiniStack / LocalStack)
+- **Auth model:** passwordless Custom Auth Flow (Story 1.8). Roles surface as the
+  `cognito:groups` claim — the backend auth layer reads `cognito:groups`, not `role`.
+- **No SNS in MVP:** login OTP is published to the Redpanda `notification.events`
+  stream and surfaced on the Notification Portal (Story 1.8 / Notification-Portal epic).
+
+Seeded test users (one per non-subscriber role; subscriber users come from registration):
+
+| Username | Role (group) | `sub` |
+| --- | --- | --- |
+| `dev` | dev | `8970270b-4dcb-40ff-a987-2f290dd7b72a` |
+| `admin` | admin | `2d97b195-2afc-45e4-b834-cb900ea3dd50` |
+| `marketing` | marketing | `7e084885-8a99-4cbd-8019-82928180f24e` |
+| `ops` | ops | `d646c2f8-f566-4b9b-be8d-cd70f249422d` |
+| `fraud` | fraud | `9919d046-c696-4873-bb2b-5ffa0144a9ee` |
+<!-- END COGNITO PROVISIONING -->

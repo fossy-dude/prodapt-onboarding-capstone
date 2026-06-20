@@ -70,7 +70,20 @@ class Settings(BaseSettings):
     langfuse_public_key: str = ""
 
     # ── Optional: PII encryption key (Story 1.6) ─────────────────────────────
+    # Application-layer AES-256 key for PII consumed/shared outside the DB
+    # (NOT at-rest column encryption — per user decision 2026-06-20). 32-byte hex.
     encryption_key: str = ""
+
+    # ── Optional: AWS Cognito via MiniStack/LocalStack (Story 1.6/1.8) ────────
+    # MiniStack (LocalStack-compatible) emulates Cognito on a single endpoint.
+    # Infra is provisioned by the docker compose stack; the app just routes here.
+    cognito_endpoint_url: str = "http://localhost:4566"
+    cognito_region: str = "ap-south-1"
+    cognito_user_pool_name: str = "sboai-subscribers"
+    cognito_user_pool_id: str = ""  # written by scripts/provision_cognito.py (just deps)
+    cognito_client_id: str = ""  # written by scripts/provision_cognito.py (just deps)
+    aws_access_key_id: str = "test"  # LocalStack accepts dummy credentials
+    aws_secret_access_key: str = "test"
 
     # ── Optional: OpenTelemetry exporter ─────────────────────────────────────
     otel_exporter_otlp_endpoint: str = "http://localhost:4318"

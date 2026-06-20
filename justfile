@@ -24,6 +24,14 @@ deps:
     @grep -q "change_me" docker/.env && { echo "ERROR: docker/.env contains placeholder passwords. Edit the file with real values."; exit 1; } || true
     podman compose -f docker/docker-compose-dependencies.yaml --env-file docker/.env up -d
     @echo "→ LangFuse dashboard: http://localhost:3000  (Story 1.5; login via LANGFUSE_INIT_USER_* in docker/.env)"
+    @just provision-cognito
+
+# Provision MiniStack Cognito (user pool, role groups, app client, demo users). Idempotent.
+# Runs automatically after `just deps`; safe to re-run by hand. Writes pool/client IDs
+# into service_webapp/.env and seeded-user identities into README.md.
+provision-cognito:
+    @command -v uvx > /dev/null || { echo "ERROR: uv not installed. See README §1 prerequisites."; exit 1; }
+    uvx --with boto3 python scripts/provision_cognito.py
 
 # Destroy infrastructure-only stack (stop containers, remove volumes and networks).
 deps_destroy:

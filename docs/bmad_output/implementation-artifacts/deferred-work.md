@@ -1,5 +1,12 @@
 # Deferred Work
 
+## Deferred from: MiniStack Cognito provisioning script (scripts/provision_cognito.py) (2026-06-20)
+
+- **OTP Custom Auth challenge Lambdas not provisioned** — `scripts/provision_cognito.py` creates the user pool, app client, role groups, and demo users only. The `DefineAuthChallenge` / `CreateAuthChallenge` / `VerifyAuthChallenge` Lambdas that actually issue + verify a passwordless login OTP are intentionally out of scope and land in Story 1.8 (login). Until then, the pool supports custom auth but no OTP can be issued.
+- **Redpanda `notification.events` OTP producer not wired** — the login OTP must be published to the Redpanda `notification.events` stream so the Notification Portal can surface it (**no SNS in MVP**). The producer (inside `CreateAuthChallenge` or a bridge) is deferred to Story 1.8 / the Notification-Portal epic. Architecture §1.8.1 + §1.14.3 updated to reflect Redpanda (was "SMS via SNS").
+- **Role claim is `cognito:groups`, not `role`** — roles are delivered as Cognito groups; Story 1.8's `core/auth.py` / `require_role` must read `cognito:groups`. Documented in the Story 1.8 dev notes; no `custom:role` attribute or PreTokenGeneration Lambda is provisioned.
+- **Seeded demo users are in FORCE_CHANGE_PASSWORD status** — created passwordless via `admin_create_user`; the Custom Auth flow bypasses this, but it is worth noting if any flow inspects user status before Story 1.8 lands.
+
 ## Deferred from: code review of 1-2-docker-compose-stack-postgres-init-flyway-baseline (2026-06-20)
 
 - **otel-tui may not render in detached mode** — TUI app with `tty: true` may exit when run headless; low priority, likely acceptable for dev workflow

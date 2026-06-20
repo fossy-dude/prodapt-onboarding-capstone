@@ -71,7 +71,13 @@ Therefore this story creates **no migration and no table**. Session/identity sta
 
 - **Pre-activation:** Registration ID → Cognito **Custom Auth Flow** OTP → JWT (`role='subscriber'`, `sub`=subscriber UUID). **No password** — the registration form (Story 1.6) never collects one; the Cognito user is provisioned passwordless/OTP-only at registration. The epics "Registration ID + password" wording is corrected to passwordless OTP per architecture §1.8.1 and the Story 1.1 UX brief (registration Step 3 = OTP, no password field).
 - **Post-activation:** MSISDN → OTP (same flow); JWT `role='subscriber'`, MSISDN in payload.
-- **Roles:** `subscriber`, `ops`, `fraud`, `admin/simulator`. Access token TTL **30 min**, refresh **30 days** (Cognito App Client config). [Source: architecture.md#1.8.1; epics.md#Story-1.8 (lines 451–458, password wording corrected)]
+- **Roles:** `subscriber`, `ops`, `fraud`, `dev`, `admin`, `marketing` — delivered as **Cognito groups** (the `cognito:groups` claim); the `/simulator/*` route is gated by `dev`. Access token TTL **30 min**, refresh **30 days** (Cognito App Client config). [Source: architecture.md#1.8.1; epics.md#Story-1.8 (lines 451–458, password + role wording corrected)]
+
+### Role claim delivery — Cognito groups (`cognito:groups`), NOT a `role` claim
+
+- Roles are modelled as **Cognito groups** and reach the JWT as the **`cognito:groups`** claim. The backend auth layer (`core/auth.py`, `require_role`) **must read `cognito:groups`**, not a `role` claim — a Cognito *custom* attribute would land only in the ID token, not the access token this story validates.
+- The user pool (`sboai-subscribers`), app client (`sboai-webapp`), role groups, and one demo user per non-subscriber role are created by **`scripts/provision_cognito.py`** (run automatically by `just deps`; idempotent). It writes `COGNITO_USER_POOL_ID` / `COGNITO_CLIENT_ID` into `service_webapp/.env` and records seeded-user identities in `README.md`.
+- **Deferred to this story / Notification-Portal epic:** the Custom Auth challenge Lambdas (`DefineAuthChallenge` / `CreateAuthChallenge` / `VerifyAuthChallenge`) that issue + verify the login OTP, and the Redpanda `notification.events` producer that surfaces it on the Notification Portal. **No SNS** in MVP. [Source: architecture.md#1.8.1 (lines 608–614); #1.14.3 (cognito module)]
 
 ### Login OTP vs step-up OTP — keep them separate (critical)
 

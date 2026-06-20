@@ -607,7 +607,7 @@ Index type: HNSW. BM25 lexical index on same collections for hybrid search. RRF 
 
 ### 1.8.1. Auth Flow
 
-**MVP:** AWS Cognito (MiniStack) issues JWTs. OTP sent via Cognito (stored in Notification Portal for testing). Roles: `subscriber`, `ops`, `fraud`, `admin/simulator`. **Access token TTL: 30 minutes** (configured in Cognito App Client settings). Refresh token TTL: 30 days.
+**MVP:** AWS Cognito (MiniStack) issues JWTs. The login OTP is issued via Cognito's Custom Auth Flow and published to the Redpanda `notification.events` stream, surfaced live on the Notification Portal for testing (**no SNS in MVP**). Roles: `subscriber`, `ops`, `fraud`, `dev`, `admin`, `marketing` (delivered as the `cognito:groups` claim; the Simulator developer dashboard is gated by `dev`). **Access token TTL: 30 minutes** (configured in Cognito App Client settings). Refresh token TTL: 30 days.
 
 **Target:** Keycloak on EKS. Same JWT structure; role claims identical. API Gateway validates JWT on every request. Blacklist enforcement at API Gateway layer (FR-66). **Access token TTL: 30 minutes** (configured in Keycloak client settings — same as MVP).
 
@@ -1661,7 +1661,7 @@ infrastructure/
 │   │   │   ├── main.tf
 │   │   │   ├── variables.tf
 │   │   │   └── outputs.tf
-│   │   ├── cognito/                 # Cognito User Pool + App Client; OTP config; role claims
+│   │   ├── cognito/                 # Cognito User Pool + App Client; role groups (cognito:groups); OTP via Custom Auth + Redpanda
 │   │   │   ├── main.tf
 │   │   │   ├── variables.tf
 │   │   │   └── outputs.tf
@@ -1700,7 +1700,7 @@ infrastructure/
 | `rds`         | RDS PostgreSQL 16 Multi-AZ, parameter group, subnet group, Secrets Manager rotation | Same parameter group must enable `pg_uuidv7`, `pgcrypto`, `pg_trgm`, `btree_gin` |
 | `msk`         | MSK cluster, 24-partition topics (`cdr.raw`, `cdr.enriched.filtered`, etc.), IAM    | `ap-south-1`; 3-broker cluster minimum                                           |
 | `elasticache` | ElastiCache Valkey (Redis-compatible), `maxmemory-policy noeviction`                | Subnet group within private subnets                                              |
-| `cognito`     | User Pool, App Client, OTP (SMS via SNS), custom attributes (`role`)                | Outputs: `USER_POOL_ID`, `APP_CLIENT_ID` for app config                          |
+| `cognito`     | User Pool, App Client, role groups (`subscriber`/`ops`/`fraud`/`dev`/`admin`/`marketing` → `cognito:groups`); login OTP via Custom Auth Flow published to Redpanda `notification.events` (no SNS in MVP) | Outputs: `USER_POOL_ID`, `APP_CLIENT_ID` for app config |
 | `s3`          | Audit archive bucket, lifecycle: Standard → IA (2yr) → Glacier (6yr)                | TRAI 6-year retention; no public access                                          |
 | `cloudfront`  | Distribution, S3 origin, OAC, cache behaviours, SPA 403/404 → 200 routing           | Custom domain + ACM cert                                                         |
 | `api_gateway` | HTTP API, JWT authorizer (Cognito), routes, per-subscriber usage plan               | FR-36 throttle; blacklist enforcement at JWT layer                               |
