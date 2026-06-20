@@ -25,6 +25,8 @@ dependencies = [
     "weasyprint>=62",
     "scikit-learn>=1.5",
     "uuid7>=0.1",
+    "boto3>=1.34",  # MiniStack/LocalStack Cognito client (Story 1.6/1.8)
+    "cryptography>=42",  # application-layer PII encryption for consumption/sharing (Story 1.6)
 ]
 
 [project.optional-dependencies]
@@ -308,6 +310,8 @@ deps = [
     "psycopg[binary,async,pool]>=3.2",
     "valkey[asyncio]>=6",
     "langfuse>=4",
+    "boto3>=1.34",
+    "cryptography>=42",
 ]
 commands = [
     ["ruff", "check", "."],
@@ -335,5 +339,6 @@ deps = [
     "valkey[asyncio]>=6",
     "testcontainers[postgres,redis]>=4",
     "langfuse>=4",
+    "cryptography>=42",
 ]
 commands = [["pytest", "-m", "not slow", "{posargs}"]]

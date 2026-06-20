@@ -7,6 +7,7 @@ not over-build here.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
 import psycopg.conninfo
@@ -15,6 +16,10 @@ from psycopg_pool import AsyncConnectionPool
 from core.protocols.db import DatabaseProtocol
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from psycopg import AsyncConnection
+
     # Used only in the ``conninfo_from`` annotation.
     from core.config import DatabaseSettings
 
@@ -63,6 +68,25 @@ class Psycopg3AsyncAdapter(DatabaseProtocol):
             return True
         except Exception:
             return False
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[AsyncConnection]:
+        """Yield a pooled connection inside an explicit transaction.
+
+        Used by domain repositories to run multi-statement, all-or-nothing units of
+        work (e.g. the registration flow inserts subscriber + registration + audit +
+        order in one transaction). The pool is opened idempotently so first use after
+        boot does not fail; the transaction commits on clean exit and rolls back on
+        any exception.
+        """
+        try:
+            await self._pool.open()
+        except Exception:
+            # Idempotent open: a second open raises PoolError, which is harmless here.
+            pass
+        async with self._pool.connection() as conn:
+            async with conn.transaction():
+                yield conn
 
     async def close(self) -> None:
         """Close the underlying pool (safe if it was never opened)."""

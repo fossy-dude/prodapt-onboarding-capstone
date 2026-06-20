@@ -1,0 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Global resets + base typography. Tailwind tokens (tailwind.config.ts) own all
+   colour/size decisions — no component-specific CSS (UX brief §3.3). */
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  background-color: #f9fafb; /* neutral-50 */
+  color: #1f2937; /* neutral-800 */
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}

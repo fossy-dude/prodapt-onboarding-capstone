@@ -16,6 +16,9 @@ eggs/
 .eggs/
 lib/
 lib64/
+# The Python-template `lib/` above would also ignore the frontend source dir
+# (frontend/src/lib/) — re-include it so the app's API/queryClient modules are tracked.
+!frontend/src/lib/
 parts/
 sdist/
 var/

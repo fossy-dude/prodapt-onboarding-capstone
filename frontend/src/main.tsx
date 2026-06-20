@@ -1,13 +1,15 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
+import { QueryClientProvider } from '@tanstack/react-query';
 
 import { App } from './App';
+import { createQueryClient } from './lib/queryClient';
+import './globals.css';
 
 /**
- * Application bootstrap.
- *
- * Mounts the root <App /> component into the #root element declared by index.html.
- * The full router, providers and CopilotKit runtime are wired up in Story 1.7.
+ * Application bootstrap: BrowserRouter + TanStack Query providers wrap <App />.
+ * The portals layout, RoleGuard and CopilotKit runtime expand in later stories.
  */
 const rootElement = document.getElementById('root');
 
@@ -17,6 +19,10 @@ if (rootElement === null) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <App />
+    <QueryClientProvider client={createQueryClient()}>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </QueryClientProvider>
   </StrictMode>,
 );
