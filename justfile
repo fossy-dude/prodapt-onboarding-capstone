@@ -22,6 +22,10 @@ default:
 deps:
     podman compose -f docker/docker-compose-dependencies.yaml --env-file docker/.env up -d
 
+# Destroy infrastructure-only stack (stop containers, remove volumes and networks).
+deps_destroy:
+    podman compose -f docker/docker-compose-dependencies.yaml down -v --remove-orphans
+
 # Start the full application stack (infra + cdr-pipeline + service_webapp + frontend).
 up:
     podman compose -f docker/docker-compose.yaml --env-file docker/.env up -d

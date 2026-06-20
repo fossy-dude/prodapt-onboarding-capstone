@@ -50,14 +50,16 @@ services:
     environment:
       POSTGRES_DB: sboai
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:-postgres}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-password}
+      POSTGRES_READONLY_PASSWORD: ${POSTGRES_READONLY_PASSWORD:-password}
+      POSTGRES_FLYWAY_PASSWORD: ${POSTGRES_FLYWAY_PASSWORD:-password}
+      LANGFUSE_DB_PASSWORD: ${LANGFUSE_DB_PASSWORD:-password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init:/docker-entrypoint-initdb.d
-    env_file:
-      - ../.env
     healthcheck:
-      # Wait for pg_isready AND confirm sboai_flyway role exists (created by 02_roles.sh initdb script).
+      # Wait for pg_isready AND confirm flyway role exists (created by 02_roles.sh initdb script).
       # Prevents Flyway from connecting before the role is created — pg_isready alone fires too early.
       test: [ "CMD-SHELL", "pg_isready -U postgres -d sboai && psql -U postgres -d sboai -tAc \"SELECT 1 FROM pg_roles WHERE rolname='sboai_flyway'\" | grep -q 1" ]
       interval: 5s
@@ -72,14 +74,12 @@ services:
     command: migrate
     environment:
       FLYWAY_URL: jdbc:postgresql://postgres:5432/sboai
-      FLYWAY_USER: sboai_flyway
-      FLYWAY_PASSWORD: ${POSTGRES_FLYWAY_PASSWORD}
+      FLYWAY_USER: ${POSTGRES_FLYWAY_USERNAME:-flyway}
+      FLYWAY_PASSWORD: ${POSTGRES_FLYWAY_PASSWORD:-password}
       FLYWAY_SCHEMAS: public
       FLYWAY_CONNECT_RETRIES: 10
       FLYWAY_LOCATIONS: filesystem:/flyway/sql
       FLYWAY_CLEAN_DISABLED: "true"
-    env_file:
-      - ../.env
     volumes:
       - ../service_webapp/db/migrations:/flyway/sql
     depends_on:
@@ -125,8 +125,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ministack:
-        condition: service_started
     ports:
       - "3000:3000"
 
