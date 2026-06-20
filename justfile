@@ -67,9 +67,13 @@ seed-milvus:
 
 # ── Dev servers ──────────────────────────────────────────────────────────────────
 
-# Run the backend dev server (FastAPI/uvicorn) with hot reload. App wired in Story 1.4.
+# Run the backend dev server (FastAPI/uvicorn) with hot reload.
+# PYTHONPATH=src is required so ``src.main`` resolves AND the app's top-level
+# internal imports (``core``/``routers``/``adapters``) match the [tool.pytest]
+# pythonpath=["src"] layout. cwd stays at service_webapp/ so config's
+# ``env_file=".env"`` still loads service_webapp/.env. (Story 1.4.)
 backend:
-    cd service_webapp && uvicorn src.main:app --reload --port 8000  # Story 1.4 will add FastAPI app object
+    cd service_webapp && PYTHONPATH=src uvicorn src.main:app --reload --port 8000
 
 # Run the frontend dev server (Vite).
 frontend:

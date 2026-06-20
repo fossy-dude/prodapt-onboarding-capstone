@@ -1,26 +1,90 @@
-"""Application entrypoint for the ``service_webapp`` backend.
+"""FastAPI application entrypoint for ``service_webapp`` (Story 1.4).
 
-Story 1.3 establishes the project tooling baseline; the FastAPI application and
-middleware are wired up in Story 1.4.
+Wires the config singleton (fail-fast at boot), the OTEL trace middleware and the
+health router onto a single FastAPI app. Adapter lifecycle (Postgres pool, Valkey
+client) is managed via the ASGI lifespan so ``/ready`` can probe them. Served on
+port 8000 — ``curl http://localhost:8000/health`` (architecture §1.15.1).
 """
 
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
+
+import uvicorn
 from fastapi import FastAPI
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
 
-app = FastAPI(title="SBOAI Capstone", version="0.1.0")
+from adapters.postgres import Psycopg3AsyncAdapter, conninfo_from
+from adapters.redis import ValkeyAdapter
+
+# Importing settings eager-loads + validates config at boot (fail-fast, AC #1); it is
+# also consumed in the lifespan below, so the import is not merely a side effect.
+from core.config import settings
+from core.middleware import OtelTraceMiddleware
+from routers.health import router as health_router
+
+if TYPE_CHECKING:
+    # Type-only symbols: referenced only in annotations (runtime uses the concrete adapters).
+    from collections.abc import AsyncIterator
+
+    from core.protocols.cache import CacheProtocol
+    from core.protocols.db import DatabaseProtocol
 
 
-@app.get("/")
-def health() -> dict[str, str]:
-    """Health check endpoint."""
-    return {"status": "ok"}
+def _setup_tracer() -> None:
+    """Install a real ``TracerProvider`` so fresh root spans get real trace ids.
+
+    Idempotent across repeated app construction (tests create the app many times):
+    OTel raises if a provider is already set, which we treat as a no-op.
+    """
+    try:
+        trace.set_tracer_provider(TracerProvider())
+    except Exception:
+        pass
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Create adapters on startup (unless injected) and close them on shutdown."""
+    if getattr(app.state, "db_adapter", None) is None:
+        app.state.db_adapter = Psycopg3AsyncAdapter(conninfo_from(settings.db))
+    if getattr(app.state, "cache_adapter", None) is None:
+        app.state.cache_adapter = ValkeyAdapter(settings.valkey_url)
+    try:
+        yield
+    finally:
+        await getattr(app.state, "db_adapter").close()
+        await getattr(app.state, "cache_adapter").close()
+
+
+def create_app(
+    *,
+    db_adapter: DatabaseProtocol | None = None,
+    cache_adapter: CacheProtocol | None = None,
+) -> FastAPI:
+    """Construct the FastAPI app.
+
+    Adapters may be injected (primarily for tests); when omitted they are created
+    from ``settings`` during the ASGI lifespan.
+    """
+    _setup_tracer()
+    app = FastAPI(title="SBOAI Capstone", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(OtelTraceMiddleware)
+    app.include_router(health_router)
+    app.state.db_adapter = db_adapter
+    app.state.cache_adapter = cache_adapter
+    return app
+
+
+# Module-level app object — what ``uvicorn src.main:app`` imports.
+app = create_app()
 
 
 def main() -> None:
-    """Run the application entrypoint.
-
-    Story 1.4 replaces this stub with the full FastAPI/uvicorn boot sequence.
-    """
-    print("Hello from service-webapp!")
+    """Run the app with uvicorn on port 8000 (matches the README verify step)."""
+    uvicorn.run("src.main:app", host="0.0.0.0", port=8000)
 
 
 if __name__ == "__main__":

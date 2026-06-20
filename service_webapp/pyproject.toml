@@ -178,7 +178,10 @@ unfixable = []
 "**/{tests,docs,tools}/*" = ["E402"]
 "error_codes.py" = ["C408"]
 # Tests legitimately omit module/function docstrings; narrow ignore keeps the rule set intact elsewhere.
-"tests/*" = ["D100", "D101", "D102", "D103", "D104", "D105"]
+# PLC0415 (import-not-at-top) is allowed in tests so app/config imports can be deferred
+# inside fixtures/tests — this controls when the eager ``settings = Settings()`` singleton
+# runs relative to pytest-env populating the required env vars (Story 1.4).
+"tests/*" = ["D100", "D101", "D102", "D103", "D104", "D105", "PLC0415"]
 
 
 [tool.ruff.lint.flake8-pytest-style]
@@ -229,8 +232,29 @@ addopts = [
     "--import-mode=importlib",
     "--strict-config",
     "--strict-markers",
+    "--asyncio-mode=auto",
 ]
 # addopts = "--cov --cov-report html --cov-report term-missing"
+
+# pytest-env: provide the REQUIRED env vars so the eager ``settings = Settings()``
+# singleton (core/config.py) succeeds at test collection time. Optional secrets
+# stay at their defaults. Individual tests override these via monkeypatch.
+# (Story 1.4 — config fail-fast must not break collection.)
+env = [
+    "DB__HOST=localhost",
+    "DB__PORT=5432",
+    "DB__NAME=sboai_test",
+    "DB__USER=sboai_app",
+    "DB__PASSWORD=change_me_app",
+    "VALKEY_URL=redis://localhost:6379",
+    "KAFKA_BROKERS=localhost:9092",
+    "LANGFUSE_ENABLED=false",
+]
+# /run/secrets is a Podman-only mount; absent in dev/test. Silence pydantic-settings'
+# informational warning there (the secrets_dir itself is correct for production).
+filterwarnings = [
+    "ignore:directory \"/run/secrets\" does not exist:UserWarning",
+]
 
 # ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
 # │                                          Pyrefly config                                          │
@@ -268,7 +292,22 @@ package = "skip"
 
 [tool.tox.env.lint]
 description = "Run ruff (lint + format check) and pyrefly type checking"
-deps = ["ruff>=0.12.9", "pyrefly>=0.31.0"]
+# Story 1.4: the app now imports fastapi/pydantic-settings/opentelemetry/psycopg/valkey,
+# so pyrefly needs them resolvable in the lint venv. Only the libs the type-checked
+# source imports are listed — the heavy runtime deps (weasyprint, scikit-learn, etc.)
+# are intentionally NOT pulled in (they need system libs to build). psycopg uses the
+# binary wheel so no libpq-dev is required.
+deps = [
+    "ruff>=0.12.9",
+    "pyrefly>=0.31.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic-settings>=2.3",
+    "opentelemetry-sdk>=1.25",
+    "opentelemetry-instrumentation-fastapi>=0.46b0",
+    "psycopg[binary,async,pool]>=3.2",
+    "valkey[asyncio]>=6",
+]
 commands = [
     ["ruff", "check", "."],
     ["ruff", "format", "--check", "."],
@@ -277,5 +316,22 @@ commands = [
 
 [tool.tox.env.test]
 description = "Run pytest (skip slow tests)"
-deps = ["pytest>=7.0.0", "pytest-env>=1.1.0"]
+# Story 1.4: test stack now exercises the FastAPI app + psycopg/valkey adapters +
+# testcontainers (Postgres/Valkey) for the /ready integration test. psycopg uses
+# the binary wheel (no libpq-dev needed). Heavy runtime deps (weasyprint etc.) are
+# excluded for the same reason as the lint env.
+deps = [
+    "pytest>=8",
+    "pytest-env>=1.1.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic-settings>=2.3",
+    "opentelemetry-sdk>=1.25",
+    "opentelemetry-instrumentation-fastapi>=0.46b0",
+    "psycopg[binary,async,pool]>=3.2",
+    "valkey[asyncio]>=6",
+    "testcontainers[postgres,redis]>=4",
+]
 commands = [["pytest", "-m", "not slow", "{posargs}"]]

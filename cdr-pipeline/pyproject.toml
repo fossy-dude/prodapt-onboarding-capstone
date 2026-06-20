@@ -7,7 +7,11 @@ name = "cdr-pipeline"
 version = "0.1.0"
 description = "CDR ingestion, balance engine and fraud pre-screener pipeline (MVP: Python)."
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    # Story 1.4: config singleton (same eager-load pattern as service_webapp).
+    # The aiokafka consumer / balance engine land in Epic 2.
+    "pydantic-settings>=2.3",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -161,7 +165,8 @@ unfixable = []
 "**/{tests,docs,tools}/*" = ["E402"]
 "error_codes.py" = ["C408"]
 # Tests legitimately omit module/function docstrings; narrow ignore keeps the rule set intact elsewhere.
-"tests/*" = ["D100", "D101", "D102", "D103", "D104", "D105"]
+# PLC0415 (import-not-at-top) allowed in tests so config imports can be deferred (Story 1.4).
+"tests/*" = ["D100", "D101", "D102", "D103", "D104", "D105", "PLC0415"]
 
 
 [tool.ruff.lint.flake8-pytest-style]
@@ -212,8 +217,25 @@ addopts = [
     "--import-mode=importlib",
     "--strict-config",
     "--strict-markers",
+    "--asyncio-mode=auto",
 ]
 # addopts = "--cov --cov-report html --cov-report term-missing"
+
+# pytest-env: provide REQUIRED env vars so the eager ``settings = Settings()``
+# singleton (core/config.py) succeeds at collection time. (Story 1.4.)
+env = [
+    "DB__HOST=localhost",
+    "DB__PORT=5432",
+    "DB__NAME=sboai_test",
+    "DB__USER=sboai_app",
+    "DB__PASSWORD=change_me_app",
+    "VALKEY_URL=redis://localhost:6379",
+    "KAFKA_BROKERS=localhost:9092",
+]
+# /run/secrets is a Podman-only mount; absent in dev/test. (Story 1.4.)
+filterwarnings = [
+    "ignore:directory \"/run/secrets\" does not exist:UserWarning",
+]
 
 # ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
 # │                                          Pyrefly config                                          │
@@ -250,7 +272,13 @@ package = "skip"
 
 [tool.tox.env.lint]
 description = "Run ruff (lint + format check) and pyrefly type checking"
-deps = ["ruff>=0.12.9", "pyrefly>=0.31.0"]
+# Story 1.4: the consumer config imports pydantic-settings, so pyrefly needs it
+# resolvable in the lint venv.
+deps = [
+    "ruff>=0.12.9",
+    "pyrefly>=0.31.0",
+    "pydantic-settings>=2.3",
+]
 commands = [
     ["ruff", "check", "."],
     ["ruff", "format", "--check", "."],
@@ -259,5 +287,11 @@ commands = [
 
 [tool.tox.env.test]
 description = "Run pytest (skip slow tests)"
-deps = ["pytest>=7.0.0", "pytest-env>=1.1.0"]
+# Story 1.4: config singleton tests need pydantic-settings + pytest-asyncio.
+deps = [
+    "pytest>=8",
+    "pytest-env>=1.1.0",
+    "pytest-asyncio>=0.23",
+    "pydantic-settings>=2.3",
+]
 commands = [["pytest", "-m", "not slow", "{posargs}"]]
