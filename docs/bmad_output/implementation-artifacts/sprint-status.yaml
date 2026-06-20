@@ -46,7 +46,7 @@ development_status:
   # Epic 1: Core Infrastructure, Tooling & Subscriber Identity
   epic-1: in-progress
   1-1-ux-brief-subscriber-registration-identity-flows: done
-  1-2-docker-compose-stack-postgres-init-flyway-baseline: ready-for-dev
+  1-2-docker-compose-stack-postgres-init-flyway-baseline: review
   1-3-project-tooling-justfile-github-actions-ci-linters-readme: ready-for-dev
   1-4-pydantic-settings-singleton-health-endpoints-otel-trace-middleware: ready-for-dev
   1-5-langfuse-self-hosted-setup-client-instrumentation-scaffold: ready-for-dev
