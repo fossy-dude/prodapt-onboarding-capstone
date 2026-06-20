@@ -134,7 +134,7 @@ ARCH-3: Flyway SQL-native migrations (V1__baseline_schema.sql through V5__grants
 ARCH-4: All database queries use raw SQL via psycopg3 async. CQRS split: queries.py (SELECT only) and commands.py (INSERT/UPDATE/DELETE only) per domain.
 ARCH-5: Valkey key domains: dedup:{cdr_id} (24h TTL), balance:{msisdn} (no TTL — noeviction policy required), session:{session_id} (30m HASH), otp:{msisdn} (5m), chat_context:{session_id} (2h HASH).
 ARCH-6: balance:{msisdn} key must never be evicted. Valkey maxmemory-policy must be set to noeviction. On cdr-pipeline restart, load_balances_from_postgres() re-seeds all balance keys before the consumer loop starts.
-ARCH-7: Milvus Lite runs embedded in-process (pymilvus[milvus-lite]) in service_backend. No separate container. Data persisted to Docker volume milvus_lite_data mounted at /app/data/milvus/sboai.db.
+ARCH-7: Milvus Lite runs embedded in-process (pymilvus[milvus-lite]) in service_backend. No separate container. Data persisted to Podman volume milvus_lite_data mounted at /app/data/milvus/sboai.db.
 ARCH-8: Three Milvus collections: faq_chunks (category, source_doc, plan_type metadata), plan_vectors (plan_id, plan_type, price, validity), sop_chunks (rule_id, severity, domain). All use text-embedding-3-small (1536 dims), HNSW index, BM25 + RRF for hybrid search.
 ARCH-9: UUID strategy — UUIDv7 (uuid_generate_v7()) for all transactional/high-insert tables; UUIDv4 (gen_random_uuid()) for reference/config tables. Python-side: use uuid7 package.
 ARCH-10: Kafka topics: cdr.raw (24 partitions, key=subscriber_id), cdr.enriched.filtered (24p), cdr.fraud.flagged (6p), fraud.alerts (6p), notification.events (12p), cdr.dlq (6p).
@@ -155,10 +155,10 @@ ARCH-24: Synthetic data generation order is critical: 1. Plans (1K, UUIDv4) via 
 ARCH-25: Fraud signals embedded in ~0.5% of subscribers: unusual CDR velocity, SIM swap flags. Required for fraud agent testing.
 ARCH-26: SOP knowledge base (sop_rules, sop_knowledge_chunks tables) seeded via sop_generator.py. Same predefined SOP rules used to build KB must also be used to generate synthetic CDR records with embedded internal notes for agent validation.
 ARCH-27: OTEL trace middleware in FastAPI extracts traceparent from incoming headers; generates new span if absent. trace_id stored in request.state.trace_id and returned in X-Trace-Id response header.
-ARCH-28: Docker Compose two-file split: docker-compose-dependencies.yaml (infra only) + docker-compose.yaml (full stack via include:). Allows running just infra without app containers during development.
+ARCH-28: Podman Compose two-file split: docker-compose-dependencies.yaml (infra only) + docker-compose.yaml (full stack via include:). Allows running just infra without app containers during development.
 ARCH-29: Postgres named volumes persist across restarts: postgres_data, ministack_cognito, ministack_s3, milvus_lite_data. Valkey and Redpanda are non-persisted — acceptable to reset.
 ARCH-30: README.md at project root is the single authoritative onboarding document. Required sections: Prerequisites, MVP Setup (6 steps), Target State Setup (Terraform → migrate → seed → deploy).
-ARCH-31: Terraform manages Target State infra (infrastructure/terraform/). MVP infrastructure is Docker Compose only — Terraform is not needed for local development.
+ARCH-31: Terraform manages Target State infra (infrastructure/terraform/). MVP infrastructure is Podman Compose only — Terraform is not needed for local development.
 ARCH-32: PII hygiene rules (ALL agents must follow): never log raw MSISDN/name/address/card data; use msisdn[-4:] suffix or [REDACTED]; never include PII in OTEL span attributes; use subscriber UUID only.
 ARCH-33: Account takeover (FR-66): on confirmed SIM swap verdict → write to fraud_blacklist table → Cognito admin API disables account + revokes all tokens → API Gateway JWT validation blocks all subsequent calls. No Redis blacklist cache — Cognito is the enforcement layer.
 ARCH-34: Valkey OTP key (otp:{msisdn}, 5m TTL) is for mid-session step-up verification only. Initial login OTP is handled by Cognito's Custom Auth Flow.
@@ -265,7 +265,7 @@ FR-77: Epic 1 — Health check endpoints (/health, /ready) on every service
 ## Epic List
 
 ### Epic 1: Core Infrastructure, Tooling & Subscriber Identity
-Subscribers can register, verify their identity, log in, manage their profile, and access the system securely. The full development infrastructure (Docker Compose, Postgres, Flyway, CI/CD, observability) is set up and operational. This epic is the prerequisite for all other epics.
+Subscribers can register, verify their identity, log in, manage their profile, and access the system securely. The full development infrastructure (Podman Compose, Postgres, Flyway, CI/CD, observability) is set up and operational. This epic is the prerequisite for all other epics.
 **FRs covered:** FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-63, FR-64, FR-65, FR-67, FR-72 (LangFuse setup), FR-77
 
 ### Epic 2: CDR Pipeline, Balance Engine, Synthetic Data & Simulator Tools
@@ -298,7 +298,7 @@ The operations team can monitor plan stock and order fulfilment. The marketing t
 
 ## Epic 1: Core Infrastructure, Tooling & Subscriber Identity
 
-Subscribers can register, verify their identity, log in, manage their profile, and access the system securely. The full development infrastructure (Docker Compose, Postgres, Flyway, CI/CD, observability stack) is set up and operational. This epic is the hard prerequisite for all other epics.
+Subscribers can register, verify their identity, log in, manage their profile, and access the system securely. The full development infrastructure (Podman Compose, Postgres, Flyway, CI/CD, observability stack) is set up and operational. This epic is the hard prerequisite for all other epics.
 
 ---
 
@@ -321,7 +321,7 @@ So that frontend stories in this epic have a clear, agreed-upon design target an
 
 ---
 
-### Story 1.2: Docker Compose Stack, Postgres Init & Flyway Baseline
+### Story 1.2: Podman Compose Stack, Postgres Init & Flyway Baseline
 
 As a **developer**,
 I want a fully reproducible local development environment that starts all infrastructure services with a single command and initialises Postgres with the required extensions, roles, and schema baseline,
@@ -329,12 +329,12 @@ So that any team member can onboard in under 15 minutes and all services share a
 
 **Acceptance Criteria:**
 
-**Given** Docker and Docker Compose are installed
+**Given** Podman and Podman Compose are installed
 **When** `just up` is run
 **Then** the dependency stack starts: Redpanda, Valkey (noeviction policy), Postgres 16, LangFuse (self-hosted), MiniStack (Cognito + S3), OTEL-TUI, Fluentd
 **And** the Postgres init scripts execute in order at container creation: 01_extensions.sql (pg_uuidv7, pgcrypto, pg_trgm, btree_gin), 02_roles.sql (app_rw, app_ro, migration_user), 03_databases.sql (sboai_db)
 **And** Flyway runs V1__baseline_schema.sql creating the initial schema (subscribers, subscriber_orders, audit_log tables) with UUIDv7 primary keys on transactional tables and UUIDv4 on reference tables (ARCH-9)
-**And** the two-file Docker Compose split is in place: docker-compose-dependencies.yaml (infra only) and docker-compose.yaml (full stack via include:) (ARCH-28)
+**And** the two-file Podman Compose split is in place: docker-compose-dependencies.yaml (infra only) and docker-compose.yaml (full stack via include:) (ARCH-28)
 **And** named volumes persist across restarts: postgres_data, ministack_cognito, ministack_s3, milvus_lite_data (ARCH-29)
 **And** `just deps` starts only infra (no app containers) for local backend development
 
@@ -532,7 +532,7 @@ So that all pipeline components can communicate reliably and every event is trac
 
 **Acceptance Criteria:**
 
-**Given** Redpanda is running via Docker Compose
+**Given** Redpanda is running via Podman Compose
 **When** `just up` completes
 **Then** the following topics exist with the specified partition counts: cdr.raw (24p), cdr.enriched.filtered (24p), cdr.fraud.flagged (6p), fraud.alerts (6p), notification.events (12p), cdr.dlq (6p) (ARCH-10)
 **And** a topic provisioning script (scripts/provision_topics.py) creates topics idempotently (safe to re-run)
@@ -652,7 +652,7 @@ So that RAG-dependent stories in Epic 5 (chatbot) and Epic 7 (RCA agent) have a 
 
 **Given** service_backend starts
 **When** the Milvus Lite client initialises
-**Then** it connects to the embedded Milvus Lite DB at /app/data/milvus/sboai.db (Docker volume: milvus_lite_data) (ARCH-7)
+**Then** it connects to the embedded Milvus Lite DB at /app/data/milvus/sboai.db (Podman volume: milvus_lite_data) (ARCH-7)
 **And** three collections are created if not present: faq_chunks (fields: chunk_id, text, embedding[1536], category, source_doc, plan_type), plan_vectors (fields: plan_id, text, embedding[1536], plan_type, price, validity), sop_chunks (fields: chunk_id, text, embedding[1536], rule_id, severity, domain) (ARCH-8)
 **And** each collection uses HNSW index and supports BM25 + RRF hybrid search (ARCH-8)
 

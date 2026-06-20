@@ -2,7 +2,7 @@
 baseline_commit: c2e8a04aa1643dc9e802bc121f1501367beb3f7d
 ---
 
-# Story 1.2: Docker Compose Stack, Postgres Init & Flyway Baseline
+# Story 1.2: Podman Compose Stack, Postgres Init & Flyway Baseline
 
 Status: in-progress
 
@@ -16,10 +16,10 @@ so that any team member can onboard in under 15 minutes and all services share a
 
 ## Acceptance Criteria
 
-1. **Given** Docker and Docker Compose are installed, **When** `just up` is run, **Then** the dependency stack starts: Redpanda, Valkey (`noeviction` policy), Postgres 16, LangFuse (self-hosted), MiniStack (Cognito + S3), OTEL-Collector, OTEL-TUI, Fluentd.
+1. **Given** Podman and Podman Compose are installed, **When** `just up` is run, **Then** the dependency stack starts: Redpanda, Valkey (`noeviction` policy), Postgres 16, LangFuse (self-hosted), MiniStack (Cognito + S3), OTEL-Collector, OTEL-TUI, Fluentd.
 2. The Postgres init scripts execute in order at container creation: `01_extensions.sql` (pg_uuidv7, pgcrypto, pg_trgm, btree_gin), `02_roles.sql` (sboai_app, sboai_readonly, sboai_flyway), `03_databases.sql` (sboai database provisioning).
 3. Flyway runs `V1__baseline_schema.sql` creating the **full all-domain baseline schema** (every table across every domain, with indexes and FK constraints) with UUIDv7 primary keys on transactional tables and UUIDv4 on reference tables (ARCH-9), and `V2__modified_at_trigger.sql` creating the `set_modified_at()` trigger function and applying it to every table that has `modified_at`.
-4. The two-file Docker Compose split is in place: `docker/docker-compose-dependencies.yaml` (infra only) and `docker/docker-compose.yaml` (full stack via `include:`) (ARCH-28).
+4. The two-file Podman Compose split is in place: `docker/docker-compose-dependencies.yaml` (infra only) and `docker/docker-compose.yaml` (full stack via `include:`) (ARCH-28).
 5. Named volumes persist across restarts: `postgres_data`, `valkey_data`, `ministack_cognito`, `ministack_s3`, `milvus_lite_data` (ARCH-29).
 6. `just deps` starts only infra (no app containers) for local backend development.
 7. The Postgres container reports healthy via a `pg_isready` healthcheck before dependent services start, and `just up` completes without manual intervention on a clean clone.
@@ -34,7 +34,7 @@ so that any team member can onboard in under 15 minutes and all services share a
 - [x] **Task 2: Author Postgres container init scripts** (AC: #2)
   - [x] `docker/postgres/init/01_extensions.sql` — `CREATE EXTENSION IF NOT EXISTS` for `pg_uuidv7`, `pgcrypto`, `pg_trgm`, `btree_gin` (run as `postgres` superuser)
   - [x] `docker/postgres/init/02_roles.sh` — create `sboai_app`, `sboai_readonly`, `sboai_flyway` (with `CREATEROLE` — see Callout 3) from `${POSTGRES_*_PASSWORD}` env vars; grant DB privileges (shell script for env var expansion)
-  - [x] `docker/postgres/init/03_databases.sql` — provision the `sboai` database if not default (Docker `POSTGRES_DB=sboai` creates it; this script handles grants/ownership)
+  - [x] `docker/postgres/init/03_databases.sql` — provision the `sboai` database if not default (Podman `POSTGRES_DB=sboai` creates it; this script handles grants/ownership)
   - [x] All scripts idempotent (`IF NOT EXISTS`); safe to re-run on volume wipe
 - [x] **Task 3: Define the infrastructure compose file** (AC: #1, #5, #7)
   - [x] `redpanda` (Kafka-compatible, no ZooKeeper)
@@ -93,7 +93,7 @@ so that any team member can onboard in under 15 minutes and all services share a
 - [x] [Review][Defer] **billing_audit_log append-only not enforced at DB level** — V5__grants.sql is the planned vehicle per architecture §1.12.1; REVOKE UPDATE/DELETE on `billing_audit_log` for `sboai_app` must be added there. Track via deferred work — deferred, pre-existing
 - [x] [Review][Defer] **Redpanda topic initialization (partition counts per ARCH-10)** — 6 topics with explicit partitions required; no init container. Epic 2 scope; cdr-pipeline doesn't exist yet — deferred, pre-existing
 - [x] [Review][Defer] **OTEL metrics + logs pipelines have no persistent exporter** [docker/otel/otel-collector-config.yaml] — Intentional dev-mode design; stdout/debug exporters acceptable for local — deferred, pre-existing
-- [x] [Review][Defer] **Unpinned image tags on redpanda, localstack, otel-collector, otel-tui** — Breaking changes possible across `docker pull`; pin to specific digests for reproducibility. Dev-environment decision for team — deferred, pre-existing
+- [x] [Review][Defer] **Unpinned image tags on redpanda, localstack, otel-collector, otel-tui** — Breaking changes possible across `podman pull`; pin to specific digests for reproducibility. Dev-environment decision for team — deferred, pre-existing
 - [x] [Review][Defer] **Flyway failed-migration recovery not documented** — If V1/V2 fail mid-run, `flyway repair` + retry is required; not documented in debug log. Low risk with correct setup — deferred, pre-existing
 
 #### Patches from resolved decisions
@@ -107,22 +107,22 @@ so that any team member can onboard in under 15 minutes and all services share a
 
 ### Scope boundary — what this story does and does NOT do
 
-- **DOES:** Docker Compose two-file split, Postgres init scripts, Flyway V1 (full all-domain schema) + V2 (trigger). This story stands up the data layer.
+- **DOES:** Podman Compose two-file split, Postgres init scripts, Flyway V1 (full all-domain schema) + V2 (trigger). This story stands up the data layer.
 - **DOES NOT:** Build application code (FastAPI app, consumer), write the justfile (Story 1.3), configure CI (Story 1.3), or set up pydantic-settings/health endpoints (Story 1.4). It also does not seed data (synthetic seed is Epic 2, `just seed`).
-- The `just up`/`just deps` recipes are *referenced* here but their authoritative definition is Story 1.3. To verify this story, run `docker compose -f docker/docker-compose-dependencies.yaml up -d` directly.
+- The `just up`/`just deps` recipes are *referenced* here but their authoritative definition is Story 1.3. To verify this story, run `podman compose -f docker/docker-compose-dependencies.yaml up -d` directly.
 
 ### RESOLVED naming decisions (use these EXACTLY)
 
 The epics file (Story 1.2 ACs) uses loose shorthand. The **architecture canonical names are authoritative** for this implementation:
 
-| Concern | **Use this (architecture)** | Do NOT use (epics shorthand) |
-|---|---|---|
-| Database name | `sboai` | ~~`sboai_db`~~ |
-| App role | `sboai_app` | ~~`app_rw`~~ |
-| Read-only role | `sboai_readonly` | ~~`app_ro`~~ |
-| Migration role | `sboai_flyway` | ~~`migration_user`~~ |
+| Concern         | **Use this (architecture)**                                                                          | Do NOT use (epics shorthand)           |
+| --------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| Database name   | `sboai`                                                                                              | ~~`sboai_db`~~                         |
+| App role        | `sboai_app`                                                                                          | ~~`app_rw`~~                           |
+| Read-only role  | `sboai_readonly`                                                                                     | ~~`app_ro`~~                           |
+| Migration role  | `sboai_flyway`                                                                                       | ~~`migration_user`~~                   |
 | Identity tables | `identity_subscribers`, `identity_registrations`, `identity_kyc_records`, `identity_caf_submissions` | ~~`subscribers`, `subscriber_orders`~~ |
-| Audit table | `billing_audit_log` (domain-prefixed) | ~~`audit_log`~~ |
+| Audit table     | `billing_audit_log` (domain-prefixed)                                                                | ~~`audit_log`~~                        |
 
 [Source: architecture.md#1.7.1, #1.12.4 — confirmed by user decision 2026-06-19]
 
@@ -188,7 +188,7 @@ Every table also gets: `created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL`, `modifie
 - Standalone container (NOT MiniStack-bundled). `--maxmemory 512mb --maxmemory-policy noeviction`. The `noeviction` policy is mandatory: `balance:{msisdn}` keys must never be evicted. [Source: architecture.md#1.7.3 (line 513), #1.12.3 (lines 1304–1320)]
 - Valkey is non-persisted across full-stack restarts in dev; balance warm-up (`load_balances_from_postgres()`) is a cdr-pipeline startup concern in Epic 2 — out of scope here, but do not add logic that assumes Valkey persistence.
 
-### Docker Compose specifics
+### Podman Compose specifics
 
 - Two-file split with `include:` is mandatory (ARCH-28). `docker-compose.override.yaml` carries local port mappings / hot-reload only.
 - `service_webapp` (backend) `deploy.replicas: 1` is a **HARD CONSTRAINT** — Milvus Lite's embedded `.db` file does not support concurrent process access; >1 replica corrupts it. Add the explanatory comment. [Source: architecture.md#1.12.3 (lines 1352–1357)]
@@ -208,7 +208,7 @@ This story may seed these into a local `.env`; the committed `.env.example` is S
 ### Testing standards summary
 
 - No application unit tests in this story. Verification is operational:
-  - `docker compose -f docker/docker-compose-dependencies.yaml up -d` brings all infra healthy.
+  - `podman compose -f docker/docker-compose-dependencies.yaml up -d` brings all infra healthy.
   - `psql` (as `postgres`) shows the four extensions installed and the three roles created.
   - Flyway `migrate` applies V1 + V2 with no errors; `\dt` lists all domain tables; spot-check one transactional table has a v7-defaulted `id` and one reference table has a v4-defaulted `id`.
   - Insert a row into a `modified_at` table, UPDATE it, confirm `modified_at` advanced (trigger works).
@@ -218,7 +218,7 @@ This story may seed these into a local `.env`; the committed `.env.example` is S
 
 - Migrations: `service_webapp/db/migrations/V1__baseline_schema.sql`, `V2__modified_at_trigger.sql`. [Source: architecture.md#1.7.2, #1.12.1]
 - Compose: `docker/docker-compose-dependencies.yaml`, `docker/docker-compose.yaml`, `docker/docker-compose.override.yaml`. Postgres init: `docker/postgres/init/0{1,2,3}_*.sql`.
-- Variance: architecture's compose snippet mounts init as `./docker/postgres/init:/docker-entrypoint-initdb.d` (path relative to repo root when compose is run from root). Confirm the compose `working_dir`/path resolution given files live under `docker/` — adjust the relative path so the init mount resolves correctly regardless of where `docker compose` is invoked from. This is a known footgun; verify the mount actually populates init scripts.
+- Variance: architecture's compose snippet mounts init as `./docker/postgres/init:/docker-entrypoint-initdb.d` (path relative to repo root when compose is run from root). Confirm the compose `working_dir`/path resolution given files live under `docker/` — adjust the relative path so the init mount resolves correctly regardless of where `podman compose` is invoked from. This is a known footgun; verify the mount actually populates init scripts.
 - `cdr-pipeline/` does not exist yet; its compose service references a build context that will only build once Epic 2 adds the code. For this story it is acceptable for the full-stack `up` to be verified only for the dependency services; document that `cdr-pipeline`/`service_webapp` images may not yet build.
 
 ### References
@@ -327,4 +327,4 @@ podman exec -it <project>-postgres-1 psql -U postgres -d sboai -c "
 
 ## Change Log
 
-- 2026-06-20: Story 1.2 implemented — Docker Compose two-file split, Postgres init scripts with pg_uuidv7 custom image, Flyway V1 full all-domain baseline schema (27 tables across 10 domains), V2 modified_at trigger migration.
+- 2026-06-20: Story 1.2 implemented — Podman Compose two-file split, Postgres init scripts with pg_uuidv7 custom image, Flyway V1 full all-domain baseline schema (27 tables across 10 domains), V2 modified_at trigger migration.

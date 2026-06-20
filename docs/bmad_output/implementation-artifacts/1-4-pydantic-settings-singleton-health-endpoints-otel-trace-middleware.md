@@ -89,7 +89,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_nested_delimiter="__",   # DB__HOST → db.host
         env_file=".env",
-        secrets_dir="/run/secrets",  # Docker secrets mount (MVP)
+        secrets_dir="/run/secrets",  # Podman secrets mount (MVP)
     )
 
 settings = Settings()   # loaded once at import; fails fast on missing values

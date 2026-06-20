@@ -55,7 +55,7 @@ completedAt: '2026-06-18'
 | PII                       | AES-256 at rest        | Encrypted columns; PII never in logs               |
 | Auth                      | JWT + OTP step-up      | 4 role-separated dashboards                        |
 
-**Scale & Complexity:** Enterprise. ~18 services/agents. Two deployment contexts: MVP (local Docker Compose / MiniStack) and Target State (AWS EKS, Mumbai).
+**Scale & Complexity:** Enterprise. ~18 services/agents. Two deployment contexts: MVP (local Podman Compose / MiniStack) and Target State (AWS EKS, Mumbai).
 
 ### 1.2.2. Technical Constraints
 
@@ -90,10 +90,10 @@ completedAt: '2026-06-18'
 | **Application Backend**    | Python 3.14 + FastAPI                           | All non-pipeline services in one FastAPI monorepo                                                                                                                          |
 | **DB Client**              | Psycopg3 (async) + connection pool              | Native async protocol; binary mode; faster than asyncpg for most workloads; SQL-only, no ORM                                                                               |
 | **DB Migrations**          | Flyway (SQL-native)                             | All schema DDL, views, materialized views, triggers managed as versioned SQL migrations                                                                                    |
-| **Event Bus**              | Redpanda (Kafka-compatible, Docker)             | No ZooKeeper; Kafka-wire-compatible; simpler MVP ops                                                                                                                       |
-| **Balance Write Buffer**   | Valkey (Docker, MVP)                            | Fast atomic INCRBY; session store; dedup SET; Redis-compatible;                                                                                                            |
+| **Event Bus**              | Redpanda (Kafka-compatible, Podman)             | No ZooKeeper; Kafka-wire-compatible; simpler MVP ops                                                                                                                       |
+| **Balance Write Buffer**   | Valkey (Podman, MVP)                            | Fast atomic INCRBY; session store; dedup SET; Redis-compatible;                                                                                                            |
 | **Primary Database**       | PostgreSQL 16                                   | Source of truth for balance, accounts, audit, plans                                                                                                                        |
-| **Vector Store**           | Milvus Lite (Python, embedded)                  | Fixed. MVP uses `milvus-lite` — no separate container; runs in-process via `pymilvus[milvus-lite]`; data persisted to Docker volume                                        |
+| **Vector Store**           | Milvus Lite (Python, embedded)                  | Fixed. MVP uses `milvus-lite` — no separate container; runs in-process via `pymilvus[milvus-lite]`; data persisted to Podman volume                                        |
 | **Agent Orchestration**    | LangGraph (Python)                              | Stateful graph, native A2A, multi-turn memory                                                                                                                              |
 | **LLM Provider**           | Azure OpenAI                                    | GPT-5.4-mini and GPT-5.4 for agents; `text-embedding-3-small` for embeddings                                                                                               |
 | **Frontend**               | React 18 + Vite + TailwindCSS                   | Fast builds; single SPA with role-based routing                                                                                                                            |
@@ -101,15 +101,15 @@ completedAt: '2026-06-18'
 | **Agent–UI Protocol**      | AG-UI (via CopilotKit runtime)                  | Typed event stream: tool calls, state snapshots, text deltas                                                                                                               |
 | **Config Management**      | pydantic-settings                               | Unified env / `.env` / Secrets Manager config; eager load; fails fast                                                                                                      |
 | **Auth**                   | AWS Cognito (via MiniStack)                     | JWT issuance; OTP via Cognito; role claims in token                                                                                                                        |
-| **Observability (infra)**  | OTEL-TUI (Docker)                               | Low memory footprint; traces/logs/metrics in terminal                                                                                                                      |
-| **Observability (agents)** | LangFuse (self-hosted Docker)                   | All agent/tool calls traced                                                                                                                                                |
-| **Log routing**            | Fluentd                                         | Routes Docker logs to OTEL-TUI (MVP) or LGTM (Target)                                                                                                                      |
+| **Observability (infra)**  | OTEL-TUI (Podman)                               | Low memory footprint; traces/logs/metrics in terminal                                                                                                                      |
+| **Observability (agents)** | LangFuse (self-hosted Podman)                   | All agent/tool calls traced                                                                                                                                                |
+| **Log routing**            | Fluentd                                         | Routes Podman logs to OTEL-TUI (MVP) or LGTM (Target)                                                                                                                      |
 | **PDF Generation**         | WeasyPrint (Python)                             | HTML→PDF for receipts; no headless browser dep                                                                                                                             |
 | **ML Forecasting**         | scikit-learn                                    | Subscriber growth/plan popularity; simple linear/gradient-boost                                                                                                            |
 | **Linting / Formatting**   | ruff (lint + format) + pyrefly (static linting) | Single tool replaces flake8 + isort + Black; configured in `pyproject.toml` [Source](https://github.com/fossy-dude/pydantic-config-mgmt-template/blob/main/pyproject.toml) |
 | **Test runner**            | `uv tox` (tox-uv plugin)                        | Runs lint, typecheck, and pytest in isolated envs; `uv` for fast dep install                                                                                               |
-| **CI/CD**                  | GitHub Actions                                  | PR checks: `uv tox` (all envs), Docker build                                                                                                                               |
-| **Container**              | Docker Compose                                  | All services including Redpanda, Valkey, Postgres, LangFuse, MiniStack (Milvus Lite runs embedded in service_backend — no separate container)                              |
+| **CI/CD**                  | GitHub Actions                                  | PR checks: `uv tox` (all envs), Podman build                                                                                                                               |
+| **Container**              | Podman Compose                                  | All services including Redpanda, Valkey, Postgres, LangFuse, MiniStack (Milvus Lite runs embedded in service_backend — no separate container)                              |
 | **CDR Simulator**          | Python Scripts                                  | Manually generated via a UI. Limited to 100 CDRs in 1 shot                                                                                                                 |
 
 ### 1.3.2. Decided Stack — Target State
@@ -516,13 +516,13 @@ CREATE TRIGGER trg_identity_subscribers_modified_at
 
 **MVP — Milvus Lite (embedded, Python dependency):**
 
-Milvus Lite runs fully in-process as a Python library via `pymilvus[milvus-lite]`. There is no separate Milvus container or server process. The embedded server starts automatically when `MilvusClient` is instantiated with a file path. Data is written to a local `.db` file mounted on a Docker volume for persistence across container restarts.
+Milvus Lite runs fully in-process as a Python library via `pymilvus[milvus-lite]`. There is no separate Milvus container or server process. The embedded server starts automatically when `MilvusClient` is instantiated with a file path. Data is written to a local `.db` file mounted on a Podman volume for persistence across container restarts.
 
 **Why Milvus Lite for MVP:**
 
 - Zero-ops: no separate container, no etcd, no MinIO required
 - Same `pymilvus` client API — collection creation, upsert, hybrid search all identical to Milvus standalone/distributed
-- Docker volume ensures data persists; re-seeding is a `just seed-milvus` command, not a cluster restart
+- Podman volume ensures data persists; re-seeding is a `just seed-milvus` command, not a cluster restart
 
 **Milvus Lite Dockerfile (`service_backend/Dockerfile`):**
 
@@ -546,7 +546,7 @@ RUN pip install --no-cache-dir "uv" \
     && uv pip install --system --no-cache "pymilvus[milvus-lite]" \
     && uv pip install --system --no-cache -e ".[dev]"
 
-# Data directory for Milvus Lite persistence (mounted as Docker volume)
+# Data directory for Milvus Lite persistence (mounted as Podman volume)
 RUN mkdir -p /app/data/milvus
 
 COPY src/ src/
@@ -554,7 +554,7 @@ COPY src/ src/
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-**Docker Compose volume mount for Milvus Lite persistence:**
+**Podman Compose volume mount for Milvus Lite persistence:**
 
 ```yaml
 services:
@@ -572,7 +572,7 @@ volumes:
 ```python
 from pymilvus import MilvusClient
 
-# Lite: file path → embedded server, data persisted to Docker volume
+# Lite: file path → embedded server, data persisted to Podman volume
 client = MilvusClient(uri="/app/data/milvus/sboai.db")
 ```
 
@@ -686,7 +686,7 @@ OTEL Collector (Docker)
   ├─► OTEL-TUI  (traces, metrics, logs in terminal — low memory footprint)
   └─► LangFuse  (agent/LLM traces only)
 
-Docker container logs → Fluentd → OTEL-TUI
+Podman container logs → Fluentd → OTEL-TUI
 ```
 
 Trace ID propagated via OTEL `traceparent` header across all service calls and Kafka message headers.
@@ -748,7 +748,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_nested_delimiter="__",   # DB__HOST maps to db.host
         env_file=".env",
-        secrets_dir="/run/secrets",  # Docker secrets mount (MVP)
+        secrets_dir="/run/secrets",  # Podman secrets mount (MVP)
     )
 
 settings = Settings()   # loaded once at module import; fails fast on missing values
@@ -1264,11 +1264,11 @@ class OtelTraceMiddleware(BaseHTTPMiddleware):
 # justfile — works on Windows (PowerShell), macOS, Linux
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
-deps:         docker compose -f docker/docker-compose-dependencies.yaml up -d
-up:           docker compose -f docker/docker-compose.yaml up -d
-down:         docker compose -f docker/docker-compose.yaml down
-logs:         docker compose -f docker/docker-compose.yaml logs -f
-restart svc:  docker compose -f docker/docker-compose.yaml restart {{svc}}
+deps:         podman compose -f docker/docker-compose-dependencies.yaml up -d
+up:           podman compose -f docker/docker-compose.yaml up -d
+down:         podman compose -f docker/docker-compose.yaml down
+logs:         podman compose -f docker/docker-compose.yaml logs -f
+restart svc:  podman compose -f docker/docker-compose.yaml restart {{svc}}
 
 backend:      cd service_backend && uvicorn src.main:app --reload --port 8000
 frontend:     cd frontend && npm run dev
@@ -1288,15 +1288,15 @@ format:       cd service_backend && ruff format src/ && cd ../cdr-pipeline && ru
 lint-fe:      cd frontend && npm run lint
 ```
 
-### 1.12.3. Docker Compose Services (MVP)
+### 1.12.3. Podman Compose Services (MVP)
 
-**Two-file Docker Compose split:** Infrastructure dependencies are defined in `docker/docker-compose-dependencies.yaml`. The full stack `docker/docker-compose.yaml` uses Compose's `include:` directive to reuse all dependency definitions and adds the application services on top. This allows local development with just `docker compose -f docker/docker-compose-dependencies.yaml up -d` — no codebase containers needed while iterating.
+**Two-file Podman Compose split:** Infrastructure dependencies are defined in `docker/docker-compose-dependencies.yaml`. The full stack `docker/docker-compose.yaml` uses Compose's `include:` directive to reuse all dependency definitions and adds the application services on top. This allows local development with just `podman compose -f docker/docker-compose-dependencies.yaml up -d` — no codebase containers needed while iterating.
 
 **MiniStack** MiniStack is lighter, faster to start, and sufficient for the Cognito + S3 surface area used in MVP.
 
 **Valkey (standalone, not MiniStack-bundled):** Valkey runs as its own dedicated container, independent of MiniStack. This avoids any implicit dependency on MiniStack's internal Redis and gives a clean separation: Valkey = application data layer; MiniStack = Cognito/S3 simulation.
 
-**Persistence:** Named Docker volumes are configured for Cognito user pools, S3 objects, and PostgreSQL data so state survives container restarts during development.
+**Persistence:** Named Podman volumes are configured for Cognito user pools, S3 objects, and PostgreSQL data so state survives container restarts during development.
 
 **`docker/docker-compose-dependencies.yaml` — infrastructure only:**
 
@@ -1318,7 +1318,7 @@ services:
   #   overhead + headroom:             ≈ 475MB
   #   Total ceiling: 512MB. Adjust based on observed RSS in dev.
   #   With noeviction policy: if Valkey hits 512MB, new writes return OOM errors.
-  #   Monitor with: docker stats valkey | grep MEM
+  #   Monitor with: podman stats valkey | grep MEM
   postgres:          # Primary DB
     volumes:
       - postgres_data:/var/lib/postgresql/data   # persisted across restarts
@@ -1363,11 +1363,11 @@ services:
 
 **Valkey on restart — balance warm-up required:** Valkey is non-persisted across full stack restarts in dev. On restart, `cdr-pipeline` runs `load_balances_from_postgres()` at startup before the consumer loop begins — this re-seeds all `balance:{msisdn}` keys from Postgres. No manual intervention needed; warm-up completes in < 5s for 300K subscribers.
 
-**Milvus Lite persistence:** The `milvus_lite_data` Docker volume persists the embedded Milvus `.db` file across `service_backend` container restarts. If the volume is wiped, re-seed with `just seed-milvus`.
+**Milvus Lite persistence:** The `milvus_lite_data` Podman volume persists the embedded Milvus `.db` file across `service_backend` container restarts. If the volume is wiped, re-seed with `just seed-milvus`.
 
 ### 1.12.4. PostgreSQL Container Initialization
 
-**Constraint: All PostgreSQL setup must happen at container creation time, not at application startup or migration time.** This includes extension installation, role/user creation, and database provisioning. The PostgreSQL container is configured via an `init/` directory of SQL scripts that Docker executes exactly once on first volume mount.
+**Constraint: All PostgreSQL setup must happen at container creation time, not at application startup or migration time.** This includes extension installation, role/user creation, and database provisioning. The PostgreSQL container is configured via an `init/` directory of SQL scripts that Podman executes exactly once on first volume mount.
 
 **Directory layout:**
 
@@ -1401,7 +1401,7 @@ CREATE USER sboai_readonly WITH PASSWORD '${POSTGRES_READONLY_PASSWORD}';
 -- Flyway migration user: runs DDL migrations; separate from app user
 CREATE USER sboai_flyway WITH PASSWORD '${POSTGRES_FLYWAY_PASSWORD}' CREATEROLE;
 
--- Grant privileges (database must exist first — created by Docker POSTGRES_DB env var)
+-- Grant privileges (database must exist first — created by Podman POSTGRES_DB env var)
 GRANT ALL PRIVILEGES ON DATABASE sboai TO sboai_app;
 GRANT CONNECT ON DATABASE sboai TO sboai_readonly;
 GRANT CONNECT ON DATABASE sboai TO sboai_flyway;
@@ -1454,8 +1454,8 @@ POSTGRES_FLYWAY_PASSWORD=change_me_flyway
 - Valkey (Docker, standalone) → Redis-compatible; Python `valkey[asyncio]` client; same wire protocol as Redis
 - LangGraph + Azure OpenAI: supported; `langchain-openai` with Azure base URL
 - OTEL-TUI + OTEL Collector: standard OTLP receiver
-- Milvus Lite: `pymilvus[milvus-lite]` embedded in-process; HNSW + BM25 hybrid supported; same client API as Milvus Distributed; data file on Docker volume
-- WeasyPrint: pure Python; no browser dep; works in Docker Alpine
+- Milvus Lite: `pymilvus[milvus-lite]` embedded in-process; HNSW + BM25 hybrid supported; same client API as Milvus Distributed; data file on Podman volume
+- WeasyPrint: pure Python; no browser dep; works in Podman Alpine
 
 ### 1.13.2. NFR Coverage ✅
 
@@ -1625,7 +1625,7 @@ See `README.md` at the project root for the authoritative end-to-end setup seque
 
 ### 1.14.1. Overview
 
-Terraform manages all AWS Target State infrastructure. MVP infrastructure is Docker Compose only — no Terraform needed for local development. The `infrastructure/` folder is structured so that MVP developers can ignore it entirely; Target State engineers apply it before any application deployment.
+Terraform manages all AWS Target State infrastructure. MVP infrastructure is Podman Compose only — no Terraform needed for local development. The `infrastructure/` folder is structured so that MVP developers can ignore it entirely; Target State engineers apply it before any application deployment.
 
 **Constraint:** Terraform is applied **before** any application deployment. The sequence is: Terraform → DB migrations → seed data → application deploy. See `README.md` for the exact sequence.
 
@@ -1745,7 +1745,7 @@ Terraform outputs feed directly into the application's pydantic-settings configu
 
 ### 1.15.1. README.md Structure
 
-The project root `README.md` is the single authoritative onboarding document. It covers both MVP (local Docker Compose) and Target State (AWS) setup in separate top-level sections. Implementation teams must follow the sequence exactly — each phase depends on the previous.
+The project root `README.md` is the single authoritative onboarding document. It covers both MVP (local Podman Compose) and Target State (AWS) setup in separate top-level sections. Implementation teams must follow the sequence exactly — each phase depends on the previous.
 
 **File location:** `README.md` (project root)
 
@@ -1755,14 +1755,14 @@ The project root `README.md` is the single authoritative onboarding document. It
 # AI-Powered Prepaid Billing System
 
 ## 1. Prerequisites
-   - Docker Desktop / Docker Engine + Compose plugin
+   - Podman Desktop / Podman Engine + Compose plugin
    - just (task runner)
    - uv (Python package manager)
    - Node.js 20+ and npm
    - Flyway CLI
    - (Target State only) Terraform ≥ 1.7, AWS CLI v2, kubectl, helm
 
-## 2. MVP Setup — Local Docker Compose
+## 2. MVP Setup — Local Podman Compose
 
 ### 2.1 Clone and configure environment
    git clone ...
@@ -1847,7 +1847,7 @@ The dependency order between setup phases is mandatory; skipping or reordering w
 
 ```
 Phase 1: Infrastructure
-  MVP     → Docker containers (just deps)
+  MVP     → Podman containers (just deps)
              └─ Postgres init: extensions + users (automatic on first start)
   Target  → Terraform apply (infrastructure/terraform/environments/{env})
              └─ RDS extensions provisioned via parameter group
@@ -1869,7 +1869,7 @@ Phase 4: Application Config (Target State only)
              Requires: Phase 1 complete
 
 Phase 5: Application Deploy
-  MVP     → just up (docker compose full stack)
+  MVP     → just up (podman compose full stack)
   Target  → helm deploy to EKS + S3/CloudFront frontend deploy
              Requires: Phases 1–4 complete
 ```

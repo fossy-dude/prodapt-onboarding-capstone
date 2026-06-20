@@ -58,7 +58,7 @@ so that code quality is enforced automatically and onboarding requires no tribal
 ### Scope boundary
 
 - **DOES:** justfile, ruff/pyrefly config for both Python codebases, frontend lint/type/test toolchain config, GitHub Actions CI, README, `.env.example`.
-- **DOES NOT:** Implement app code, write Docker Compose (Story 1.2), implement health endpoints (Story 1.4), or restructure `frontend/src` (Story 1.7). The synthetic-data and Milvus seed *scripts* are Epic 2 — only their `just` recipes are defined here.
+- **DOES NOT:** Implement app code, write Podman Compose (Story 1.2), implement health endpoints (Story 1.4), or restructure `frontend/src` (Story 1.7). The synthetic-data and Milvus seed *scripts* are Epic 2 — only their `just` recipes are defined here.
 
 ### RESOLVED directory & naming decisions
 
@@ -70,11 +70,11 @@ so that code quality is enforced automatically and onboarding requires no tribal
 ```just
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
-deps:         docker compose -f docker/docker-compose-dependencies.yaml up -d
-up:           docker compose -f docker/docker-compose.yaml up -d
-down:         docker compose -f docker/docker-compose.yaml down
-logs:         docker compose -f docker/docker-compose.yaml logs -f
-restart svc:  docker compose -f docker/docker-compose.yaml restart {{svc}}
+deps:         podman compose -f docker/docker-compose-dependencies.yaml up -d
+up:           podman compose -f docker/docker-compose.yaml up -d
+down:         podman compose -f docker/docker-compose.yaml down
+logs:         podman compose -f docker/docker-compose.yaml logs -f
+restart svc:  podman compose -f docker/docker-compose.yaml restart {{svc}}
 
 backend:      cd service_webapp && uvicorn src.main:app --reload --port 8000
 frontend:     cd frontend && npm run dev
@@ -104,14 +104,14 @@ Notes:
 
 There are **two reference lint configs** in this repo and they differ. Resolve before configuring:
 
-| Setting | `docs/Ref-Linting-config-pyproject.toml` (the named reference) | `service_webapp/pyproject.toml` (current) |
-|---|---|---|
-| `line-length` | 120 | 100 |
-| `target-version` | py311 | py311 |
-| ruff `select` | large set incl. `D` (pydocstyle numpy), `PL`, `PT`, `PYI`, ... | minimal: `E,W,F,I,B,C4,UP,SIM,RUF` |
-| pydocstyle | numpy convention | none |
-| tox `env_list` | `["lint", "pytest_fast"]`, `uv-venv-lock-runner` | `lint, typecheck, test`, `uv-venv-runner` |
-| tox lint cmds | `ruff check .` + `ruff format --check .` + `pyrefly check` | `ruff check src/ tests/` + `ruff format --check` |
+| Setting          | `docs/Ref-Linting-config-pyproject.toml` (the named reference) | `service_webapp/pyproject.toml` (current)        |
+| ---------------- | -------------------------------------------------------------- | ------------------------------------------------ |
+| `line-length`    | 120                                                            | 100                                              |
+| `target-version` | py311                                                          | py311                                            |
+| ruff `select`    | large set incl. `D` (pydocstyle numpy), `PL`, `PT`, `PYI`, ... | minimal: `E,W,F,I,B,C4,UP,SIM,RUF`               |
+| pydocstyle       | numpy convention                                               | none                                             |
+| tox `env_list`   | `["lint", "pytest_fast"]`, `uv-venv-lock-runner`               | `lint, typecheck, test`, `uv-venv-runner`        |
+| tox lint cmds    | `ruff check .` + `ruff format --check .` + `pyrefly check`     | `ruff check src/ tests/` + `ruff format --check` |
 
 **Decision needed at implementation time:** `docs/Ref-Linting-config-pyproject.toml` is the architecture-designated reference (architecture §1.11.7 line 948 says "Refer to docs/Ref-Linting-config-pyproject.toml"). **Adopt the Ref config as canonical** (line-length 120, full select set incl. pydocstyle numpy, pyrefly) for BOTH `service_webapp/` and `cdr-pipeline/`, and bring the existing `service_webapp/pyproject.toml` into line with it. Keep the existing dependency list in `service_webapp/pyproject.toml` (it is correct and complete) — only the `[tool.ruff]`/`[tool.pyrefly]`/`[tool.tox]`/`[tool.pytest]` sections change.
 

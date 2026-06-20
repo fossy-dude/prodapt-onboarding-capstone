@@ -87,7 +87,7 @@ No existing technical preferences found in project context file. We'll establish
 **Platform/Deployment Preferences:**
 
 - Cloud provider preferences (AWS, Vercel, Railway, etc.)?
-- Container preferences (Docker, Serverless, Traditional)?
+- Container preferences (Podman, Serverless, Traditional)?
 
 **Integrations:**
 

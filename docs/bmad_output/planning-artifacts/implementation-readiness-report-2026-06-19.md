@@ -164,7 +164,7 @@ All stories reviewed have well-defined, testable acceptance criteria tied to FRs
 ```
 Epic 1 (Core Infra) → Epics 2, 3, 4, 5, 6, 7 (parallel after Epic 1)
   ├─ Story 1.1 (UX Brief) → Stories 1.2–1.10
-  ├─ Story 1.2 (Docker Compose) → All downstream (tooling prerequisite)
+  ├─ Story 1.2 (Podman Compose) → All downstream (tooling prerequisite)
   ├─ Story 2.1 (Topic Provisioning) → Stories 2.2–2.9
   └─ Epic 4 Rate Limiting (Story 4.3) → used by Epic 5 & 4
 ```
@@ -311,7 +311,7 @@ The search for `*ux*.md` and `*ux*/` folders in the planning artifacts directory
 
 **Story Quality Check (spot sample)**:
 - Story 1.1 (UX Brief): ✅ Proper specification, not implementation
-- Story 1.2 (Docker Compose): ✅ Clear acceptance criteria, independent
+- Story 1.2 (Podman Compose): ✅ Clear acceptance criteria, independent
 - Story 1.6 (Registration): ✅ Complete Given/When/Then, covers error case (duplicate MSISDN)
 - Story 1.8 (JWT Auth): ✅ Multi-scenario ACs (pre-activation, post-activation, role mismatch)
 
@@ -651,7 +651,7 @@ This assessment validated that PRD, Architecture, Epics, and Stories are complet
 **Phase 4A: Infrastructure Sprint (2–3 weeks)**
 - Epic 1 entirely (Stories 1.1–1.10)
 - Epic 2 core (Stories 2.1–2.6, 2.8–2.9)
-- **Gate**: Docker stack up, Postgres + Valkey + Redpanda running, sample CDR flowing
+- **Gate**: Podman stack up, Postgres + Valkey + Redpanda running, sample CDR flowing
 
 **Phase 4B: MVP Portal Sprints (1–2 weeks parallel)**
 - Epic 3 (Stories 3.1–3.7) — Self-care portal
@@ -687,7 +687,7 @@ Before handing off to Dev Agent, ensure these are signed off:
 - [ ] **PRD sign-off**: All 77 FRs confirmed with stakeholders
 - [ ] **Architecture sign-off**: ARCH-1 to ARCH-34 reviewed and approved by engineering leads
 - [ ] **Epic scope sign-off**: 7 epics, 58 stories validated by product and engineering
-- [ ] **Dev environment ready**: Docker Compose stack runnable locally
+- [ ] **Dev environment ready**: Podman Compose stack runnable locally
 - [ ] **Synthetic data generated**: 1K plans, 300K subscribers, 5M CDRs seeded
 - [ ] **UX checklist published**: Component names, styling, accessibility baseline documented
 - [ ] **Evaluation fixtures prepared**: 20 golden Q&A pairs for chatbot (Story 5.2), fraud verdict vectors (Story 6.1)
