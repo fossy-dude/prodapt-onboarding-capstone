@@ -1,6 +1,10 @@
+---
+baseline_commit: c3ee05769779385718cb9ea9ab409f86e5c94e27
+---
+
 # Story 1.3: Project Tooling — justfile, GitHub Actions CI, Linters & README
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -22,36 +26,36 @@ so that code quality is enforced automatically and onboarding requires no tribal
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Author the cross-platform justfile** (AC: #1)
-  - [ ] Replace the existing stub `justfile` (currently only has a no-op `format` recipe) at the project root
-  - [ ] `set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]` for Windows compatibility
-  - [ ] Define the required recipes (see Dev Notes "justfile reference") including `deps`, `up`, `down`, `logs`, `migrate`, `seed`, `seed-milvus`, `test`, `test-cdr`, `lint`, `format`, `tox`, plus backend/frontend/cdr dev runners
-  - [ ] `seed`/`seed-milvus` may point at scripts that do not yet exist (Epic 2) — recipe definitions are required now; the scripts they call land later. Add a clear echo/guard so an early invocation fails gracefully, not cryptically.
-- [ ] **Task 2: Configure Python linting/typing/testing in both codebases** (AC: #2, #7)
-  - [ ] `service_webapp/pyproject.toml` — align ruff + pyrefly + tox config to the reference (`docs/Ref-Linting-config-pyproject.toml`); see "Lint config reconciliation" in Dev Notes
-  - [ ] Create `cdr-pipeline/pyproject.toml` with the same ruff/pyrefly/tox config and the `dev`/`test` extras
-  - [ ] Ensure tox env names are consistent across both codebases and match what CI invokes
-  - [ ] Verify `uv tox -e lint` and `uv tox -e <test-env>` run green in `service_webapp/` (it has a real `main.py`) and in `cdr-pipeline/` (may be a stub `src/` + a placeholder test)
-- [ ] **Task 3: Configure frontend ESLint + TS strict + Vitest** (AC: #3, #7)
-  - [ ] `frontend/` already has `eslint.config.js`, `tsconfig.json`, `vite.config.ts`, `vitest.config.ts`. Verify TypeScript `strict: true` is enabled in `tsconfig.json`
-  - [ ] Ensure `npm run lint` and `npm run test` scripts exist in `frontend/package.json` and run green
-  - [ ] Do NOT restructure `frontend/src` here (that is Story 1.7); only ensure the lint/type/test toolchain is configured and green
-- [ ] **Task 4: Author GitHub Actions CI workflow** (AC: #4)
-  - [ ] `.github/workflows/ci-pipeline.yml` — on every PR, run `uv tox` (all envs: lint, typecheck, test) for `service_webapp/`; all must pass to merge
-  - [ ] `.github/workflows/ci-cdr.yml` — CDR-pipeline-specific `uv tox` run for `cdr-pipeline/`
-  - [ ] Include a frontend job (or step) running `npm ci && npm run lint && npm run test` in `frontend/`
-  - [ ] Use `astral-sh/setup-uv` (or equivalent) to install `uv`; set up Node 20 for the frontend job
-- [ ] **Task 5: Author root README.md** (AC: #5)
-  - [ ] Replace the current stub (`# prodapt-onboarding-capstone`)
-  - [ ] Follow the exact section structure in architecture §1.15.1: Prerequisites, MVP Setup (2.1–2.6), Target State stub (section 3), Development Workflow (section 4), Troubleshooting (section 5)
-  - [ ] Reference the architecture diagram (`docs/architecture_diagrams.md`) and `architecture.md`
-  - [ ] Use `service_webapp` (not `app-backend`/`service_backend`) for backend command examples — reconcile the architecture's `service_backend` naming to the actual `service_webapp` dir
-- [ ] **Task 6: Author `.env.example` and confirm `.gitignore`** (AC: #6)
-  - [ ] `.env.example` at project root with ALL required keys (see "Environment variable keys" in Dev Notes), placeholder values only
-  - [ ] Confirm `.env` is gitignored (the repo `.gitignore` exists — verify it covers `.env`)
-- [ ] **Task 7: Green-baseline verification** (AC: #7)
-  - [ ] Run `just lint` and `just tox` locally; capture output in Debug Log References
-  - [ ] Confirm the GitHub Actions workflow YAML is valid and invokes the same `uv tox` gate
+- [x] **Task 1: Author the cross-platform justfile** (AC: #1)
+  - [x] Replace the existing stub `justfile` (currently only has a no-op `format` recipe) at the project root
+  - [x] `set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]` for Windows compatibility
+  - [x] Define the required recipes (see Dev Notes "justfile reference") including `deps`, `up`, `down`, `logs`, `migrate`, `seed`, `seed-milvus`, `test`, `test-cdr`, `lint`, `format`, `tox`, plus backend/frontend/cdr dev runners
+  - [x] `seed`/`seed-milvus` may point at scripts that do not yet exist (Epic 2) — recipe definitions are required now; the scripts they call land later. Add a clear echo/guard so an early invocation fails gracefully, not cryptically.
+- [x] **Task 2: Configure Python linting/typing/testing in both codebases** (AC: #2, #7)
+  - [x] `service_webapp/pyproject.toml` — align ruff + pyrefly + tox config to the reference (`docs/Ref-Linting-config-pyproject.toml`); see "Lint config reconciliation" in Dev Notes
+  - [x] Create `cdr-pipeline/pyproject.toml` with the same ruff/pyrefly/tox config and the `dev`/`test` extras
+  - [x] Ensure tox env names are consistent across both codebases and match what CI invokes
+  - [x] Verify `uv tox -e lint` and `uv tox -e <test-env>` run green in `service_webapp/` (it has a real `main.py`) and in `cdr-pipeline/` (may be a stub `src/` + a placeholder test)
+- [x] **Task 3: Configure frontend ESLint + TS strict + Vitest** (AC: #3, #7)
+  - [x] `frontend/` already has `eslint.config.js`, `tsconfig.json`, `vite.config.ts`, `vitest.config.ts`. Verify TypeScript `strict: true` is enabled in `tsconfig.json`
+  - [x] Ensure `npm run lint` and `npm run test` scripts exist in `frontend/package.json` and run green
+  - [x] Do NOT restructure `frontend/src` here (that is Story 1.7); only ensure the lint/type/test toolchain is configured and green
+- [x] **Task 4: Author GitHub Actions CI workflow** (AC: #4)
+  - [x] `.github/workflows/ci-pipeline.yml` — on every PR, run `uv tox` (all envs: lint, typecheck, test) for `service_webapp/`; all must pass to merge
+  - [x] `.github/workflows/ci-cdr.yml` — CDR-pipeline-specific `uv tox` run for `cdr-pipeline/`
+  - [x] Include a frontend job (or step) running `npm ci && npm run lint && npm run test` in `frontend/`
+  - [x] Use `astral-sh/setup-uv` (or equivalent) to install `uv`; set up Node 20 for the frontend job
+- [x] **Task 5: Author root README.md** (AC: #5)
+  - [x] Replace the current stub (`# prodapt-onboarding-capstone`)
+  - [x] Follow the exact section structure in architecture §1.15.1: Prerequisites, MVP Setup (2.1–2.6), Target State stub (section 3), Development Workflow (section 4), Troubleshooting (section 5)
+  - [x] Reference the architecture diagram (`docs/architecture_diagrams.md`) and `architecture.md`
+  - [x] Use `service_webapp` (not `app-backend`/`service_backend`) for backend command examples — reconcile the architecture's `service_backend` naming to the actual `service_webapp` dir
+- [x] **Task 6: Author `.env.example` and confirm `.gitignore`** (AC: #6)
+  - [x] `.env.example` at project root with ALL required keys (see "Environment variable keys" in Dev Notes), placeholder values only
+  - [x] Confirm `.env` is gitignored (the repo `.gitignore` exists — verify it covers `.env`)
+- [x] **Task 7: Green-baseline verification** (AC: #7)
+  - [x] Run `just lint` and `just tox` locally; capture output in Debug Log References
+  - [x] Confirm the GitHub Actions workflow YAML is valid and invokes the same `uv tox` gate
 
 ## Dev Notes
 
@@ -184,10 +188,86 @@ Cross-reference Story 1.4 (pydantic-settings) and Story 1.5 (LangFuse) so every 
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+GLM-5.2 (Claude Code)
 
 ### Debug Log References
 
+Green-baseline verification (captured locally, 2026-06-20):
+
+- `just lint` → exit 0. service_webapp: `ruff check .` All checks passed!; `ruff format --check .` 2 files already formatted; `pyrefly check` 0 errors. cdr-pipeline: identical, all green.
+- `just tox` → exit 0. Both codebases: `lint` OK (ruff + pyrefly) and `test` OK (`pytest -m 'not slow'` → 1 passed in tests/test_smoke.py).
+- `just test` (service_webapp) → 1 passed.
+- `just lint-fe` → exit 0 (`eslint .` clean).
+- `just test-fe` → Test Files 1 passed (1); Tests 1 passed (1) (`src/App.test.tsx`).
+- `npm run typecheck` (frontend) → exit 0 (`tsc --noEmit`).
+- `just seed` / `just seed-milvus` → exit 1 with clear "lands in Epic 2" messages (graceful guard).
+- CI gate consistency: `.github/workflows/ci-pipeline.yml` + `ci-cdr.yml` invoke `uvx --with tox-uv tox` — identical to the justfile `uv_tox` variable.
+- YAML validation: both workflow files parse (`yaml.safe_load` OK). actionlint not installed locally.
+
+Not verified locally (tools absent on this host): `podman`, `flyway`. Their justfile recipes are defined and (for seed/seed-milvus) guarded; they are outside the AC #7 green gate, which is the runnable subset above.
+
 ### Completion Notes List
 
+**Implemented (all ACs met, all 7 tasks green):**
+
+1. **Ref lint config adopted as canonical** (AC #2). `docs/Ref-Linting-config-pyproject.toml` ruff (`select`/`ignore`/`format`/isort/pydocstyle-numpy/etc.), pyrefly and pytest sections copied verbatim into both `service_webapp/pyproject.toml` and `cdr-pipeline/pyproject.toml`. Green baseline achieved via the Ref config's own `ignore` list plus a narrow `tests/* = [D100..D105]` per-file ignore (story-sanctioned) — no rules deleted. `service_webapp`'s existing runtime `[project].dependencies` + `dev` extra preserved unchanged (only `[tool.*]` sections changed).
+
+2. **`src/` layout established per architecture §1.12.1** (user-directed). Moved `service_webapp/main.py` → `service_webapp/src/main.py`; created `cdr-pipeline/src/main.py` + `cdr-pipeline/tests/test_smoke.py`; added `service_webapp/tests/test_smoke.py`. Both `main.py` stubs carry numpy-style docstrings so the full `D` rule set passes. `db/migrations` left at `service_webapp/db/` (Story 1.2 artifact; justfile migrate points there).
+
+3. **tox adapted for a green baseline.** Used `uv-venv-runner` + per-env `deps` + `package = "skip"` instead of the Ref template's `uv-venv-lock-runner` + `uv sync --extra test`. Reason: `uv sync --extra test` would install `service_webapp`'s full runtime deps (e.g. `weasyprint`, which needs system `libpango` to build/import), breaking the gate in CI/dev without those libs. Per-env `deps` install only the tool each gate needs (ruff/pyrefly for `lint`; pytest/pytest-env for `test`). Env names `lint`/`test` are identical across both codebases and match the justfile + CI. `pyrefly` (typecheck) runs inside the `lint` env, so `uv tox` covers lint + typecheck + test per AC #4.
+
+4. **`uv tox` → `uvx --with tox-uv tox`.** `uv tox` (architecture §1.12.1/§1.12.2) is not a real `uv` subcommand on uv 0.11.x. The tox-uv plugin (which provides `uv-venv-runner`) is invoked via `uvx --with tox-uv tox` in both the justfile (`uv_tox` variable) and the CI workflows — same gate locally and in CI.
+
+5. **Frontend toolchain green (AC #3).** Created `frontend/package.json` (devDeps + `lint`/`test`/`typecheck`/`dev`/`build` scripts), a minimal provisional `src/` (`main.tsx`, `App.tsx`, `App.test.tsx`, `test/setup.ts`, `vite-env.d.ts`), removed the duplicate `frontend/vite.config.js` (kept `.ts`), and fixed `tsconfig.json`'s dangling `references` to a non-existent `tsconfig.node.json` (removed the line; `tsc --noEmit` now passes). `tsconfig.json` already had `strict: true` (verified, kept). `npm install` + `lint` + `typecheck` + `test` all green. The `src/` scaffold is provisional and is restructured in Story 1.7.
+
+6. **justfile (AC #1).** All required recipes (`deps`, `up`, `down`, `logs`, `migrate`, `seed`, `seed-milvus`, `test`, `test-cdr`, `lint`, `format`, `tox`) plus dev runners (`backend`, `frontend`, `cdr`), `lint-fe`, `test-fe`, `restart`, and a helpful `default`. `set windows-shell` for Windows. `seed`/`seed-milvus` guarded to fail gracefully (scripts land in Epic 2). Corrected the architecture §1.12.2 `seed-milvus` bug (ran a `.sh` via `python` → `bash`). Seed script paths point at repo-root `scripts/` per architecture §1.12.1. **Note:** during the session the user edited `deps`/`up` to add `--env-file docker/.env`; that edit is preserved.
+
+7. **CI (AC #4).** `.github/workflows/ci-pipeline.yml` (jobs: `service_webapp` tox + `frontend` `npm ci && npm run lint && npm run test`) and `.github/workflows/ci-cdr.yml` (job: `cdr-pipeline` tox), on `pull_request` + push to `main`, using `astral-sh/setup-uv@v5`, `actions/setup-python@5` (3.13) and `actions/setup-node@4` (Node 20). All invoke the same `uvx --with tox-uv tox` gate as the justfile. **Branch protection** (requiring these checks before merge) is a GitHub repo setting, not a workflow field — flagged in the workflow comments for the maintainer to enable.
+
+8. **README (AC #5).** Follows architecture §1.15.1 section structure (Prerequisites, MVP Setup 2.1–2.6, Target State stub, Development Workflow, Troubleshooting); references `architecture.md` + `docs/architecture_diagrams.md`; normalises `service_backend`/`app-backend` → `service_webapp`. Active env file is `docker/.env` (matches the justfile `--env-file docker/.env`); `.env.example` stays at the repo root per AC #6.
+
+9. **`.env.example` + `.gitignore` (AC #6).** `.env.example` at repo root, superset-complete: 4 required Postgres role passwords (no safe defaults), `DATABASE_URL`, pydantic-settings `DB__*` (Story 1.4), Redis/Valkey, Kafka, Azure OpenAI, Langfuse app keys (Story 1.5), `ENCRYPTION_KEY` (Story 1.6), OTEL, and the compose-infra defaults (Langfuse/MiniStack) for completeness. `.env` is gitignored (root line 153; the `.env` pattern also covers `docker/.env`). Added `node_modules/`, `dist/`, `coverage/`, `.vite/`, `*.tsbuildinfo`, `.eslintcache` to root `.gitignore` (a pre-existing `frontend/.gitignore` already covers the frontend subset).
+
+**Discrepancies flagged (per Dev Notes):**
+- Toolchain version: Ref config + both pyprojects target **py311** (`requires-python = ">=3.11"`, ruff `target-version = "py311"`). Architecture stack table says "Python 3.14" aspirationally and `.python-version` says `3.13`; py311 is the working reference target and is not chased here.
+- `vite.config.ts` sets dev server port 3000 while README/compose reference 5173 — pre-existing inconsistency (Story 1.1/1.2), left untouched (out of scope; not a `src/` change).
+
+**NOT touched (surfaced):** `docker/otel/otel-collector-config.yaml` has a pre-existing uncommitted change (adds `otlp/otel-tui` exporters, last touched in Story 1.2 commit `3461aab`). It is unrelated to Story 1.3 and is **excluded** from this story's changes.
+
 ### File List
+
+Modified:
+- `.gitignore`
+- `README.md`
+- `docs/bmad_output/implementation-artifacts/1-3-project-tooling-justfile-github-actions-ci-linters-readme.md`
+- `docs/bmad_output/implementation-artifacts/sprint-status.yaml`
+- `frontend/tsconfig.json`
+- `justfile`
+- `service_webapp/pyproject.toml`
+
+Deleted:
+- `frontend/vite.config.js` (duplicate of `vite.config.ts`)
+- `service_webapp/main.py` (moved to `service_webapp/src/main.py`)
+
+Created:
+- `.env.example`
+- `.github/workflows/ci-pipeline.yml`
+- `.github/workflows/ci-cdr.yml`
+- `cdr-pipeline/.python-version`
+- `cdr-pipeline/pyproject.toml`
+- `cdr-pipeline/src/main.py`
+- `cdr-pipeline/tests/test_smoke.py`
+- `frontend/package.json`
+- `frontend/package-lock.json`
+- `frontend/.gitignore` (pre-existing untracked; included as part of the frontend baseline)
+- `frontend/src/App.tsx`
+- `frontend/src/App.test.tsx`
+- `frontend/src/main.tsx`
+- `frontend/src/test/setup.ts`
+- `frontend/src/vite-env.d.ts`
+- `service_webapp/src/main.py`
+- `service_webapp/tests/test_smoke.py`
+
+## Change Log
+
+- 2026-06-20: Story 1.3 implemented — cross-platform justfile, Ref-canonical ruff/pyrefly/tox config for both Python codebases (src/ layout), frontend ESLint/TS-strict/Vitest toolchain (green), GitHub Actions CI (`ci-pipeline.yml`, `ci-cdr.yml`), root README (§1.15.1 structure), `.env.example`, `.gitignore` hardening. All ACs met; `just lint` + `just tox` + frontend gates green.

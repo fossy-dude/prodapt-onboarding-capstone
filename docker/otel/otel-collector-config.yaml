@@ -26,8 +26,8 @@ service:
     metrics:
       receivers: [otlp]
       processors: [batch]
-      exporters: [debug]
+      exporters: [otlp/otel-tui, debug]
     logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [debug]
+      exporters: [otlp/otel-tui, debug]

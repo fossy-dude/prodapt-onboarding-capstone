@@ -225,3 +225,11 @@ __marimo__/
 _bmad/
 .bmad/
 .bmad-core/
+
+# Node / Frontend
+node_modules/
+dist/
+coverage/
+.vite/
+*.tsbuildinfo
+.eslintcache

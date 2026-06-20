@@ -3,47 +3,30 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "service-webapp"
+name = "cdr-pipeline"
 version = "0.1.0"
-description = "Primary Webservice_backend Service. API endpoints for all frontend API calls (REST and WS calls for agentic workflows)"
-readme = "README.md"
+description = "CDR ingestion, balance engine and fraud pre-screener pipeline (MVP: Python)."
 requires-python = ">=3.11"
-dependencies = [
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.30",
-    "psycopg[async,pool]>=3.2",
-    "valkey[asyncio]>=6",
-    "aiokafka>=0.11",
-    "pymilvus[milvus-lite]>=2.4",
-    "copilotkit>=0.1",
-    "pydantic-settings>=2.3",
-    "langgraph>=0.2",
-    "langchain-openai>=0.2",
-    "langfuse>=2",
-    "opentelemetry-sdk>=1.25",
-    "opentelemetry-instrumentation-fastapi>=0.46b0",
-    "weasyprint>=62",
-    "scikit-learn>=1.5",
-    "uuid7>=0.1",
-]
+dependencies = []
 
 [project.optional-dependencies]
 dev = [
-    "ruff>=0.4",
-    "pyrefly",
-    "pytest>=8",
-    "pytest-asyncio>=0.23",
-    "httpx>=0.27",
-    "testcontainers[postgres,redis,kafka]>=4",
-    "tox>=4",
-    "tox-uv>=1",
+    "pyinstrument>=5.1.0",
+    "python-semantic-release>=10.0",
+]
+test = [
+    "ruff>=0.12.9",
+    "pytest>=7.0.0",
+    "pytest-env>=1.1.0",
+    "tox>=4.0.0",
+    "pyrefly>=0.31.0",
 ]
 
 # ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
 # │                                           Ruff Config                                            │
 # └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 # Adopted verbatim from docs/Ref-Linting-config-pyproject.toml (Story 1.3 canonical lint template).
-# `src` added so ruff treats service_webapp/src as a first-party import root (layout requirement).
+# `src` added so ruff treats cdr-pipeline/src as a first-party import root (layout requirement).
 
 [tool.ruff]
 line-length = 120
@@ -250,10 +233,9 @@ no-matching-overload = false
 # │                                               tox                                                │
 # └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 # Adapted from docs/Ref-Linting-config-pyproject.toml. Uses uv-venv-runner with per-env `deps` instead
-# of the template's uv-venv-lock-runner + `uv sync --extra test`, because service_webapp's runtime deps
-# (e.g. weasyprint) require system libraries that `uv sync` would try (and fail) to build in CI/dev
-# without them. Per-env deps install only the tooling each gate needs. Env names `lint`/`test` match the
-# justfile (`uv tox -e lint`/`-e test`) and the CI gate. See Story 1.3 Completion Notes.
+# of the template's uv-venv-lock-runner + `uv sync --extra test`, for consistency with service_webapp
+# (whose runtime deps require system libraries that `uv sync` would attempt to build). Env names
+# `lint`/`test` match the justfile (`uv tox -e lint`/`-e test`) and the CI gate. See Story 1.3 Notes.
 
 [tool.tox]
 requires = ["tox>=4.15"]

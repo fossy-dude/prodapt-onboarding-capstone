@@ -1,0 +1,45 @@
+# CI gate for the cdr-pipeline codebase.
+# Runs on every PR (and on pushes to main). Must pass before merge — enforce via
+# GitHub branch protection requiring `cdr-pipeline (lint + typecheck + test)`.
+#
+# The quality gate is `uvx --with tox-uv tox` (tox-uv plugin supplies the
+# uv-venv-runner). architecture.md documents `uv tox`; that is not a real `uv`
+# subcommand, so `uvx --with tox-uv tox` is used (matches `just tox` locally).
+# See Story 1.3 Completion Notes.
+
+name: CI CDR Pipeline
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-cdr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cdr-pipeline:
+    name: cdr-pipeline (lint + typecheck + test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cdr-pipeline
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "cdr-pipeline/pyproject.toml"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Run tox gate (ruff lint + ruff format check + pyrefly + pytest)
+        # env_list = [lint, test]; `lint` runs ruff + pyrefly (typecheck), `test` runs pytest.
+        run: uvx --with tox-uv tox
