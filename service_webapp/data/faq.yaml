@@ -1,0 +1,353 @@
+# Static FAQ knowledge base — telecom self-care (Story 2.7; AC #5)
+# Fields: id, question, answer, category, source_doc, plan_type (optional)
+# Minimum 50 entries required.
+
+faqs:
+  - id: faq-001
+    question: How do I check my current plan?
+    answer: Dial *121# or open the SBOAI app, tap My Account, then View Plan. Your active plan details including validity and data balance appear instantly.
+    category: plan_info
+    source_doc: self-care-guide-v1
+    plan_type: all
+
+  - id: faq-002
+    question: How do I recharge my number?
+    answer: Recharge online via the SBOAI app, visit our website, or use a retailer. Enter your mobile number, select a plan, and complete payment via UPI, card, or net banking.
+    category: recharge
+    source_doc: self-care-guide-v1
+    plan_type: all
+
+  - id: faq-003
+    question: What is the validity of my current plan?
+    answer: Dial *121# to see your plan validity in days. The SBOAI app shows the exact expiry date on the home screen under Plan Status.
+    category: plan_info
+    source_doc: self-care-guide-v1
+    plan_type: all
+
+  - id: faq-004
+    question: How do I check my remaining data balance?
+    answer: Dial *111# for an instant USSD balance check. Alternatively, open the SBOAI app and tap Data Balance on the home screen.
+    category: data_balance
+    source_doc: self-care-guide-v1
+    plan_type: all
+
+  - id: faq-005
+    question: How do I activate a new SIM card?
+    answer: Insert the SIM and call 1800-XXX-XXXX from a registered number. Complete the KYC verification using Aadhaar OTP. Activation completes within 4 hours.
+    category: sim_management
+    source_doc: activation-guide-v2
+
+  - id: faq-006
+    question: How do I port my number to SBOAI?
+    answer: SMS PORT <your 10-digit number> to 1900. You will receive a Unique Porting Code (UPC). Visit the nearest SBOAI store with the UPC, ID proof, and address proof.
+    category: port_in
+    source_doc: mnp-guide-v1
+
+  - id: faq-007
+    question: How do I port out from SBOAI to another operator?
+    answer: SMS PORT <your 10-digit number> to 1900. Share the generated UPC with your new operator. The port completes within 7 working days per TRAI guidelines.
+    category: port_out
+    source_doc: mnp-guide-v1
+
+  - id: faq-008
+    question: Why is my data speed slow?
+    answer: Data speed may reduce after exhausting your high-speed quota. Check balance via *111#. If quota remains, toggle Airplane mode off and on, or restart your device.
+    category: network
+    source_doc: network-support-v1
+    plan_type: all
+
+  - id: faq-009
+    question: How do I activate international roaming?
+    answer: SMS IROAM to 121 or call 1800-XXX-XXXX. International roaming is available on select plans. Charges apply as per the roaming pack you activate.
+    category: roaming
+    source_doc: roaming-guide-v1
+
+  - id: faq-010
+    question: How do I deactivate international roaming?
+    answer: SMS IROAMSTOP to 121 or call customer care at 1800-XXX-XXXX. Deactivation takes effect within 2 hours.
+    category: roaming
+    source_doc: roaming-guide-v1
+
+  - id: faq-011
+    question: How do I block my SIM if my phone is lost?
+    answer: Call 1800-XXX-XXXX immediately to block your SIM. File a police complaint and email it to care@sboai.in with your account details to get a replacement SIM.
+    category: sim_management
+    source_doc: security-guide-v1
+
+  - id: faq-012
+    question: How do I get a duplicate SIM?
+    answer: Visit the nearest SBOAI store with your original ID proof. Request a SIM replacement. After KYC verification, your new SIM is activated within 24 hours.
+    category: sim_management
+    source_doc: self-care-guide-v1
+
+  - id: faq-013
+    question: What is the customer care number for SBOAI?
+    answer: Dial 198 (toll-free from SBOAI numbers) or 1800-XXX-XXXX (toll-free from any network). Support is available 24x7.
+    category: customer_care
+    source_doc: self-care-guide-v1
+
+  - id: faq-014
+    question: How do I upgrade my plan to get more data?
+    answer: Open the SBOAI app, tap Plans, filter by Data, and select an upgrade. The new plan takes effect from the next billing cycle or immediately if opted for add-on.
+    category: plan_info
+    source_doc: self-care-guide-v1
+    plan_type: all
+
+  - id: faq-015
+    question: How do I set up a Do Not Disturb (DND) service?
+    answer: SMS START DND to 1909 to activate full DND. To allow specific categories, SMS specific category codes. DND activation takes up to 7 working days per TRAI norms.
+    category: value_added_services
+    source_doc: dnd-guide-v1
+
+  - id: faq-016
+    question: How do I check outstanding bill amount?
+    answer: Log in to the SBOAI app, go to Bill & Payments. Your current outstanding amount, due date, and past bills are listed there.
+    category: billing
+    source_doc: billing-guide-v1
+
+  - id: faq-017
+    question: How do I pay my bill online?
+    answer: Pay via the SBOAI app using UPI, debit/credit card, or net banking. You can also set up Auto-Pay to never miss a due date.
+    category: billing
+    source_doc: billing-guide-v1
+
+  - id: faq-018
+    question: What happens if I do not pay my bill on time?
+    answer: Services are suspended after a 15-day grace period post due date. A late payment fee of Rs 100 applies. Restore services by paying the full outstanding amount.
+    category: billing
+    source_doc: billing-guide-v1
+
+  - id: faq-019
+    question: How do I download my bill or invoice?
+    answer: Go to SBOAI app > Bill & Payments > Bill History. Tap any month to view and download the PDF invoice.
+    category: billing
+    source_doc: billing-guide-v1
+
+  - id: faq-020
+    question: How do I activate a data add-on pack?
+    answer: Dial *121# and select Add-ons, or open the SBOAI app and go to Plans > Add-ons. Data add-ons activate instantly and are consumed before the main plan quota.
+    category: data_balance
+    source_doc: self-care-guide-v1
+    plan_type: all
+
+  - id: faq-021
+    question: How do I know my number is ported successfully?
+    answer: You receive an SMS confirming port completion. The number remains the same; only the network changes. Test a call or data session to confirm.
+    category: port_in
+    source_doc: mnp-guide-v1
+
+  - id: faq-022
+    question: How do I activate caller tune or ringback tone?
+    answer: SMS CT <song code> to 55000 or use the SBOAI Tunes app. The service costs Rs 30/month. Deactivate by sending STOP CT to 55000.
+    category: value_added_services
+    source_doc: vas-guide-v1
+
+  - id: faq-023
+    question: How do I block unwanted calls?
+    answer: SBOAI offers Spam Shield. Activate via the app under Settings > Spam Shield. You can also report spam by pressing # during the call.
+    category: network
+    source_doc: network-support-v1
+
+  - id: faq-024
+    question: How do I enable or disable call forwarding?
+    answer: Dial **21*<forward-to-number># to activate unconditional call forwarding. Dial ##21# to deactivate. For busy/no-answer, use **67*number# and ##67# respectively.
+    category: calling_features
+    source_doc: calling-guide-v1
+
+  - id: faq-025
+    question: How do I check if WiFi Calling is available on my plan?
+    answer: WiFi Calling (VoLTE over WiFi) is available on select 4G handsets and postpaid plans. Enable it in your phone Settings > Mobile Networks > WiFi Calling.
+    category: network
+    source_doc: network-support-v1
+    plan_type: postpaid
+
+  - id: faq-026
+    question: How do I activate a family plan or add a family member?
+    answer: Go to SBOAI app > Plans > Family Plan. Add up to 6 members by entering their SBOAI numbers. Each member shares the pool of data; voice remains individual.
+    category: plan_info
+    source_doc: family-plan-guide-v1
+    plan_type: family
+
+  - id: faq-027
+    question: How do I migrate from prepaid to postpaid?
+    answer: Visit the nearest SBOAI store with ID and address proof. Choose a postpaid plan. Your number stays the same; migration completes within 24 hours.
+    category: plan_info
+    source_doc: self-care-guide-v1
+
+  - id: faq-028
+    question: How do I migrate from postpaid to prepaid?
+    answer: Clear all outstanding dues first. Visit a SBOAI store or call 198. Carry ID proof. Prepaid activation takes effect within 4 hours of plan selection.
+    category: plan_info
+    source_doc: self-care-guide-v1
+
+  - id: faq-029
+    question: What is the data rollover policy?
+    answer: Unused high-speed data rolls over to the next month on select plans (Platinum and above). Rollover data is valid for 30 days and capped at the monthly quota.
+    category: data_balance
+    source_doc: data-policy-v1
+    plan_type: platinum
+
+  - id: faq-030
+    question: How do I set data usage alerts?
+    answer: Open SBOAI app > Data Manager > Set Alerts. Configure daily or total alerts at 50%, 80%, and 100% thresholds. You receive an SMS when each limit is reached.
+    category: data_balance
+    source_doc: self-care-guide-v1
+
+  - id: faq-031
+    question: How do I update my registered email address?
+    answer: Log in to the SBOAI app, go to Profile > Contact Details, tap Edit next to Email, enter the new address, and verify via OTP sent to your mobile number.
+    category: account_management
+    source_doc: self-care-guide-v1
+
+  - id: faq-032
+    question: How do I update my registered address?
+    answer: Visit a SBOAI store with a new address proof (utility bill, Aadhaar, or bank statement). Address updates take 2-3 working days and require re-KYC.
+    category: account_management
+    source_doc: self-care-guide-v1
+
+  - id: faq-033
+    question: How do I get a refund for a wrong recharge?
+    answer: Call 198 within 48 hours of the recharge. Provide transaction ID and amount. Refunds are processed within 7 working days to the original payment method.
+    category: billing
+    source_doc: billing-guide-v1
+
+  - id: faq-034
+    question: How do I track my refund status?
+    answer: Log in to SBOAI app > Bill & Payments > Refund Status. Enter the complaint number provided at the time of refund request.
+    category: billing
+    source_doc: billing-guide-v1
+
+  - id: faq-035
+    question: How do I raise a complaint about network coverage?
+    answer: Open SBOAI app > Help > Report Network Issue. Mark the location on the map and describe the problem. You receive a ticket number for tracking.
+    category: network
+    source_doc: network-support-v1
+
+  - id: faq-036
+    question: What is the tethering or hotspot policy?
+    answer: Hotspot sharing is allowed on all SBOAI plans. Data used via hotspot is deducted from your main plan quota. Unlimited plans may have fair-use limits on hotspot.
+    category: data_balance
+    source_doc: data-policy-v1
+    plan_type: all
+
+  - id: faq-037
+    question: How do I activate night data pack?
+    answer: SMS NIGHT to 121 or go to SBOAI app > Plans > Night Pack. Night packs offer high-speed data from midnight to 6 AM at a discounted rate.
+    category: data_balance
+    source_doc: vas-guide-v1
+    plan_type: all
+
+  - id: faq-038
+    question: How do I check my talk time balance?
+    answer: Dial *112# for voice balance. For prepaid users, the USSD response shows remaining balance and validity. App users can tap Voice on the home screen.
+    category: calling_features
+    source_doc: self-care-guide-v1
+
+  - id: faq-039
+    question: How do I activate SMS pack?
+    answer: SMS SMSPACK to 121 or go to SBOAI app > Plans > SMS Packs. Packs offering 100 or 500 SMSes are available at Rs 9 and Rs 25 respectively.
+    category: value_added_services
+    source_doc: vas-guide-v1
+
+  - id: faq-040
+    question: What should I do if my calls are dropping frequently?
+    answer: Restart your phone and check for updates. Toggle between 4G and 3G in network settings. If the issue persists, report it via app > Help > Report Network Issue.
+    category: network
+    source_doc: network-support-v1
+
+  - id: faq-041
+    question: How do I activate a roaming pack for international travel?
+    answer: Activate a roaming pack before departure via the SBOAI app > Plans > International Packs. Packs start at Rs 299 for 1 day. Activate at least 24 hours before travel.
+    category: roaming
+    source_doc: roaming-guide-v1
+
+  - id: faq-042
+    question: How do I know which 5G areas are covered by SBOAI?
+    answer: Open the SBOAI app > Network Map and toggle to 5G. Alternatively, visit our website and use the Coverage Checker tool to search by PIN code or city.
+    category: network
+    source_doc: network-support-v1
+    plan_type: 5g
+
+  - id: faq-043
+    question: How do I enable 5G on my phone?
+    answer: Go to your phone Settings > Mobile Networks > Preferred Network Type, select 5G/4G/3G/2G Auto. Ensure your SIM and plan support 5G.
+    category: network
+    source_doc: network-support-v1
+    plan_type: 5g
+
+  - id: faq-044
+    question: What is ISD calling and how do I activate it?
+    answer: International Subscriber Dialling (ISD) lets you call abroad. SMS ISD to 121 to activate. Prefix international calls with 011 and the country code.
+    category: calling_features
+    source_doc: calling-guide-v1
+
+  - id: faq-045
+    question: How do I deactivate ISD calling?
+    answer: SMS ISDSTOP to 121 to deactivate ISD. Deactivation is instant. ISD charges stop immediately; any pending international call charges are billed in the next cycle.
+    category: calling_features
+    source_doc: calling-guide-v1
+
+  - id: faq-046
+    question: How do I set up auto-pay for postpaid bills?
+    answer: Open SBOAI app > Bill & Payments > Auto-Pay Setup. Link your UPI or card. Bills are automatically deducted 3 days before the due date.
+    category: billing
+    source_doc: billing-guide-v1
+    plan_type: postpaid
+
+  - id: faq-047
+    question: Can I share data with another SBOAI number?
+    answer: Yes, use Data Gift. Open SBOAI app > Data Manager > Gift Data. Enter the recipient SBOAI number and amount (minimum 100 MB). One gift per day allowed.
+    category: data_balance
+    source_doc: data-policy-v1
+    plan_type: all
+
+  - id: faq-048
+    question: How do I activate OTT benefits included in my plan?
+    answer: Plans above Rs 399 include OTT subscriptions. Activate via SBOAI app > My Benefits > OTT. Link your existing account or create a new one through the app.
+    category: value_added_services
+    source_doc: ott-guide-v1
+    plan_type: premium
+
+  - id: faq-049
+    question: What is the grace period after plan expiry?
+    answer: After plan expiry, you get a 3-day grace period for incoming calls only. No data or outgoing calls are available. Recharge during grace to restore full service.
+    category: plan_info
+    source_doc: self-care-guide-v1
+    plan_type: prepaid
+
+  - id: faq-050
+    question: How do I submit a TRAI grievance?
+    answer: Escalate unresolved complaints via TRAI's consumer portal at TRAI's website after your complaint is pending for 30+ days. SBOAI's nodal officer details are in our app under Help > Escalation.
+    category: customer_care
+    source_doc: regulatory-guide-v1
+
+  - id: faq-051
+    question: How do I change my postpaid plan?
+    answer: Open SBOAI app > Plans and select Change Plan. The new plan activates from the next billing cycle. Mid-cycle changes are prorated for the remaining days.
+    category: plan_info
+    source_doc: self-care-guide-v1
+    plan_type: postpaid
+
+  - id: faq-052
+    question: How do I check my SIM's IMSI or ICCID?
+    answer: Dial *#06# to get IMEI. For IMSI/ICCID, check your SIM card packaging or go to SBOAI app > My Account > SIM Details.
+    category: sim_management
+    source_doc: self-care-guide-v1
+
+  - id: faq-053
+    question: What should I do if I am getting spam SMS messages?
+    answer: Forward the spam SMS to 1909. You can also report via SBOAI app > Help > Report Spam SMS. TRAI mandates action within 7 days.
+    category: value_added_services
+    source_doc: dnd-guide-v1
+
+  - id: faq-054
+    question: How do I check my missed call alerts?
+    answer: Activate Missed Call Alert by SMSing MCA to 56789. When your phone is unreachable, callers hear a ring and you get an SMS with the missed call details.
+    category: calling_features
+    source_doc: vas-guide-v1
+
+  - id: faq-055
+    question: How do I verify if my KYC is complete?
+    answer: Go to SBOAI app > My Account > KYC Status. A green tick means KYC is complete. Incomplete KYC can cause service restriction under DoT regulations.
+    category: account_management
+    source_doc: kyc-guide-v1

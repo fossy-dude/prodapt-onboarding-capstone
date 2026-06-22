@@ -40,6 +40,7 @@ async def ready(request: Request) -> JSONResponse:
     """Readiness probe — 200 only when Postgres and Valkey are both reachable."""
     db_adapter = getattr(request.app.state, "db_adapter", None)
     cache_adapter = getattr(request.app.state, "cache_adapter", None)
+    milvus_adapter = getattr(request.app.state, "milvus_adapter", None)
 
     if db_adapter is None or cache_adapter is None:
         return JSONResponse(
@@ -48,16 +49,24 @@ async def ready(request: Request) -> JSONResponse:
                 request,
                 code="NOT_READY",
                 message="Adapters not initialized — lifespan may not have run",
-                detail={"postgres": False, "valkey": False},
+                detail={"postgres": False, "valkey": False, "milvus": False},
             ),
         )
 
-    # Probe both dependencies concurrently so worst-case latency is max(ping_db, ping_cache),
-    # not their sum (NFR-19: each is bounded to 2 s; serial would allow 4 s total).
-    postgres_ok, valkey_ok = await asyncio.gather(db_adapter.ping(), cache_adapter.ping())
-    detail = {"postgres": postgres_ok, "valkey": valkey_ok}
+    pings = [db_adapter.ping(), cache_adapter.ping()]
+    if milvus_adapter is not None:
+        pings.append(milvus_adapter.ping())
 
-    if postgres_ok and valkey_ok:
+    ping_results = await asyncio.gather(*pings)
+    postgres_ok, valkey_ok = ping_results[0], ping_results[1]
+    milvus_ok = ping_results[2] if milvus_adapter is not None else None
+
+    detail: dict[str, Any] = {"postgres": postgres_ok, "valkey": valkey_ok}
+    if milvus_ok is not None:
+        detail["milvus"] = milvus_ok
+
+    all_ok = postgres_ok and valkey_ok and (milvus_ok is None or milvus_ok)
+    if all_ok:
         return JSONResponse(status_code=200, content={"status": "ready", "detail": detail})
 
     return JSONResponse(

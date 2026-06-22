@@ -33,6 +33,11 @@ def _set_required_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_settings_loads_when_required_present(monkeypatch: pytest.MonkeyPatch) -> None:
     """All required vars present → Settings() constructs and maps nested + flat keys."""
     _set_required_env(monkeypatch)
+    # pymilvus imports load_dotenv() at module level, polluting os.environ with .env
+    # values from any test that imported pymilvus before this one. Clear optional
+    # secrets so the default-value assertions below are order-independent.
+    for key in ("AZURE_OPENAI_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_VERSION"):
+        monkeypatch.delenv(key, raising=False)
     cfg = Settings(_env_file=None, _secrets_dir=None)
 
     # Nested DB__* mapping.

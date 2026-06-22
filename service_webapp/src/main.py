@@ -8,6 +8,7 @@ port 8000 — ``curl http://localhost:8000/health`` (architecture §1.15.1).
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
@@ -17,6 +18,7 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 
 from adapters.cognito import CognitoProvider, MinistackCognitoProvider
+from adapters.milvus import MilvusAdapter
 from adapters.postgres import Psycopg3AsyncAdapter, conninfo_from
 from adapters.redis import ValkeyAdapter
 
@@ -46,6 +48,7 @@ if TYPE_CHECKING:
 
     from core.protocols.cache import CacheProtocol
     from core.protocols.db import DatabaseProtocol
+    from core.protocols.vector_store import VectorStoreProtocol
 
 
 def _setup_tracer() -> None:
@@ -75,6 +78,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if getattr(app.state, "cache_adapter", None) is None:
         app.state.cache_adapter = ValkeyAdapter(settings.valkey_url)
         owned.append("cache_adapter")
+    if getattr(app.state, "milvus_adapter", None) is None:
+        try:
+            _milvus = MilvusAdapter(settings.milvus_db_uri)
+            await _milvus.create_collections_if_absent()
+            app.state.milvus_adapter = _milvus
+            owned.append("milvus_adapter")
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Milvus Lite unavailable at startup: %s", exc)
+            app.state.milvus_adapter = None
     if getattr(app.state, "cognito_provider", None) is None:
         app.state.cognito_provider = MinistackCognitoProvider(settings)
     # The registration service composes the DB repository + Cognito provider; build
@@ -93,12 +105,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await app.state.db_adapter.close()
         if "cache_adapter" in owned:
             await app.state.cache_adapter.close()
+        if "milvus_adapter" in owned:
+            await app.state.milvus_adapter.close()
 
 
 def create_app(
     *,
     db_adapter: DatabaseProtocol | None = None,
     cache_adapter: CacheProtocol | None = None,
+    milvus_adapter: VectorStoreProtocol | None = None,
     cognito_provider: CognitoProvider | None = None,
     registration_service: RegistrationService | RegistrationRepository | None = None,
     jwt_validator: JWTValidator | None = None,
@@ -120,6 +135,7 @@ def create_app(
     app.include_router(simulator_router)
     app.state.db_adapter = db_adapter
     app.state.cache_adapter = cache_adapter
+    app.state.milvus_adapter = milvus_adapter
     app.state.cognito_provider = cognito_provider
     app.state.registration_service = registration_service
     app.state.jwt_validator = jwt_validator

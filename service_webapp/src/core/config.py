@@ -58,10 +58,18 @@ class Settings(BaseSettings):
     valkey_url: str
     kafka_brokers: str
 
-    # ── Optional: LLM (Azure OpenAI) — provisioned later ─────────────────────
+    # ── Optional: LLM / Embedding (Azure OpenAI) — override in .env ──────────
     azure_openai_api_key: str = ""
     azure_openai_endpoint: str = ""
     azure_openai_api_version: str = "2024-08-01-preview"
+
+    # ── Embedding config (Story 2.7) ──────────────────────────────────────────
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = 1536
+
+    # ── Milvus Lite (Story 2.7) ───────────────────────────────────────────────
+    # Env var: MILVUS_DB_URI (avoids conflict with pymilvus's own MILVUS_URI var)
+    milvus_db_uri: str = "/app/data/milvus/sboai.db"
 
     # ── Optional: LangFuse (Story 1.5) — connection-free when disabled ───────
     langfuse_enabled: bool = False
