@@ -68,10 +68,14 @@ class ForbiddenError(DomainError):
 
 
 class OtpVerificationError(DomainError):
-    """Step-up OTP invalid or expired (AC #5; §1.7.3)."""
+    """OTP invalid or expired — login challenge or step-up (AC #1, #5; §1.7.3).
+
+    Returns 401 because an invalid OTP is an authentication failure whether it
+    occurs during the initial login challenge or a mid-session step-up.
+    """
 
     code = "OTP_INVALID"
-    http_status = 400
+    http_status = 401
     message = "OTP verification failed — invalid or expired."
 
 

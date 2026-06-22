@@ -23,13 +23,27 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-/** On 401 response: clear the stored token and redirect to /login. */
+/** Routes that must NOT trigger a /login redirect on 401 (they are part of the login flow). */
+const _LOGIN_PATHS = ['/auth/login/initiate', '/auth/login/verify'];
+
+/** On 401 response: clear the stored token and redirect to /login.
+ *
+ * P7: skip the redirect when the 401 comes from a login endpoint itself —
+ * otherwise a wrong OTP causes a redirect loop while the user is already on /login.
+ */
 apiClient.interceptors.response.use(
   (response) => response,
   (error: unknown) => {
     if (error instanceof AxiosError && error.response?.status === 401) {
-      removeToken();
-      window.location.href = '/login';
+      const url = error.config?.url ?? '';
+      const isLoginRoute = _LOGIN_PATHS.some((path) => url.includes(path));
+      if (!isLoginRoute) {
+        removeToken();
+        // P8: window.location.href is a full reload that bypasses React Router.
+        // Acceptable for the auth redirect (avoids needing a shared event bus),
+        // but guarded to login-route exclusion above to prevent loops.
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   },
