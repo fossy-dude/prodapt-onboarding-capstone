@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-22  # Story 1.9 dev complete → review (profile GET/PATCH, KYC badge, address V4; 24 tests green). Story 1.10 still in-progress.
+last_updated: 2026-06-22  # Story 1.10 → review (payment-methods tokenisation + CRUD); Story 2-1 code review complete → done (16 patches applied)
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -54,12 +54,12 @@ development_status:
   1-7-sim-activation-order-tracker-ui: done
   1-8-login-otp-step-up-jwt-role-based-auth: done
   1-9-profile-management-kyc-status-view: review
-  1-10-saved-payment-methods-pci-dss-tokenisation: in-progress
+  1-10-saved-payment-methods-pci-dss-tokenisation: review
   epic-1-retrospective: optional
 
   # Epic 2: CDR Pipeline, Balance Engine, Synthetic Data & Simulator Tools
   epic-2: in-progress
-  2-1-redpanda-topic-provisioning-kafka-envelope-contract: review
+  2-1-redpanda-topic-provisioning-kafka-envelope-contract: done
   2-2-cdr-ingestion-consumer-dedup-dlq: ready-for-dev
   2-3-balance-deduction-engine-valkey-write-buffer-postgres-flush: ready-for-dev
   2-4-audit-log-distributed-trace-propagation: ready-for-dev

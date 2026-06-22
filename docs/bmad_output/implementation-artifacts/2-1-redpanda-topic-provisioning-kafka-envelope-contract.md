@@ -4,7 +4,7 @@ baseline_commit: 75578fdd40c9bf8c8aac24a2c8e366220cfe4b6d
 
 # Story 2.1: Redpanda Topic Provisioning & Kafka Envelope Contract
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
