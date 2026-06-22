@@ -1,10 +1,9 @@
 """Subscriber account router (FR-1-7; architecture §1.12.1 line 1051).
 
-Story 1.6 adds ``POST /api/v1/subscriber/register`` — the multi-step registration
-endpoint. It validates the Step 1 (personal details + alternate mobile) and Step 2
-(TRAI CAF) payload, persists the registration in a single transaction, provisions
-the passwordless Cognito user, and returns the standard success envelope carrying
-the generated Registration ID (AC #1, #2, #5, #8).
+Story 1.6 adds ``POST /api/v1/subscriber/register``.
+Story 1.8 adds the passwordless login flow under ``/api/v1/auth``:
+  - ``POST /api/v1/auth/login/initiate`` — start Cognito Custom Auth Flow
+  - ``POST /api/v1/auth/login/verify`` — verify OTP, return JWT tokens
 """
 
 from __future__ import annotations
@@ -27,6 +26,7 @@ from services.registration import (
 )
 
 router = APIRouter(prefix="/api/v1/subscriber", tags=["subscriber"])
+auth_router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 # Indian MSISDN / mobile: 10-15 digits (store the digit string; the DB column is VARCHAR(15)).
 _MSISDN_RE = re.compile(r"^\d{10,15}$")
@@ -134,4 +134,71 @@ async def register(payload: RegisterRequest, request: Request) -> JSONResponse:
     )
 
 
-__all__ = ["RegisterRequest", "router"]
+class LoginInitiateRequest(BaseModel):
+    """Initiate passwordless login: Registration ID (pre-activation) or MSISDN (post-activation)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    identifier: str = Field(description="Registration ID or MSISDN.")
+
+
+class LoginVerifyRequest(BaseModel):
+    """Verify the OTP challenge and receive JWT tokens."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    identifier: str = Field(description="Registration ID or MSISDN (must match initiation).")
+    session: str = Field(description="Session string returned by the initiate endpoint.")
+    otp: str = Field(description="6-digit OTP delivered via the Notification Portal.")
+
+
+def _cognito(request: Request):
+    """Resolve the Cognito provider from app state (injected by lifespan or tests)."""
+    provider = getattr(request.app.state, "cognito_provider", None)
+    if provider is None:
+        err = DomainError("Cognito provider is not initialised.")
+        err.code = "NOT_READY"
+        err.http_status = 503
+        raise err
+    return provider
+
+
+@auth_router.post("/login/initiate", status_code=200)
+async def login_initiate(payload: LoginInitiateRequest, request: Request) -> JSONResponse:
+    """Initiate Cognito Custom Auth Flow (passwordless login — no password, AC #1, #2).
+
+    The OTP challenge is issued by the Cognito Custom Auth Lambdas and surfaced
+    on the Notification Portal for testing. The returned ``session`` must be passed
+    to ``/login/verify``.
+    """
+    provider = _cognito(request)
+    session = await provider.initiate_login(payload.identifier)
+    return JSONResponse(
+        status_code=200,
+        content=success_envelope(
+            {"session": session},
+            trace_id=getattr(request.state, "trace_id", "unknown"),
+        ),
+    )
+
+
+@auth_router.post("/login/verify", status_code=200)
+async def login_verify(payload: LoginVerifyRequest, request: Request) -> JSONResponse:
+    """Verify the OTP challenge and return JWT access + refresh tokens (AC #1, #2).
+
+    On success the access token (30 min TTL) and refresh token (30 days) are returned.
+    The caller stores the access token and sends it as ``Authorization: Bearer {token}``
+    on subsequent requests.
+    """
+    provider = _cognito(request)
+    tokens = await provider.verify_login_otp(payload.identifier, payload.session, payload.otp)
+    return JSONResponse(
+        status_code=200,
+        content=success_envelope(
+            tokens,
+            trace_id=getattr(request.state, "trace_id", "unknown"),
+        ),
+    )
+
+
+__all__ = ["LoginInitiateRequest", "LoginVerifyRequest", "RegisterRequest", "auth_router", "router"]

@@ -1,26 +1,78 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 
+import { RoleGuard } from './components/layout/RoleGuard';
+import { Login } from './portals/auth/Login';
 import { Register } from './portals/subscriber/Register';
 
-function Home() {
+/**
+ * Placeholder dashboard rendered inside a role-gated subtree until the
+ * dedicated portal story is implemented.
+ */
+function PortalPlaceholder({ role }: { readonly role: string }) {
   return (
     <main className="px-4 py-10">
-      <h1 className="text-3xl font-bold text-neutral-900">SBOAI Capstone</h1>
-      <p className="mt-2 text-sm text-neutral-600">Subscriber self-care portal.</p>
+      <h1 className="text-2xl font-bold text-neutral-900">{role} portal</h1>
+      <p className="mt-2 text-sm text-neutral-500">Dashboard coming soon.</p>
     </main>
   );
 }
 
 /**
- * Route table (UX brief §2). The full role-gated router + portals are wired in
- * Story 1.7; Story 1.6 adds the public `/register` route it depends on.
+ * Route table (§1.9.1, UX-DR7).
+ *
+ * Public routes (no auth required):
+ *   /login    — passwordless OTP login (Story 1.8)
+ *   /register — subscriber registration (Story 1.6)
+ *
+ * Role-gated subtrees (Story 1.8 RoleGuard):
+ *   /subscriber/* — role: subscriber
+ *   /ops/*        — role: ops | admin | marketing
+ *   /fraud/*      — role: fraud
+ *   /simulator/*  — role: dev
  */
 function App() {
   return (
     <Routes>
-      <Route path="/" element={<Home />} />
+      {/* Public routes */}
+      <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
+
+      {/* Role-gated subtrees */}
+      <Route
+        path="/subscriber/*"
+        element={
+          <RoleGuard allowedRoles={['subscriber']}>
+            <PortalPlaceholder role="Subscriber" />
+          </RoleGuard>
+        }
+      />
+      <Route
+        path="/ops/*"
+        element={
+          <RoleGuard allowedRoles={['ops', 'admin', 'marketing']}>
+            <PortalPlaceholder role="Ops" />
+          </RoleGuard>
+        }
+      />
+      <Route
+        path="/fraud/*"
+        element={
+          <RoleGuard allowedRoles={['fraud']}>
+            <PortalPlaceholder role="Fraud" />
+          </RoleGuard>
+        }
+      />
+      <Route
+        path="/simulator/*"
+        element={
+          <RoleGuard allowedRoles={['dev']}>
+            <PortalPlaceholder role="Simulator" />
+          </RoleGuard>
+        }
+      />
+
+      {/* Default: redirect unauthenticated traffic to /login */}
+      <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
   );
 }

@@ -1,6 +1,10 @@
 # Story 1.8: Login, OTP Step-Up & JWT Role-Based Auth
 
-Status: ready-for-dev
+---
+baseline_commit: f61b9a0438ead02b40a5873b4ff90618e3793cd6
+---
+
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -23,32 +27,32 @@ so that I can reach only my role-specific dashboard and every API call is authen
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Backend JWT validation + role guard** (AC: #3, #4)
-  - [ ] Implement `service_webapp/src/core/auth.py` (async): decode `Authorization: Bearer {token}`, verify signature against Cognito JWKS, verify expiry, extract `sub` (UUID) and `role` claims
-  - [ ] Provide a FastAPI dependency / guard `require_role(*roles)` that returns `403` (forbidden envelope) on role mismatch and `401` on missing/invalid/expired token — runs before the route handler
-  - [ ] Integrate with the OTEL trace middleware from Story 1.4 — auth runs without breaking `request.state.trace_id` / `X-Trace-Id` propagation. Do NOT log raw MSISDN/name (PII hygiene §1.11.6: `msisdn[-4:]`)
-  - [ ] All errors use the standard envelope (§1.11.3); never leak token internals in error `detail`
-- [ ] **Task 2: Login routes via Cognito Custom Auth Flow (passwordless)** (AC: #1, #2)
-  - [ ] Add login endpoints under `service_webapp/src/routers/account.py` (FR-1–7): initiate Custom Auth Flow with **Registration ID** (pre-activation) or **MSISDN** (post-activation) — no password
-  - [ ] Verify the OTP challenge against MiniStack Cognito; on success return the issued JWT (access 30m, refresh 30d) in the standard envelope
-  - [ ] OTP for login is delivered by Cognito and surfaced in the Notification Portal for testing (no real SMS/email) [§1.8.1]
-  - [ ] The subscriber's Cognito user already exists (provisioned at registration, Story 1.6) — this story does NOT create users
-- [ ] **Task 3: Mid-session step-up OTP primitive (Valkey)** (AC: #5)
-  - [ ] Implement a reusable step-up cycle: generate code → store `otp:{msisdn}` STRING with 5m TTL via `CacheProtocol`/`RedisAdapter` → validate → delete on success [§1.7.3]
-  - [ ] Expose as a `@step_up`-style dependency/decorator usable by sensitive routes later (recharge/SIM-binding) — this story builds the primitive + tests it; it does not yet gate a production action
-  - [ ] Document the explicit distinction: **login OTP = Cognito's**; **step-up OTP = Valkey `otp:{msisdn}`** (§1.7.3 callout). Do not conflate them
-- [ ] **Task 4: Frontend role-gating** (AC: #3)
-  - [ ] `frontend/src/lib/auth.ts` — decode JWT from `localStorage`, extract `role`/`sub`; expose `getRole()`, `isAuthenticated()`, `logout()`
-  - [ ] `frontend/src/components/layout/RoleGuard.tsx` — render the matching `/subscriber|ops|fraud|simulator/*` subtree for the token's role; redirect to `/login` on mismatch or missing/expired token
-  - [ ] `/login` is a top-level, non-role-gated screen (`frontend/src/portals/.../Login.tsx` or a top-level route — place under a shared/auth location, not inside a role subtree)
-  - [ ] Ensure the Axios interceptor in `frontend/src/lib/api.ts` attaches `Authorization: Bearer {token}` to every request and routes `401` → `/login`
-  - [ ] TailwindCSS utility classes only; PascalCase components, `usePascalCase.ts` hooks; server state via TanStack Query
-- [ ] **Task 5: Config keys** (AC: #1, #4, #5)
-  - [ ] Extend `service_webapp/src/core/config.py` (Story 1.4) with Cognito settings (user pool id, app client id, region/endpoint for MiniStack) and OTP step-up TTL (default 300s). No hard-coded values (§1.11.1); add placeholders to `.env.example` (Story 1.3)
-- [ ] **Task 6: Tests** (AC: #3, #4, #5)
-  - [ ] Backend unit (`service_webapp/tests/unit/`, mock Cognito + Redis): valid token passes; expired/invalid → `401`; wrong role on a guarded route → `403`; step-up OTP generate→validate→expire cycle (correct code passes, wrong/expired fails, key deleted on success)
-  - [ ] Frontend (Vitest + RTL): `RoleGuard` renders the correct subtree per role and redirects to `/login` on role mismatch / missing token; `lib/auth.ts` decodes role correctly
-  - [ ] Tests must not require a live Cognito or Valkey instance — mock both
+- [x] **Task 1: Backend JWT validation + role guard** (AC: #3, #4)
+  - [x] Implement `service_webapp/src/core/auth.py` (async): decode `Authorization: Bearer {token}`, verify signature against Cognito JWKS, verify expiry, extract `sub` (UUID) and `role` claims
+  - [x] Provide a FastAPI dependency / guard `require_role(*roles)` that returns `403` (forbidden envelope) on role mismatch and `401` on missing/invalid/expired token — runs before the route handler
+  - [x] Integrate with the OTEL trace middleware from Story 1.4 — auth runs without breaking `request.state.trace_id` / `X-Trace-Id` propagation. Do NOT log raw MSISDN/name (PII hygiene §1.11.6: `msisdn[-4:]`)
+  - [x] All errors use the standard envelope (§1.11.3); never leak token internals in error `detail`
+- [x] **Task 2: Login routes via Cognito Custom Auth Flow (passwordless)** (AC: #1, #2)
+  - [x] Add login endpoints under `service_webapp/src/routers/account.py` (FR-1–7): initiate Custom Auth Flow with **Registration ID** (pre-activation) or **MSISDN** (post-activation) — no password
+  - [x] Verify the OTP challenge against MiniStack Cognito; on success return the issued JWT (access 30m, refresh 30d) in the standard envelope
+  - [x] OTP for login is delivered by Cognito and surfaced in the Notification Portal for testing (no real SMS/email) [§1.8.1]
+  - [x] The subscriber's Cognito user already exists (provisioned at registration, Story 1.6) — this story does NOT create users
+- [x] **Task 3: Mid-session step-up OTP primitive (Valkey)** (AC: #5)
+  - [x] Implement a reusable step-up cycle: generate code → store `otp:{msisdn}` STRING with 5m TTL via `CacheProtocol`/`RedisAdapter` → validate → delete on success [§1.7.3]
+  - [x] Expose as a `@step_up`-style dependency/decorator usable by sensitive routes later (recharge/SIM-binding) — this story builds the primitive + tests it; it does not yet gate a production action
+  - [x] Document the explicit distinction: **login OTP = Cognito's**; **step-up OTP = Valkey `otp:{msisdn}`** (§1.7.3 callout). Do not conflate them
+- [x] **Task 4: Frontend role-gating** (AC: #3)
+  - [x] `frontend/src/lib/auth.ts` — decode JWT from `localStorage`, extract `role`/`sub`; expose `getRole()`, `isAuthenticated()`, `logout()`
+  - [x] `frontend/src/components/layout/RoleGuard.tsx` — render the matching `/subscriber|ops|fraud|simulator/*` subtree for the token's role; redirect to `/login` on mismatch or missing/expired token
+  - [x] `/login` is a top-level, non-role-gated screen (`frontend/src/portals/.../Login.tsx` or a top-level route — place under a shared/auth location, not inside a role subtree)
+  - [x] Ensure the Axios interceptor in `frontend/src/lib/api.ts` attaches `Authorization: Bearer {token}` to every request and routes `401` → `/login`
+  - [x] TailwindCSS utility classes only; PascalCase components, `usePascalCase.ts` hooks; server state via TanStack Query
+- [x] **Task 5: Config keys** (AC: #1, #4, #5)
+  - [x] Extend `service_webapp/src/core/config.py` (Story 1.4) with Cognito settings (user pool id, app client id, region/endpoint for MiniStack) and OTP step-up TTL (default 300s). No hard-coded values (§1.11.1); add placeholders to `.env.example` (Story 1.3)
+- [x] **Task 6: Tests** (AC: #3, #4, #5)
+  - [x] Backend unit (`service_webapp/tests/unit/`, mock Cognito + Redis): valid token passes; expired/invalid → `401`; wrong role on a guarded route → `403`; step-up OTP generate→validate→expire cycle (correct code passes, wrong/expired fails, key deleted on success)
+  - [x] Frontend (Vitest + RTL): `RoleGuard` renders the correct subtree per role and redirects to `/login` on role mismatch / missing token; `lib/auth.ts` decodes role correctly
+  - [x] Tests must not require a live Cognito or Valkey instance — mock both
 
 ## Dev Notes
 
@@ -122,10 +126,39 @@ Therefore this story creates **no migration and no table**. Session/identity sta
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+claude-sonnet-4-6
 
 ### Debug Log References
 
 ### Completion Notes List
 
+- Task 1: `core/auth.py` — `JWTValidator` (PyJWT + JWKS, lazy import), `FakeJWTValidator` for tests, `require_role(*roles)` FastAPI Depends. Reads `cognito:groups` claim. Standard 401/403 envelopes via `UnauthenticatedError`/`ForbiddenError`. No PII in error detail. Wired into `app.state.jwt_validator` via lifespan.
+- Task 2: Login endpoints added to `routers/account.py` as `auth_router` at `/api/v1/auth`. `POST /login/initiate` → session string via Cognito Custom Auth Flow. `POST /login/verify` → JWT tokens. `FakeCognitoProvider` extended with `initiate_login`/`verify_login_otp`.
+- Task 3: `core/step_up.py` — `StepUpOtpService` with generate/verify cycle. Key = `otp:{msisdn}`, 5m TTL (configurable). `verify` deletes key on success (single-use). `require_step_up()` Depends exposed for later stories. `FakeStepUpOtpService` for tests.
+- Task 4: Frontend — `lib/auth.ts` (JWT base64 decode, role extraction from `cognito:groups`, expiry check), `components/layout/RoleGuard.tsx` (renders children or redirects to `/login`), `portals/auth/Login.tsx` (two-step OTP form), `lib/api.ts` updated with Bearer interceptor + 401 redirect + login API calls, `App.tsx` rewired with role-gated subtrees.
+- Task 5: `config.py` extended with `otp_step_up_ttl_seconds: int = 300`. `.env.example` updated with placeholder.
+- Task 6: 20 backend unit tests in `tests/unit/test_auth.py` covering all AC scenarios. 21 frontend tests across `auth.test.ts` (JWT decode/role/expiry) and `RoleGuard.test.tsx` (render/redirect). All 69 backend + 32 frontend tests pass. Lint + typecheck clean.
+- PyJWT dep added to pyproject.toml + tox lint/test envs. `CacheProtocol`/`ValkeyAdapter` extended with `set_str`/`get_str`/`delete` for step-up OTP storage.
+
 ### File List
+
+- `service_webapp/src/core/auth.py` (new)
+- `service_webapp/src/core/step_up.py` (new)
+- `service_webapp/src/core/config.py` (modified — otp_step_up_ttl_seconds)
+- `service_webapp/src/core/errors.py` (modified — UnauthenticatedError, ForbiddenError, OtpVerificationError)
+- `service_webapp/src/core/protocols/cache.py` (modified — set_str, get_str, delete)
+- `service_webapp/src/adapters/redis.py` (modified — implement set_str, get_str, delete)
+- `service_webapp/src/adapters/cognito.py` (modified — initiate_login, verify_login_otp on Protocol + impls)
+- `service_webapp/src/routers/account.py` (modified — auth_router, login initiate/verify endpoints)
+- `service_webapp/src/main.py` (modified — wire jwt_validator, step_up_service, auth_router)
+- `service_webapp/pyproject.toml` (modified — PyJWT dep in deps + lint + test envs)
+- `service_webapp/.env.example` (modified — OTP_STEP_UP_TTL_SECONDS placeholder)
+- `service_webapp/tests/unit/test_auth.py` (new)
+- `frontend/src/lib/auth.ts` (new)
+- `frontend/src/components/layout/RoleGuard.tsx` (new)
+- `frontend/src/portals/auth/Login.tsx` (new)
+- `frontend/src/lib/api.ts` (modified — Bearer interceptor, 401 redirect, login API calls)
+- `frontend/src/App.tsx` (modified — role-gated routes, Login route, RoleGuard)
+- `frontend/src/App.test.tsx` (modified — updated for new route structure)
+- `frontend/src/lib/auth.test.ts` (new)
+- `frontend/src/components/layout/RoleGuard.test.tsx` (new)

@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-20  # Story 1.6 code review done — 10 patches applied (AES-GCM nonce fix, Cognito lock, async pool, assert→RuntimeError, HTML ids, date parsing, email length, langfuse exc_info, mutation guard)
+last_updated: 2026-06-22  # Story 1.8 dev done — JWT auth, step-up OTP, Cognito login flow, frontend RoleGuard
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -52,7 +52,7 @@ development_status:
   1-5-langfuse-self-hosted-setup-client-instrumentation-scaffold: done
   1-6-subscriber-registration-trai-caf-pii-encryption: done
   1-7-sim-activation-order-tracker-ui: ready-for-dev
-  1-8-login-otp-step-up-jwt-role-based-auth: ready-for-dev
+  1-8-login-otp-step-up-jwt-role-based-auth: review
   1-9-profile-management-kyc-status-view: ready-for-dev
   1-10-saved-payment-methods-pci-dss-tokenisation: ready-for-dev
   epic-1-retrospective: optional

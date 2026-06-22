@@ -22,7 +22,7 @@ import logging
 import secrets
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from core.errors import CognitoProvisioningError
+from core.errors import CognitoProvisioningError, OtpVerificationError
 
 if TYPE_CHECKING:
     from core.config import Settings
@@ -34,7 +34,7 @@ _OTP_LENGTH = 6
 
 @runtime_checkable
 class CognitoProvider(Protocol):
-    """Port for provisioning + verifying passwordless subscriber users."""
+    """Port for provisioning, verifying, and authenticating passwordless subscriber users."""
 
     async def provision_user(self, username: str, phone_number: str | None) -> str:
         """Create a passwordless user (username = Registration ID); return the username."""
@@ -42,6 +42,22 @@ class CognitoProvider(Protocol):
 
     async def start_verification(self, phone_number: str | None) -> str:
         """Trigger the Step-3 verification OTP; return the captured code (MVP)."""
+        ...
+
+    async def initiate_login(self, identifier: str) -> str:
+        """Initiate Cognito Custom Auth Flow (CUSTOM_AUTH); return the session string.
+
+        ``identifier`` is the Registration ID (pre-activation) or MSISDN (post-activation).
+        The flow issues an OTP challenge surfaced by the Notification Portal.
+        """
+        ...
+
+    async def verify_login_otp(self, identifier: str, session: str, otp: str) -> dict:
+        """Respond to the CUSTOM_CHALLENGE with ``otp``; return the JWT token dict.
+
+        On success returns ``{access_token, refresh_token, id_token, token_type}``.
+        Raises :class:`~core.errors.OtpVerificationError` on wrong/expired OTP.
+        """
         ...
 
 
@@ -54,10 +70,18 @@ class FakeCognitoProvider:
     """
 
     OTP = "123456"
+    SESSION = "fake-session-abc123"
+    TOKENS: dict[str, str] = {
+        "access_token": "fake.access.token",
+        "refresh_token": "fake-refresh-token",
+        "id_token": "fake.id.token",
+        "token_type": "Bearer",
+    }
 
     def __init__(self) -> None:
         self.provisioned: dict[str, str | None] = {}  # username -> phone_number
         self.verifications: list[str | None] = []  # phone numbers an OTP was sent to
+        self.login_initiations: list[str] = []  # identifiers that initiated login
         self.fail = False
 
     async def provision_user(self, username: str, phone_number: str | None) -> str:
@@ -71,6 +95,19 @@ class FakeCognitoProvider:
         """Return the fixed OTP and record the dispatch target."""
         self.verifications.append(phone_number)
         return self.OTP
+
+    async def initiate_login(self, identifier: str) -> str:
+        """Return a fixed session string and record the identifier."""
+        if self.fail:
+            raise CognitoProvisioningError("fake login initiation disabled")
+        self.login_initiations.append(identifier)
+        return self.SESSION
+
+    async def verify_login_otp(self, identifier: str, session: str, otp: str) -> dict:
+        """Validate the OTP (must equal :attr:`OTP`); return fake tokens on success."""
+        if otp != self.OTP:
+            raise OtpVerificationError(f"Invalid OTP for {_safe_phone(identifier)}")
+        return dict(self.TOKENS)
 
 
 class MinistackCognitoProvider:
@@ -180,6 +217,65 @@ class MinistackCognitoProvider:
         logger.info("Cognito verification OTP dispatched to alternate mobile %s", _safe_phone(phone_number))
         return code
 
+    async def initiate_login(self, identifier: str) -> str:
+        """Initiate Cognito Custom Auth Flow for ``identifier``; return the session string.
+
+        MiniStack (LocalStack) routes the ``CUSTOM_AUTH`` initiate call; the
+        DefineAuthChallenge / CreateAuthChallenge Lambdas must be provisioned for the
+        challenge to be issued. The session string is returned to the client so it can
+        respond with the OTP in the verify step.
+        """
+        try:
+            _, client_id = await self._ensure_pool()
+            resp = await asyncio.to_thread(
+                self._boto_client().initiate_auth,
+                AuthFlow="CUSTOM_AUTH",
+                AuthParameters={"USERNAME": identifier},
+                ClientId=client_id,
+            )
+            session: str = resp.get("Session", "")
+            logger.info("Cognito Custom Auth initiated for identifier=%s", _safe_phone(identifier))
+            return session
+        except Exception as exc:
+            logger.exception("Cognito login initiation failed for identifier=%s", _safe_phone(identifier))
+            raise CognitoProvisioningError(f"Login initiation failed: {exc}") from exc
+
+    async def verify_login_otp(self, identifier: str, session: str, otp: str) -> dict:
+        """Respond to the Custom Auth challenge with ``otp``; return JWT tokens on success.
+
+        On success returns ``{access_token, refresh_token, id_token, token_type}``.
+        Raises :class:`~core.errors.OtpVerificationError` on wrong/expired OTP.
+        """
+        try:
+            _, client_id = await self._ensure_pool()
+            resp = await asyncio.to_thread(
+                self._boto_client().respond_to_auth_challenge,
+                ClientId=client_id,
+                ChallengeName="CUSTOM_CHALLENGE",
+                Session=session,
+                ChallengeResponses={"USERNAME": identifier, "ANSWER": otp},
+            )
+        except Exception as exc:
+            err_code = ""
+            try:
+                err_code = exc.response["Error"]["Code"]  # type: ignore[attr-defined]
+            except (AttributeError, KeyError, TypeError):
+                pass
+            if err_code in ("NotAuthorizedException", "CodeMismatchException"):
+                raise OtpVerificationError("OTP verification failed.") from exc
+            logger.exception("Cognito OTP verify failed for identifier=%s", _safe_phone(identifier))
+            raise CognitoProvisioningError(f"OTP verification error: {exc}") from exc
+
+        auth_result = resp.get("AuthenticationResult", {})
+        if not auth_result:
+            raise OtpVerificationError("OTP challenge not completed — check Cognito Lambda triggers.")
+        return {
+            "access_token": auth_result.get("AccessToken", ""),
+            "refresh_token": auth_result.get("RefreshToken", ""),
+            "id_token": auth_result.get("IdToken", ""),
+            "token_type": auth_result.get("TokenType", "Bearer"),
+        }
+
     # ── helpers ───────────────────────────────────────────────────────────────
     @staticmethod
     def _find_user_pool(client: Any, pool_name: str) -> str | None:
@@ -208,4 +304,5 @@ __all__ = [
     "CognitoProvider",
     "FakeCognitoProvider",
     "MinistackCognitoProvider",
+    "_safe_phone",
 ]

@@ -85,6 +85,11 @@ class Settings(BaseSettings):
     aws_access_key_id: str = "test"  # LocalStack accepts dummy credentials
     aws_secret_access_key: str = "test"
 
+    # ── Optional: OTP step-up (Story 1.8) ────────────────────────────────────
+    # Valkey key TTL (seconds) for mid-session step-up OTP (otp:{msisdn}).
+    # Distinct from the Cognito login OTP — see §1.7.3.
+    otp_step_up_ttl_seconds: int = 300
+
     # ── Optional: OpenTelemetry exporter ─────────────────────────────────────
     otel_exporter_otlp_endpoint: str = "http://localhost:4318"
     otel_exporter_otlp_protocol: str = "http/protobuf"

@@ -22,10 +22,15 @@ from adapters.redis import ValkeyAdapter
 
 # Importing settings eager-loads + validates config at boot (fail-fast, AC #1); it is
 # also consumed in the lifespan below, so the import is not merely a side effect.
+from core.auth import JWTValidator, _cognito_jwks_url
 from core.config import settings
 from core.errors import register_exception_handlers
 from core.middleware import OtelTraceMiddleware
-from routers.account import router as account_router
+from core.step_up import StepUpOtpService
+from routers.account import (
+    auth_router,
+    router as account_router,
+)
 from routers.health import router as health_router
 from services.registration import (
     PostgresRegistrationRepository,
@@ -75,6 +80,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if getattr(app.state, "registration_service", None) is None:
         repo = PostgresRegistrationRepository(app.state.db_adapter)
         app.state.registration_service = RegistrationService(repo, app.state.cognito_provider)
+    if getattr(app.state, "jwt_validator", None) is None:
+        app.state.jwt_validator = JWTValidator(_cognito_jwks_url(settings))
+    if getattr(app.state, "step_up_service", None) is None:
+        app.state.step_up_service = StepUpOtpService(app.state.cache_adapter, settings.otp_step_up_ttl_seconds)
     try:
         yield
     finally:
@@ -90,6 +99,8 @@ def create_app(
     cache_adapter: CacheProtocol | None = None,
     cognito_provider: CognitoProvider | None = None,
     registration_service: RegistrationService | RegistrationRepository | None = None,
+    jwt_validator: JWTValidator | None = None,
+    step_up_service: StepUpOtpService | None = None,
 ) -> FastAPI:
     """Construct the FastAPI app.
 
@@ -102,10 +113,13 @@ def create_app(
     register_exception_handlers(app)
     app.include_router(health_router)
     app.include_router(account_router)
+    app.include_router(auth_router)
     app.state.db_adapter = db_adapter
     app.state.cache_adapter = cache_adapter
     app.state.cognito_provider = cognito_provider
     app.state.registration_service = registration_service
+    app.state.jwt_validator = jwt_validator
+    app.state.step_up_service = step_up_service
     return app
 
 

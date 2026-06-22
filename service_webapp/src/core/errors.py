@@ -51,6 +51,30 @@ class CognitoProvisioningError(DomainError):
     message = "Could not provision the identity user."
 
 
+class UnauthenticatedError(DomainError):
+    """Missing, invalid, or expired JWT (AC #4; §1.11.3, NFR-7)."""
+
+    code = "UNAUTHENTICATED"
+    http_status = 401
+    message = "Authentication required."
+
+
+class ForbiddenError(DomainError):
+    """Valid JWT but role does not grant access to the resource (AC #4; NFR-7)."""
+
+    code = "FORBIDDEN"
+    http_status = 403
+    message = "Insufficient permissions."
+
+
+class OtpVerificationError(DomainError):
+    """Step-up OTP invalid or expired (AC #5; §1.7.3)."""
+
+    code = "OTP_INVALID"
+    http_status = 400
+    message = "OTP verification failed — invalid or expired."
+
+
 def _trace_id(request: Request) -> str:
     return getattr(request.state, "trace_id", "unknown")
 
@@ -87,5 +111,8 @@ __all__ = [
     "CognitoProvisioningError",
     "DomainError",
     "DuplicateMsisdnError",
+    "ForbiddenError",
+    "OtpVerificationError",
+    "UnauthenticatedError",
     "register_exception_handlers",
 ]

@@ -1,0 +1,163 @@
+/**
+ * Login portal — passwordless OTP login (Story 1.8; AC #1, #2).
+ *
+ * Two-step flow:
+ *   Step 1: Enter Registration ID (pre-activation) or MSISDN (post-activation).
+ *   Step 2: Enter the OTP surfaced on the Notification Portal.
+ *
+ * On success the JWT access token is saved in localStorage and the user is
+ * redirected to their role's portal root.
+ *
+ * This screen is top-level and NOT role-gated (§1.9.1, UX-DR7).
+ */
+
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+
+import { initiateLogin, verifyLoginOtp } from '../../lib/api';
+import { getRole, isAuthenticated, saveToken } from '../../lib/auth';
+
+/** Map portal role to its root route. */
+const ROLE_ROUTE: Record<string, string> = {
+  subscriber: '/subscriber',
+  ops: '/ops',
+  fraud: '/fraud',
+  dev: '/simulator',
+  admin: '/ops',
+  marketing: '/ops',
+};
+
+type Step = 'identifier' | 'otp';
+
+function Login() {
+  const navigate = useNavigate();
+
+  const [step, setStep] = useState<Step>('identifier');
+  const [identifier, setIdentifier] = useState('');
+  const [session, setSession] = useState('');
+  const [otp, setOtp] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Already authenticated — redirect immediately.
+  if (isAuthenticated()) {
+    const role = getRole();
+    const route = (role !== null ? ROLE_ROUTE[role] : null) ?? '/';
+    navigate(route, { replace: true });
+    return null;
+  }
+
+  async function handleInitiate(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      const result = await initiateLogin(identifier);
+      setSession(result.session);
+      setStep('otp');
+    } catch {
+      setError('Failed to initiate login. Check your Registration ID or MSISDN.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerify(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      const tokens = await verifyLoginOtp(identifier, session, otp);
+      saveToken(tokens.access_token);
+      const role = getRole();
+      const route = (role !== null ? ROLE_ROUTE[role] : null) ?? '/';
+      navigate(route, { replace: true });
+    } catch {
+      setError('OTP verification failed — check the code and try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">
+      <div className="w-full max-w-sm rounded-xl bg-white p-8 shadow-sm ring-1 ring-neutral-200">
+        <h1 className="mb-1 text-2xl font-bold text-neutral-900">Sign in</h1>
+        <p className="mb-6 text-sm text-neutral-500">
+          {step === 'identifier'
+            ? 'Enter your Registration ID or mobile number.'
+            : 'Enter the OTP from the Notification Portal.'}
+        </p>
+
+        {error !== null && (
+          <p role="alert" className="mb-4 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">
+            {error}
+          </p>
+        )}
+
+        {step === 'identifier' ? (
+          <form onSubmit={handleInitiate} noValidate>
+            <label className="mb-1 block text-sm font-medium text-neutral-700" htmlFor="identifier">
+              Registration ID or MSISDN
+            </label>
+            <input
+              id="identifier"
+              type="text"
+              autoComplete="username"
+              required
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+              placeholder="REG-YYYYMMDD-xxxxxxxx or 9876543210"
+              className="mb-4 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              type="submit"
+              disabled={loading || identifier.trim() === ''}
+              className="w-full rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {loading ? 'Sending OTP…' : 'Continue'}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleVerify} noValidate>
+            <label className="mb-1 block text-sm font-medium text-neutral-700" htmlFor="otp">
+              One-time passcode
+            </label>
+            <input
+              id="otp"
+              type="text"
+              autoComplete="one-time-code"
+              inputMode="numeric"
+              required
+              value={otp}
+              onChange={(e) => setOtp(e.target.value)}
+              placeholder="6-digit code"
+              maxLength={6}
+              className="mb-4 w-full rounded-lg border border-neutral-300 px-3 py-2 text-center text-lg tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              type="submit"
+              disabled={loading || otp.length !== 6}
+              className="mb-3 w-full rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {loading ? 'Verifying…' : 'Sign in'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setStep('identifier');
+                setOtp('');
+                setError(null);
+              }}
+              className="w-full text-sm text-neutral-500 hover:text-neutral-700"
+            >
+              Back
+            </button>
+          </form>
+        )}
+      </div>
+    </main>
+  );
+}
+
+export { Login };
