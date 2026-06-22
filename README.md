@@ -172,8 +172,8 @@ just seed-milvus
 Provisioned by `scripts/provision_cognito.py` (run automatically by `just deps`).
 Idempotent — re-running refreshes this section.
 
-- **User Pool:** `sboai-subscribers` — ID: `ap-south-1_5OfJ0y4hM`
-- **App Client:** `sboai-webapp` — ID: `55vCDv2ci3VfzjiQxA1JwjF24i`
+- **User Pool:** `sboai-subscribers` — ID: `ap-south-1_RqEFMnEjO`
+- **App Client:** `sboai-webapp` — ID: `RnxOQc5rB5ITY8abDvwVbvhXen`
 - **Endpoint / region:** `http://localhost:4566` / `ap-south-1` (MiniStack / LocalStack)
 - **Auth model:** passwordless Custom Auth Flow (Story 1.8). Roles surface as the
   `cognito:groups` claim — the backend auth layer reads `cognito:groups`, not `role`.
@@ -184,9 +184,9 @@ Seeded test users (one per non-subscriber role; subscriber users come from regis
 
 | Username | Role (group) | `sub` |
 | --- | --- | --- |
-| `dev` | dev | `8970270b-4dcb-40ff-a987-2f290dd7b72a` |
-| `admin` | admin | `2d97b195-2afc-45e4-b834-cb900ea3dd50` |
-| `marketing` | marketing | `7e084885-8a99-4cbd-8019-82928180f24e` |
-| `ops` | ops | `d646c2f8-f566-4b9b-be8d-cd70f249422d` |
-| `fraud` | fraud | `9919d046-c696-4873-bb2b-5ffa0144a9ee` |
+| `dev` | dev | `f3541185-7e81-4bd4-bd0f-8b0c7d2eab15` |
+| `admin` | admin | `ac2345c2-8fc6-4662-81ea-98c4bc89391e` |
+| `marketing` | marketing | `71bfa6a1-affd-49fd-be9c-a7b312146d90` |
+| `ops` | ops | `257bb97c-dcef-4ee1-8872-0ba610314656` |
+| `fraud` | fraud | `ce1a12bd-1d8b-4124-a09f-9a6e23626036` |
 <!-- END COGNITO PROVISIONING -->

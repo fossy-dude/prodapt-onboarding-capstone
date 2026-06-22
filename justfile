@@ -5,6 +5,8 @@
 # See README.md §4 (Development Workflow) and architecture.md §1.12.2.
 
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
+set dotenv-load := true
+set dotenv-path := "service_webapp/.env"
 
 # tox is run through `uv` via the tox-uv plugin (it provides `uv-venv-runner`).
 # NOTE: architecture.md §1.12.2 documents `uv tox`, but that is not a real `uv`

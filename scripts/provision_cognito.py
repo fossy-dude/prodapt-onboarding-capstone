@@ -393,10 +393,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--endpoint-url",
-        default=os.environ.get("COGNITO_ENDPOINT_URL", "http://localhost:4566"),
+        default=os.environ.get("AWS_ENDPOINT_URL", "http://localhost:4566"),
     )
     parser.add_argument(
-        "--region", default=os.environ.get("COGNITO_REGION", "ap-south-1")
+        "--region", default=os.environ.get("AWS_DEFAULT_REGION", "ap-south-1")
     )
     parser.add_argument(
         "--pool-name",
