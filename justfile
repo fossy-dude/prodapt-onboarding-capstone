@@ -29,6 +29,9 @@ deps:
     @i=0; until podman exec redpanda rpk cluster health > /dev/null 2>&1 || [ $i -ge 60 ]; do i=$((i+1)); sleep 1; done; if [ $i -ge 60 ]; then echo "ERROR: Redpanda health check timeout after 60s"; exit 1; fi
     @just provision-topics
     @just provision-cognito
+    @i=0; until podman exec postgres pg_isready -U sboai_superuser > /dev/null 2>&1 || [ $i -ge 60 ]; do i=$((i+1)); sleep 1; done; if [ $i -ge 60 ]; then echo "ERROR: Postgres health check timeout after 60s"; exit 1; fi
+    @just migrate
+    @just seed
 
 # Provision MiniStack Cognito (user pool, role groups, app client, demo users). Idempotent.
 # Runs automatically after `just deps`; safe to re-run by hand. Writes pool/client IDs
@@ -80,11 +83,16 @@ restart svc:
 migrate:
     flyway -url=jdbc:postgresql://localhost:5432/sboai -locations=filesystem:{{ justfile_directory() }}/service_webapp/db/migrations migrate
 
-# Generate synthetic data (1K plans -> 300K subscribers -> 5M CDRs). Script lands in Epic 2.
+# Seed synthetic data: 1K plans (service_webapp/db/seed/) + 300K subscribers + 5M CDRs + SOP knowledge base.
+# Plans seed SQL is executed by generate_synthetic_data.py (NOT Flyway).
+# Writes scripts/fraud_report.json listing fraudulent subscribers for demo.
+# Idempotent: safe to re-run (truncates generated tables, re-seeds plans via ON CONFLICT).
 seed:
-    @echo "[seed] Synthetic data generation lands in Epic 2 (scripts/generate_synthetic_data.py)."
-    @echo "[seed] This recipe is wired now so the README and CI reference a stable command."
-    @exit 1
+    @echo "[seed] Seeding plans + subscribers + CDRs ..."
+    cd service_webapp && PYTHONPATH=src python ../scripts/generate_synthetic_data.py
+    @echo "[seed] Seeding SOP knowledge base ..."
+    cd service_webapp && PYTHONPATH=src python ../scripts/sop_generator.py
+    @echo "[seed] Done. Fraud demo report: scripts/fraud_report.json"
 
 # Ingest FAQ/plan/SOP documents into Milvus Lite. Script lands in Epic 2.
 # (architecture §1.12.2 erroneously ran the .sh with python; corrected to bash.)
