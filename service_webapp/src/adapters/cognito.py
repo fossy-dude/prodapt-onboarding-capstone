@@ -18,6 +18,7 @@ provisioning itself is real and routed at the provisioned MiniStack endpoint.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 import secrets
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -71,11 +72,15 @@ class FakeCognitoProvider:
 
     OTP = "123456"
     SESSION = "fake-session-abc123"
+    # DN1: fake tokens include phone_number to satisfy AC #2 (MSISDN in token payload).
+    # In production a PreTokenGeneration Lambda adds phone_number to the access token;
+    # the fake simulates that claim so tests can assert its presence.
     TOKENS: dict[str, str] = {
         "access_token": "fake.access.token",
         "refresh_token": "fake-refresh-token",
         "id_token": "fake.id.token",
         "token_type": "Bearer",
+        "phone_number": "+919876543210",
     }
 
     def __init__(self) -> None:
@@ -104,8 +109,11 @@ class FakeCognitoProvider:
         return self.SESSION
 
     async def verify_login_otp(self, identifier: str, session: str, otp: str) -> dict:
-        """Validate the OTP (must equal :attr:`OTP`); return fake tokens on success."""
-        if otp != self.OTP:
+        """Validate the OTP and session; return fake tokens on success."""
+        # P6: validate session matches so tests catch session-mismatch bugs.
+        if session != self.SESSION:
+            raise OtpVerificationError("Invalid session.")
+        if not hmac.compare_digest(otp, self.OTP):
             raise OtpVerificationError(f"Invalid OTP for {_safe_phone(identifier)}")
         return dict(self.TOKENS)
 
@@ -234,6 +242,9 @@ class MinistackCognitoProvider:
                 ClientId=client_id,
             )
             session: str = resp.get("Session", "")
+            # P11: an empty session means Cognito didn't issue a challenge — fail loudly.
+            if not session:
+                raise CognitoProvisioningError("Cognito returned empty session — check Custom Auth Lambda triggers.")
             logger.info("Cognito Custom Auth initiated for identifier=%s", _safe_phone(identifier))
             return session
         except Exception as exc:
@@ -261,7 +272,8 @@ class MinistackCognitoProvider:
                 err_code = exc.response["Error"]["Code"]  # type: ignore[attr-defined]
             except (AttributeError, KeyError, TypeError):
                 pass
-            if err_code in ("NotAuthorizedException", "CodeMismatchException"):
+            # P12: ExpiredCodeException means the session (not the OTP digit) timed out.
+            if err_code in ("NotAuthorizedException", "CodeMismatchException", "ExpiredCodeException"):
                 raise OtpVerificationError("OTP verification failed.") from exc
             logger.exception("Cognito OTP verify failed for identifier=%s", _safe_phone(identifier))
             raise CognitoProvisioningError(f"OTP verification error: {exc}") from exc
@@ -269,8 +281,13 @@ class MinistackCognitoProvider:
         auth_result = resp.get("AuthenticationResult", {})
         if not auth_result:
             raise OtpVerificationError("OTP challenge not completed — check Cognito Lambda triggers.")
+        # P10: missing token fields mean Cognito returned a partial result — raise rather
+        # than propagating empty strings that would silently break the caller.
+        access_token = auth_result.get("AccessToken", "")
+        if not access_token:
+            raise OtpVerificationError("Cognito did not return an access token.")
         return {
-            "access_token": auth_result.get("AccessToken", ""),
+            "access_token": access_token,
             "refresh_token": auth_result.get("RefreshToken", ""),
             "id_token": auth_result.get("IdToken", ""),
             "token_type": auth_result.get("TokenType", "Bearer"),
@@ -304,5 +321,4 @@ __all__ = [
     "CognitoProvider",
     "FakeCognitoProvider",
     "MinistackCognitoProvider",
-    "_safe_phone",
 ]

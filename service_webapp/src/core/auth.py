@@ -88,6 +88,10 @@ class JWTValidator:
         except jwt.InvalidTokenError as exc:
             logger.info("JWT validation: invalid token (%s)", type(exc).__name__)
             raise UnauthenticatedError("Access token is invalid.") from exc
+        except Exception as exc:
+            # P13: JWKS fetch or network failure — surface as 401, not 500.
+            logger.warning("JWT validation: JWKS/network error (%s)", type(exc).__name__)
+            raise UnauthenticatedError("Token validation temporarily unavailable.") from exc
 
 
 class FakeJWTValidator:
@@ -115,7 +119,11 @@ def _extract_token(request: Request) -> str:
     header = request.headers.get("Authorization", "")
     if not header.startswith(_BEARER_PREFIX):
         raise UnauthenticatedError("Missing or malformed Authorization header.")
-    return header[len(_BEARER_PREFIX) :]
+    token = header[len(_BEARER_PREFIX) :]
+    # P14: "Bearer " with no trailing token → empty string → reject immediately.
+    if not token:
+        raise UnauthenticatedError("Missing or malformed Authorization header.")
+    return token
 
 
 def require_role(*roles: str) -> Any:

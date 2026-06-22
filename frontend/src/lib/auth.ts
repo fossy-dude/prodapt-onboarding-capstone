@@ -29,7 +29,11 @@ function decodeJwtPayload(token: string): JwtPayload | null {
     if (parts.length !== 3) return null;
     const base64 = (parts[1] ?? '').replace(/-/g, '+').replace(/_/g, '/');
     const json = atob(base64);
-    return JSON.parse(json) as JwtPayload;
+    const parsed: unknown = JSON.parse(json);
+    // P17: guard against non-object payloads (arrays, strings) that would cause
+    // undefined property access on the JwtPayload fields downstream.
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+    return parsed as JwtPayload;
   } catch {
     return null;
   }
@@ -37,7 +41,8 @@ function decodeJwtPayload(token: string): JwtPayload | null {
 
 /** Return true if the token's exp claim is in the future. */
 function isExpired(payload: JwtPayload): boolean {
-  if (payload.exp === undefined) return false;
+  // P1: a token with no exp claim is treated as expired — never unconditionally valid.
+  if (payload.exp === undefined) return true;
   return Date.now() / 1000 > payload.exp;
 }
 

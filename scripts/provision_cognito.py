@@ -27,6 +27,11 @@ Deliberately OUT of scope (land in Story 1.8 / Notification-Portal epic)
   login OTP.
 * The Redpanda (``notification.events``) producer that surfaces the OTP on the
   Notification Portal — **no SNS** in MVP; OTP rides Kafka (architecture §1.8.1).
+* A **PreTokenGeneration Lambda** to include ``phone_number`` in the Cognito access
+  token payload (AC #2). Cognito does not add standard attributes to the access token
+  by default; a ``PRE_TOKEN_GENERATION`` trigger is required for production. The
+  ``FakeCognitoProvider`` already includes the claim in its fake tokens so unit tests
+  can assert AC #2 without a live Cognito.
 
 Run
 ---

@@ -12,7 +12,8 @@
  */
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
+import { useMutation } from '@tanstack/react-query';
 
 import { initiateLogin, verifyLoginOtp } from '../../lib/api';
 import { getRole, isAuthenticated, saveToken } from '../../lib/auth';
@@ -31,53 +32,65 @@ type Step = 'identifier' | 'otp';
 
 function Login() {
   const navigate = useNavigate();
-
   const [step, setStep] = useState<Step>('identifier');
   const [identifier, setIdentifier] = useState('');
   const [session, setSession] = useState('');
   const [otp, setOtp] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  // Already authenticated — redirect immediately.
-  if (isAuthenticated()) {
-    const role = getRole();
-    const route = (role !== null ? ROLE_ROUTE[role] : null) ?? '/';
-    navigate(route, { replace: true });
-    return null;
-  }
-
-  async function handleInitiate(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      const result = await initiateLogin(identifier);
+  // P19: server state via TanStack Query useMutation (spec Task 4 / Dev Notes §1.9.3).
+  const initiateMutation = useMutation({
+    mutationFn: (id: string) => initiateLogin(id),
+    onSuccess: (result) => {
       setSession(result.session);
       setStep('otp');
-    } catch {
-      setError('Failed to initiate login. Check your Registration ID or MSISDN.');
-    } finally {
-      setLoading(false);
+    },
+  });
+
+  const verifyMutation = useMutation({
+    mutationFn: ({ id, sess, code }: { id: string; sess: string; code: string }) =>
+      verifyLoginOtp(id, sess, code),
+    onSuccess: (tokens) => {
+      saveToken(tokens.access_token);
+      const role = getRole();
+      // P18: guard unknown role — don't navigate to '/' which wildcard-redirects to /login.
+      const route = role !== null ? (ROLE_ROUTE[role] ?? null) : null;
+      if (route === null) {
+        return; // isSuccess + role === null → error message shown below
+      }
+      navigate(route, { replace: true });
+    },
+  });
+
+  // P4: already-authenticated redirect uses <Navigate> component, not imperative
+  // navigate() during render which is a React side-effect anti-pattern.
+  if (isAuthenticated()) {
+    const role = getRole();
+    const route = role !== null ? (ROLE_ROUTE[role] ?? null) : null;
+    if (route !== null) {
+      return <Navigate to={route} replace />;
     }
   }
 
-  async function handleVerify(e: React.FormEvent<HTMLFormElement>) {
+  function handleInitiate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      const tokens = await verifyLoginOtp(identifier, session, otp);
-      saveToken(tokens.access_token);
-      const role = getRole();
-      const route = (role !== null ? ROLE_ROUTE[role] : null) ?? '/';
-      navigate(route, { replace: true });
-    } catch {
-      setError('OTP verification failed — check the code and try again.');
-    } finally {
-      setLoading(false);
-    }
+    initiateMutation.mutate(identifier);
   }
+
+  function handleVerify(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    verifyMutation.mutate({ id: identifier, sess: session, code: otp });
+  }
+
+  const error =
+    initiateMutation.isError
+      ? 'Failed to initiate login. Check your Registration ID or MSISDN.'
+      : verifyMutation.isError
+        ? 'OTP verification failed — check the code and try again.'
+        : verifyMutation.isSuccess && getRole() === null
+          ? 'Unrecognized account role — contact support.'
+          : null;
+
+  const loading = initiateMutation.isPending || verifyMutation.isPending;
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">
@@ -147,7 +160,8 @@ function Login() {
               onClick={() => {
                 setStep('identifier');
                 setOtp('');
-                setError(null);
+                initiateMutation.reset();
+                verifyMutation.reset();
               }}
               className="w-full text-sm text-neutral-500 hover:text-neutral-700"
             >

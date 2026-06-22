@@ -18,6 +18,7 @@ service from ``request.app.state.step_up_service`` and raises
 
 from __future__ import annotations
 
+import hmac
 import logging
 import secrets
 from typing import TYPE_CHECKING, Any
@@ -63,10 +64,15 @@ class StepUpOtpService:
         when the key is absent (expired or never generated) or the code is wrong.
         """
         stored = await self._cache.get_str(self._key(msisdn))
-        if stored is None or stored != entered_code:
+        # P2: constant-time comparison prevents timing-based OTP enumeration.
+        if stored is None or not hmac.compare_digest(stored, entered_code):
             logger.info("Step-up OTP verification failed for msisdn=***%s", msisdn[-4:])
             return False
-        await self._cache.delete(self._key(msisdn))
+        try:
+            # P16: delete key first to prevent replay on cache errors.
+            await self._cache.delete(self._key(msisdn))
+        except Exception:
+            logger.warning("Step-up OTP: cache delete failed for msisdn=***%s — key may replay", msisdn[-4:])
         logger.info("Step-up OTP verified and consumed for msisdn=***%s", msisdn[-4:])
         return True
 
@@ -88,7 +94,8 @@ class FakeStepUpOtpService:
     async def verify(self, msisdn: str, entered_code: str) -> bool:
         """Validate ``entered_code`` and delete the key on success."""
         stored = self._store.get(msisdn)
-        if stored is None or stored != entered_code:
+        # P2: constant-time comparison mirrors the real service.
+        if stored is None or not hmac.compare_digest(stored, entered_code):
             return False
         del self._store[msisdn]
         return True
@@ -108,8 +115,15 @@ def require_step_up(msisdn_attr: str = "msisdn") -> Any:
         service = getattr(request.app.state, "step_up_service", None)
         if service is None:
             raise RuntimeError("step_up_service not wired onto app.state")
+        # P15: empty msisdn produces key "otp:" which could collide across users.
         msisdn: str = getattr(request.state, msisdn_attr, "")
-        body: dict[str, Any] = await request.json()
+        if not msisdn:
+            raise OtpVerificationError("MSISDN context missing — cannot validate step-up OTP.")
+        # P3: request.json() may raise if body already consumed or Content-Type wrong.
+        try:
+            body: dict[str, Any] = await request.json()
+        except Exception as exc:
+            raise OtpVerificationError("Invalid request body for step-up OTP.") from exc
         entered_code: str = body.get("step_up_otp", "")
         if not await service.verify(msisdn, entered_code):
             raise OtpVerificationError()

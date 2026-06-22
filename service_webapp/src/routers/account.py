@@ -147,7 +147,8 @@ class LoginInitiateRequest(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    identifier: str = Field(description="Registration ID or MSISDN.")
+    # P9: bound length to prevent unbounded strings reaching Cognito.
+    identifier: str = Field(min_length=1, max_length=128, description="Registration ID or MSISDN.")
 
 
 class LoginVerifyRequest(BaseModel):
@@ -155,9 +156,12 @@ class LoginVerifyRequest(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    identifier: str = Field(description="Registration ID or MSISDN (must match initiation).")
-    session: str = Field(description="Session string returned by the initiate endpoint.")
-    otp: str = Field(description="6-digit OTP delivered via the Notification Portal.")
+    # P9: min/max length guards prevent malformed inputs reaching Cognito.
+    identifier: str = Field(
+        min_length=1, max_length=128, description="Registration ID or MSISDN (must match initiation)."
+    )
+    session: str = Field(min_length=1, description="Session string returned by the initiate endpoint.")
+    otp: str = Field(min_length=6, max_length=6, description="6-digit OTP delivered via the Notification Portal.")
 
 
 def _cognito(request: Request):

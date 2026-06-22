@@ -1,7 +1,7 @@
 # SBOAI Capstone — cross-platform task runner.
 #
 # Run `just --list` to see every recipe. The backend dir is `service_webapp/`
-# (the architecture's `service_backend`/`app-backend` both resolve to it).
+# (the architecture's `service_webapp`/`app-backend` both resolve to it).
 # See README.md §4 (Development Workflow) and architecture.md §1.12.2.
 
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]

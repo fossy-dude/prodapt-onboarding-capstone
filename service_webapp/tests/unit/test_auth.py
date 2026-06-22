@@ -261,7 +261,8 @@ async def test_login_verify_correct_otp_returns_tokens() -> None:
     assert data["token_type"] == "Bearer"
 
 
-async def test_login_verify_wrong_otp_returns_400() -> None:
+async def test_login_verify_wrong_otp_returns_401() -> None:
+    # DN2: OtpVerificationError is now http_status=401 (authentication failure).
     cognito = FakeCognitoProvider()
     app = _make_app(cognito=cognito)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -274,8 +275,31 @@ async def test_login_verify_wrong_otp_returns_400() -> None:
             },
         )
 
-    assert resp.status_code == 400
+    assert resp.status_code == 401
     assert resp.json()["error"]["code"] == "OTP_INVALID"
+
+
+async def test_login_verify_msisdn_present_in_token_response() -> None:
+    # DN1: AC #2 — post-activation MSISDN login must return a token payload containing
+    # phone_number. FakeCognitoProvider includes the claim; production requires a
+    # PreTokenGeneration Lambda (documented in scripts/provision_cognito.py).
+    cognito = FakeCognitoProvider()
+    app = _make_app(cognito=cognito)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.post(
+            "/api/v1/auth/login/verify",
+            json={
+                "identifier": "9876543210",
+                "session": FakeCognitoProvider.SESSION,
+                "otp": FakeCognitoProvider.OTP,
+            },
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    # The token response envelope must include phone_number (AC #2).
+    assert "phone_number" in data
+    assert data["phone_number"] == FakeCognitoProvider.TOKENS["phone_number"]
 
 
 async def test_login_verify_response_has_standard_envelope() -> None:

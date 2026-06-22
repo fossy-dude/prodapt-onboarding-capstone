@@ -4,7 +4,7 @@
 baseline_commit: f61b9a0438ead02b40a5873b4ff90618e3793cd6
 ---
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
