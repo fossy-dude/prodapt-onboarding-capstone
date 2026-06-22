@@ -1,6 +1,10 @@
+---
+baseline_commit: c733cba2bf6cf9cddd3ea4f14bdd7538e42f69e5
+---
+
 # Story 3.1: UX Brief — Balance, Usage & Recharge Portal Flows
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -21,32 +25,32 @@ so that the Epic 3 frontend stories (3.2–3.7) have a clear, agreed-upon design
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Author the UX brief document** (AC: #1, #6)
-  - [ ] Create `docs/bmad_output/planning-artifacts/ux-brief-portal.md`.
-  - [ ] Add a "Document Status" header block matching `ux-brief-identity.md` (fields: `Type`, `Story`, `Produced`, `Authoritative for` = "Epic 3 frontend stories 3.2–3.7") plus a one-line "supersedes any conflicting frontend conventions for these flows" note. [Source: ux-brief-identity.md#Document-Status; 1-1 story Task 1]
-  - [ ] Use the same single-level decimal section numbering scheme (`1.`, `2.`, `2.1`, …) as `ux-brief-identity.md`. Do not invent new top-level section styles.
-- [ ] **Task 2: Document the route table** (AC: #1)
-  - [ ] §1 Screen / Route Table with columns `| Screen Name | Route | Portal Prefix | Purpose |` for the five routes (Dashboard, Plans, Recharge, History, Receipt). Mirror the table shape from `ux-brief-identity.md` §1.
-  - [ ] Reference (do not redefine) adjacent routes already established by earlier stories: `/subscriber/profile` (Story 1.9), `/subscriber/payment-methods` (Story 1.10), `/subscriber/activate` (Story 1.7), `/subscriber/orders/{id}/status` (Story 1.7).
-- [ ] **Task 3: Confirm role gating & layout** (AC: #1)
-  - [ ] §2 restate: the `/subscriber/*` subtree is gated by `<RoleGuard allowedRoles={['subscriber']}>`; the role comes from the JWT `cognito:groups` claim = `"subscriber"`. Pages live in `frontend/src/portals/subscriber/`. [Source: frontend/src/App.tsx:40-49; architecture.md#1.9.1 (lines 639, 645); 1-8 story (subscriber role string)]
-- [ ] **Task 4: Specify shared UI + chart components** (AC: #3, #6)
-  - [ ] §3 Shared UI Component Library — reuse the existing `components/ui/` barrel (`Badge`, `Button`, `Card`, `Table`). [Source: frontend/src/components/ui/index.ts]
-  - [ ] Name NEW primitives the recharge form needs: `Modal`, `Input`, `Select` (none exist today) → target `frontend/src/components/ui/`. [Source: frontend/src/components/ui/ (only Badge/Button/Card/Table present); frontend/CLAUDE.md §2.1]
-  - [ ] Name the NEW chart component `UsageRing` at `frontend/src/components/charts/UsageRing.tsx` — a Recharts radial/pie wrapper showing used-vs-allowance per type. Note `recharts` is NOT yet installed (dependency added in Story 3.2) and the `components/charts/` directory does not yet exist. [Source: epics.md:1142; architecture.md:1165 (components/charts Recharts wrappers); frontend/package.json (recharts absent)]
-  - [ ] Restate naming/styling rules: PascalCase `.tsx` components, camelCase hooks, TailwindCSS utility classes only. [Source: frontend/CLAUDE.md §2.1, §6.1]
-- [ ] **Task 5: Specify the BalanceCard + UsageRing** (AC: #2, #3)
-  - [ ] BalanceCard: large INR figure (2 decimals, rendered from integer paise), zero-balance → "Balance depleted" warning banner + "Recharge Now" CTA, last-updated timestamp (IST). Data source: `GET /api/v1/subscriber/balance` (Story 3.2). [Source: epics.md:1134; prd.md FR-8 (lines 204, 211-212); 3-2 story]
-  - [ ] UsageRing: one ring per type (voice minutes, data MB/GB, SMS count, roaming) showing used vs total allowance; "Unlimited" label when the plan has no cap. Data source: `GET /api/v1/subscriber/usage` (Story 3.2). [Source: epics.md:1136; prd.md FR-10 (lines 224, 230-232); 3-2 story]
-- [ ] **Task 6: Specify the PlanCard (catalogue)** (AC: #4)
-  - [ ] PlanCard: plan name, validity badge (e.g. "28 days"), data/voice/SMS quota chips, price (INR), "Recharge" CTA → navigates to `/subscriber/recharge?plan_id={id}`. The subscriber's current active plan shows a "Current Plan" badge (reuse `components/ui/Badge`). [Source: epics.md:1138; prd.md FR-12 (lines 252, 258-260); 3-4 story]
-- [ ] **Task 7: Specify the 3-step Recharge flow** (AC: #5)
-  - [ ] Step 1 — plan select (pre-selected when `?plan_id=` query param is present).
-  - [ ] Step 2 — payment method: choose a saved method (`GET /api/v1/subscriber/payment-methods`, Story 1.10) or add a new one. Tokenisation happens browser-side (`frontend/src/lib/tokenize.ts` `tokenizeCard`); raw PAN never leaves the browser (FR-64). [Source: prd.md FR-14 (lines 272, 278-280), FR-64 (lines 815, 821-822); 1-10 story (token-only contract, tokenize.ts)]
-  - [ ] Step 3 — confirmation: show new balance + plan activation timestamp + a PDF receipt download link (`receipt_url` → Story 3.6). [Source: epics.md:1140; prd.md FR-13 (lines 262, 268-269); 3-5/3-6 stories]
-- [ ] **Task 8: Add Project Structure Notes / conflict callout** (AC: #6)
-  - [ ] §7 conflict-resolution table mirroring `ux-brief-identity.md` §7.2: architecture layout (`portals/subscriber/`, `components/ui/`, `components/charts/`, TailwindCSS) is authoritative. [Source: ux-brief-identity.md#7.2; architecture.md#1.12.1 (lines 1144-1174)]
-  - [ ] Document the data-naming variances the frontend must reconcile (see Dev Notes) so 3.2–3.4 devs are forewarned.
+- [x] **Task 1: Author the UX brief document** (AC: #1, #6)
+  - [x] Create `docs/bmad_output/planning-artifacts/ux-brief-portal.md`.
+  - [x] Add a "Document Status" header block matching `ux-brief-identity.md` (fields: `Type`, `Story`, `Produced`, `Authoritative for` = "Epic 3 frontend stories 3.2–3.7") plus a one-line "supersedes any conflicting frontend conventions for these flows" note. [Source: ux-brief-identity.md#Document-Status; 1-1 story Task 1]
+  - [x] Use the same single-level decimal section numbering scheme (`1.`, `2.`, `2.1`, …) as `ux-brief-identity.md`. Do not invent new top-level section styles.
+- [x] **Task 2: Document the route table** (AC: #1)
+  - [x] §1 Screen / Route Table with columns `| Screen Name | Route | Portal Prefix | Purpose |` for the five routes (Dashboard, Plans, Recharge, History, Receipt). Mirror the table shape from `ux-brief-identity.md` §1.
+  - [x] Reference (do not redefine) adjacent routes already established by earlier stories: `/subscriber/profile` (Story 1.9), `/subscriber/payment-methods` (Story 1.10), `/subscriber/activate` (Story 1.7), `/subscriber/orders/{id}/status` (Story 1.7).
+- [x] **Task 3: Confirm role gating & layout** (AC: #1)
+  - [x] §2 restate: the `/subscriber/*` subtree is gated by `<RoleGuard allowedRoles={['subscriber']}>`; the role comes from the JWT `cognito:groups` claim = `"subscriber"`. Pages live in `frontend/src/portals/subscriber/`. [Source: frontend/src/App.tsx:40-49; architecture.md#1.9.1 (lines 639, 645); 1-8 story (subscriber role string)]
+- [x] **Task 4: Specify shared UI + chart components** (AC: #3, #6)
+  - [x] §3 Shared UI Component Library — reuse the existing `components/ui/` barrel (`Badge`, `Button`, `Card`, `Table`). [Source: frontend/src/components/ui/index.ts]
+  - [x] Name NEW primitives the recharge form needs: `Modal`, `Input`, `Select` (none exist today) → target `frontend/src/components/ui/`. [Source: frontend/src/components/ui/ (only Badge/Button/Card/Table present); frontend/CLAUDE.md §2.1]
+  - [x] Name the NEW chart component `UsageRing` at `frontend/src/components/charts/UsageRing.tsx` — a Recharts radial/pie wrapper showing used-vs-allowance per type. Note `recharts` is NOT yet installed (dependency added in Story 3.2) and the `components/charts/` directory does not yet exist. [Source: epics.md:1142; architecture.md:1165 (components/charts Recharts wrappers); frontend/package.json (recharts absent)]
+  - [x] Restate naming/styling rules: PascalCase `.tsx` components, camelCase hooks, TailwindCSS utility classes only. [Source: frontend/CLAUDE.md §2.1, §6.1]
+- [x] **Task 5: Specify the BalanceCard + UsageRing** (AC: #2, #3)
+  - [x] BalanceCard: large INR figure (2 decimals, rendered from integer paise), zero-balance → "Balance depleted" warning banner + "Recharge Now" CTA, last-updated timestamp (IST). Data source: `GET /api/v1/subscriber/balance` (Story 3.2). [Source: epics.md:1134; prd.md FR-8 (lines 204, 211-212); 3-2 story]
+  - [x] UsageRing: one ring per type (voice minutes, data MB/GB, SMS count, roaming) showing used vs total allowance; "Unlimited" label when the plan has no cap. Data source: `GET /api/v1/subscriber/usage` (Story 3.2). [Source: epics.md:1136; prd.md FR-10 (lines 224, 230-232); 3-2 story]
+- [x] **Task 6: Specify the PlanCard (catalogue)** (AC: #4)
+  - [x] PlanCard: plan name, validity badge (e.g. "28 days"), data/voice/SMS quota chips, price (INR), "Recharge" CTA → navigates to `/subscriber/recharge?plan_id={id}`. The subscriber's current active plan shows a "Current Plan" badge (reuse `components/ui/Badge`). [Source: epics.md:1138; prd.md FR-12 (lines 252, 258-260); 3-4 story]
+- [x] **Task 7: Specify the 3-step Recharge flow** (AC: #5)
+  - [x] Step 1 — plan select (pre-selected when `?plan_id=` query param is present).
+  - [x] Step 2 — payment method: choose a saved method (`GET /api/v1/subscriber/payment-methods`, Story 1.10) or add a new one. Tokenisation happens browser-side (`frontend/src/lib/tokenize.ts` `tokenizeCard`); raw PAN never leaves the browser (FR-64). [Source: prd.md FR-14 (lines 272, 278-280), FR-64 (lines 815, 821-822); 1-10 story (token-only contract, tokenize.ts)]
+  - [x] Step 3 — confirmation: show new balance + plan activation timestamp + a PDF receipt download link (`receipt_url` → Story 3.6). [Source: epics.md:1140; prd.md FR-13 (lines 262, 268-269); 3-5/3-6 stories]
+- [x] **Task 8: Add Project Structure Notes / conflict callout** (AC: #6)
+  - [x] §7 conflict-resolution table mirroring `ux-brief-identity.md` §7.2: architecture layout (`portals/subscriber/`, `components/ui/`, `components/charts/`, TailwindCSS) is authoritative. [Source: ux-brief-identity.md#7.2; architecture.md#1.12.1 (lines 1144-1174)]
+  - [x] Document the data-naming variances the frontend must reconcile (see Dev Notes) so 3.2–3.4 devs are forewarned.
 
 ## Dev Notes
 
@@ -110,8 +114,30 @@ These divergences between the epic AC text and the codebase/schema MUST be calle
 
 ### Agent Model Used
 
+claude-fable-5 (GLM-5.2)
+
 ### Debug Log References
 
 ### Completion Notes List
 
+- Authored `ux-brief-portal.md` following `ux-brief-identity.md` structure exactly.
+- Documented all 5 portal routes (Dashboard, Plans, Recharge, History, Receipt) with component paths and data sources.
+- Specified BalanceCard (INR figure from paise, zero-balance warning, IST timestamp) and UsageRing (4 types, circular progress, unlimited label).
+- Specified PlanCard catalogue (name, validity badge, quota chips, price, Recharge CTA) with filter/sort controls.
+- Specified 3-step Recharge flow (plan select → payment method with tokenisation → confirmation + PDF link).
+- Named NEW components: `UsageRing` (charts/), `Modal`/`Input`/`Select` (ui/) — to be created in Stories 3.2 and 3.5.
+- Documented conflict-resolution table (architecture layout authoritative; FSD conventions superseded).
+- Documented data-naming variances (data_gb vs data_limit_mb; plan_type vs plan_code; paise vs INR).
+- No code changes — doc-only story.
+- All 6 ACs satisfied; brief committed at `docs/bmad_output/planning-artifacts/ux-brief-portal.md`.
+
 ### File List
+
+**New:**
+- `docs/bmad_output/planning-artifacts/ux-brief-portal.md`
+
+**Modified:**
+- `docs/bmad_output/implementation-artifacts/3-1-ux-brief-balance-usage-recharge-portal-flows.md` (story file: tasks marked, Dev Agent Record filled, Status -> review)
+- `docs/bmad_output/implementation-artifacts/sprint-status.yaml` (3-1 updated: in-progress -> review, last_updated -> 2026-06-22)
+
+
