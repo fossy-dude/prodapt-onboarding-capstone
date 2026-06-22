@@ -46,6 +46,28 @@ so that all pipeline components can communicate reliably and every event is trac
   - [x] Unit: the producer helper sets `traceparent` header AND a body `trace_id` equal to the envelope's `trace_id`; key is the `subscriber_id` bytes. Mock the `AIOKafkaProducer` (no live broker).
   - [x] Integration (`@pytest.mark.slow`/`integration`, testcontainers Redpanda/Kafka): running `provision_topics.py` twice yields the 6 topics with correct partition counts and the second run is a clean no-op. Use `DOCKER_HOST=unix:///run/user/1000/podman/podman.sock` (rootless podman). [Source: 1-4 debug log]
 
+### Review Findings
+
+- [x] [Review][Patch] Provisioning masks partition-count mismatches on the "exists" path [cdr-pipeline/scripts/provision_topics.py:142-165] — CRITICAL
+- [x] [Review][Patch] EventEnvelope.timestamp serializer silently converts naive datetimes as system-local time [cdr-pipeline/src/models/envelope.py:515-518] — HIGH
+- [x] [Review][Patch] payload: dict[str, Any] silently coerces non-JSON-serializable types [cdr-pipeline/src/models/envelope.py:509] — HIGH
+- [x] [Review][Patch] build_traceparent accepts malformed trace_id and emits invalid W3C header [cdr-pipeline/src/adapters/kafka.py:242-250] — HIGH
+- [x] [Review][Patch] build_traceparent can produce all-zero span_id [cdr-pipeline/src/adapters/kafka.py:249] — HIGH
+- [x] [Review][Patch] _serialise_timestamp comment lies (emits +00:00, not Z) [cdr-pipeline/src/models/envelope.py:515-518] — MEDIUM
+- [x] [Review][Patch] provision_topics has no timeout [cdr-pipeline/scripts/provision_topics.py:136 + justfile:982-983,1005-1006] — MEDIUM
+- [x] [Review][Patch] Network blip mid-create_topics leaves partial state [cdr-pipeline/scripts/provision_topics.py:158-194] — MEDIUM
+- [x] [Review][Patch] just up/deps fails whole stack on provisioning error [justfile:982-983,1005-1006] — MEDIUM
+- [x] [Review][Patch] KafkaProducer.publish with key=None raises AttributeError [cdr-pipeline/src/adapters/kafka.py:298] — MEDIUM
+- [x] [Review][Patch] KafkaProducer.start() race [cdr-pipeline/src/adapters/kafka.py:267-272] — MEDIUM
+- [x] [Review][Patch] CdrBase.cost_paise has no upper bound [cdr-pipeline/src/models/cdr.py:423] — MEDIUM
+- [x] [Review][Patch] VoiceCdr.duration_seconds uncapped, DataCdr volume precision mismatch [cdr-pipeline/src/models/cdr.py:435,452-454] — MEDIUM
+- [x] [Review][Patch] MSISDN fields accept non-E.164 strings [cdr-pipeline/src/models/cdr.py:432-433] — LOW
+- [x] [Review][Patch] EventEnvelope.trace_id has no max-length constraint [cdr-pipeline/src/models/envelope.py:507] — LOW
+- [x] [Review][Patch] settings.kafka_brokers accepts empty string [cdr-pipeline/src/core/config.py] — LOW
+- [x] [Review][Defer] Provisioning swallows only TopicAlreadyExistsError — other errors propagate [cdr-pipeline/scripts/provision_topics.py:158-165] — deferred, design choice
+- [x] [Review][Defer] Missing clearer error messaging for Kafka connection failures [cdr-pipeline/scripts/provision_topics.py:136] — deferred, enhancement
+- [x] [Review][Defer] main() doesn't expose --brokers CLI flag [cdr-pipeline/scripts/provision_topics.py:187] — deferred, UX enhancement
+
 ## Dev Notes
 
 ### Scope boundary

@@ -2,6 +2,8 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 
 import { RoleGuard } from './components/layout/RoleGuard';
 import { Login } from './portals/auth/Login';
+import { PaymentMethods } from './portals/subscriber/PaymentMethods';
+import { Profile } from './portals/subscriber/Profile';
 import { SimActivation as SimActivationSimulator } from './portals/simulator/SimActivation';
 import { Register } from './portals/subscriber/Register';
 import { SimActivation } from './portals/subscriber/SimActivation';
@@ -44,6 +46,8 @@ function App() {
         path="/subscriber/*"
         element={<RoleGuard allowedRoles={['subscriber']}><Routes>
           <Route path="activate" element={<SimActivation />} />
+          <Route path="profile" element={<Profile />} />
+          <Route path="profile/payment-methods" element={<PaymentMethods />} />
           <Route path="*" element={<PortalPlaceholder role="Subscriber" />} />
         </Routes></RoleGuard>}
       />

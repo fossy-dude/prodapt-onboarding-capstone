@@ -33,16 +33,17 @@ class MessageBrokerProtocol(Protocol):
         """Flush and close the underlying broker client (idempotent)."""
         ...
 
-    async def publish(self, topic: str, *, key: str, envelope: EventEnvelope) -> None:
-        """Serialise ``envelope`` to ``topic`` keyed by ``key`` (UTF-8 bytes).
+    async def publish(self, topic: str, *, key: str | None, envelope: EventEnvelope) -> None:
+        """Serialise ``envelope`` to ``topic`` keyed by ``key`` (UTF-8 bytes, or ``None`` for unkeyed).
 
         Parameters
         ----------
         topic : str
             Destination Kafka topic (must be pre-provisioned).
-        key : str
+        key : str | None
             Partition key — ``subscriber_id`` for ``cdr.raw`` (AC #5),
-            ``msisdn`` for fraud/notification topics, ``cdr_id`` for the DLQ.
+            ``msisdn`` for fraud/notification topics, ``cdr_id`` for the DLQ,
+            or ``None`` for unkeyed messages (no partitioning).
         envelope : EventEnvelope
             Canonical envelope; its ``trace_id`` populates both the body and
             the injected ``traceparent`` header.

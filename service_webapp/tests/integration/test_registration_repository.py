@@ -66,7 +66,12 @@ async def db_adapter() -> Psycopg3AsyncAdapter:
         async with await psycopg.AsyncConnection.connect(conninfo, autocommit=True) as conn:
             for ext in ("pg_uuidv7", "pgcrypto", "pg_trgm", "btree_gin"):
                 await conn.execute(f'CREATE EXTENSION IF NOT EXISTS "{ext}"')
-            for name in ("V1__baseline_schema.sql", "V2__modified_at_trigger.sql", "V3__registration_extensions.sql"):
+            for name in (
+                "V1__baseline_schema.sql",
+                "V2__modified_at_trigger.sql",
+                "V3__registration_extensions.sql",
+                "V4__profile_address_columns.sql",
+            ):
                 await conn.execute((_MIGRATIONS / name).read_text())
         adapter = Psycopg3AsyncAdapter(conninfo)
         try:

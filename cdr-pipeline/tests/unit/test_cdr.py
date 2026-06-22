@@ -161,3 +161,63 @@ def test_voice_round_trip_json() -> None:
     cdr = _ADAPTER.validate_python(_voice())
     restored = _ADAPTER.validate_json(cdr.model_dump_json())
     assert restored == cdr
+
+
+# ── Upper-bound validations (findings #12, #13) ─────────────────────────────────────
+
+
+def test_cost_paise_upper_bound_enforced() -> None:
+    """cost_paise has a sane upper bound (~10 trillion rupees)."""
+    payload = _voice()
+    payload["cost_paise"] = 10**18  # exceeds le=10**12
+    with pytest.raises(ValidationError, match="cost_paise"):
+        _ADAPTER.validate_python(payload)
+
+
+def test_duration_seconds_upper_bound_enforced() -> None:
+    """duration_seconds max is 30 days (2,592,000 seconds)."""
+    payload = _voice()
+    payload["duration_seconds"] = 86400 * 31  # 31 days
+    with pytest.raises(ValidationError, match="duration_seconds"):
+        _ADAPTER.validate_python(payload)
+
+
+def test_msisdn_enforces_e164_format() -> None:
+    """MSISDN fields accept E.164 format (optional +, 7-15 digits)."""
+    payload = _voice()
+    # Invalid: too short
+    payload["from_number"] = "999"
+    with pytest.raises(ValidationError, match="from_number"):
+        _ADAPTER.validate_python(payload)
+
+    # Invalid: non-digit chars (except + prefix)
+    payload = _voice()
+    payload["from_number"] = "abc123456"
+    with pytest.raises(ValidationError, match="from_number"):
+        _ADAPTER.validate_python(payload)
+
+    # Valid: with + prefix
+    payload = _voice()
+    payload["from_number"] = "+919999900001"
+    cdr = _ADAPTER.validate_python(payload)
+    assert cdr.from_number == "+919999900001"
+
+    # Valid: without + prefix
+    payload = _voice()
+    payload["from_number"] = "919999900001"
+    cdr = _ADAPTER.validate_python(payload)
+    assert cdr.from_number == "919999900001"
+
+
+def test_volume_mb_consistency_validated() -> None:
+    """DataCdr.volume_mb must equal downloaded_mb + uploaded_mb when all present."""
+    payload = _data()
+    payload["volume_mb"] = 100.0  # But downloaded + uploaded = 13.75
+    with pytest.raises(ValidationError, match="volume_mb.*must equal"):
+        _ADAPTER.validate_python(payload)
+
+    # Valid: volume matches sum
+    payload = _data()
+    payload["volume_mb"] = 13.75
+    cdr = _ADAPTER.validate_python(payload)
+    assert cdr.volume_mb == 13.75

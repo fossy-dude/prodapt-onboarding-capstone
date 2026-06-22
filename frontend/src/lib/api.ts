@@ -1,6 +1,11 @@
 import axios, { AxiosError, type AxiosInstance } from 'axios';
 
 import type { RegisterPayload, RegisterResponseEnvelope } from '../types/subscriber';
+import type {
+  PaymentMethodsListResponse,
+  PaymentMethodResponse,
+  AddPaymentMethodPayload,
+} from '../types/payment-method';
 import { getToken, removeToken } from './auth';
 
 // Base URL for the service_webapp REST API. Vite exposes VITE_-prefixed env vars.
@@ -192,6 +197,86 @@ export async function advanceOrderState(orderId: string): Promise<AdvanceOrderRe
     `/simulator/orders/${orderId}/advance`,
   );
   return data.data;
+}
+
+// ── Profile (Story 1.9) ───────────────────────────────────────────────────────
+
+/** Saved address on the subscriber profile (fields are null until first edited). */
+export interface ProfileAddress {
+  readonly line1: string | null;
+  readonly line2: string | null;
+  readonly city: string | null;
+  readonly state: string | null;
+  readonly pin_code: string | null;
+}
+
+/** Decrypted profile returned to the authenticated owner. */
+export interface ProfileData {
+  readonly name: string;
+  readonly email: string | null;
+  readonly address: ProfileAddress;
+  readonly kyc_status: string; // 'verified' | 'pending' | 'rejected' (lowercased by the API)
+}
+
+/** Editable profile fields (PATCH body; name is read-only). At least one required. */
+export interface ProfileUpdatePayload {
+  readonly email?: string;
+  readonly address_line1?: string;
+  readonly address_line2?: string;
+  readonly city?: string;
+  readonly state?: string;
+  readonly pin_code?: string;
+}
+
+interface ProfileResponse {
+  readonly data: ProfileData;
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/** GET /subscriber/profile — read the authenticated subscriber's decrypted profile. */
+export async function getProfile(): Promise<ProfileData> {
+  const { data } = await apiClient.get<ProfileResponse>('/subscriber/profile');
+  return data.data;
+}
+
+/** PATCH /subscriber/profile — edit email/address (re-writes + audit on the server). */
+export async function updateProfile(payload: ProfileUpdatePayload): Promise<ProfileData> {
+  const { data } = await apiClient.patch<ProfileResponse>('/subscriber/profile', payload);
+  return data.data;
+}
+
+// ── Payment Methods (Story 1.10) ───────────────────────────────────────────────
+
+/** GET /account/payment-methods — list subscriber's saved payment methods (AC #5). */
+export async function getPaymentMethods(): Promise<PaymentMethodsListResponse> {
+  const { data } = await apiClient.get<PaymentMethodsListResponse>('/account/payment-methods');
+  return data;
+}
+
+/** POST /account/payment-methods — add a new payment method (AC #1, #3). */
+export async function addPaymentMethod(
+  payload: AddPaymentMethodPayload,
+): Promise<PaymentMethodResponse> {
+  const { data } = await apiClient.post<PaymentMethodResponse>('/account/payment-methods', payload);
+  return data;
+}
+
+/**
+ * PATCH /account/payment-methods/{id}/default — set a payment method as default (AC #5).
+ * Clears the default flag on all other methods for this subscriber.
+ */
+export async function setDefaultPaymentMethod(id: string): Promise<PaymentMethodResponse> {
+  const { data } = await apiClient.patch<PaymentMethodResponse>(
+    `/account/payment-methods/${id}/default`,
+  );
+  return data;
+}
+
+/**
+ * DELETE /account/payment-methods/{id} — remove a saved payment method.
+ */
+export async function deletePaymentMethod(id: string): Promise<void> {
+  await apiClient.delete(`/account/payment-methods/${id}`);
 }
 
 export { apiClient };

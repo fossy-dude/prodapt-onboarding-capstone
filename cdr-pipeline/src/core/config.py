@@ -11,7 +11,7 @@ Import as ``from core.config import settings``. Missing **required** values rais
 
 from __future__ import annotations
 
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     # ── Required (fail-fast when missing) ────────────────────────────────────
     db: DatabaseSettings
     valkey_url: str
-    kafka_brokers: str
+    kafka_brokers: str = Field(..., min_length=1, description="Comma-separated Kafka broker list.")
 
     # ── Optional: consumer identity / observability ──────────────────────────
     kafka_consumer_group: str = "cdr-pipeline"

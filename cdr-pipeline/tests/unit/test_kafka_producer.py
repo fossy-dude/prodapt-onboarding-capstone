@@ -83,3 +83,28 @@ def test_kafka_producer_satisfies_protocol(mocker: pytest.MockerFixture) -> None
 
     mocker.patch("adapters.kafka.AIOKafkaProducer")
     assert isinstance(KafkaProducer(bootstrap_servers="localhost:9092"), MessageBrokerProtocol)
+
+
+def test_build_traceparent_rejects_malformed_trace_id() -> None:
+    """build_traceparent raises ValueError for non-32-hex trace_id."""
+    with pytest.raises(ValueError, match="32 lowercase hex"):
+        build_traceparent("abc123")  # too short
+    with pytest.raises(ValueError, match="32 lowercase hex"):
+        build_traceparent("0123456789abcdef0123456789abcdefg")  # invalid char
+    with pytest.raises(ValueError, match="32 lowercase hex"):
+        build_traceparent("0192A4D0-1234-7000-8000-000000000000")  # uppercase + dashes
+
+
+async def test_publish_accepts_none_key(mocker: pytest.MockerFixture) -> None:
+    """key=None produces unkeyed message (no partitioning)."""
+    mock_instance = AsyncMock()
+    mocker.patch("adapters.kafka.AIOKafkaProducer", return_value=mock_instance)
+
+    producer = KafkaProducer(bootstrap_servers="localhost:9092")
+    await producer.start()
+
+    envelope = EventEnvelope.new(event_type="cdr.dlq", payload={}, trace_id=_TRACE_ID)
+    await producer.publish("cdr.dlq", key=None, envelope=envelope)
+
+    call_args = mock_instance.send_and_wait.await_args
+    assert call_args.kwargs["key"] is None

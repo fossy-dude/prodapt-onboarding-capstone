@@ -17,7 +17,7 @@ from datetime import datetime  # noqa: TC003  # pydantic resolves field types at
 from typing import Annotated, Literal
 from uuid import UUID  # noqa: TC003  # pydantic resolves field types at runtime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ── Enums (mirror *_enum CREATE TYPEs in V1__baseline_schema.sql) ───────────────
 
@@ -44,7 +44,9 @@ class CdrBase(BaseModel):
     telecom_circle: str = Field(..., max_length=50)
     cell_tower_id: str | None = Field(default=None, max_length=100)
     roaming: bool = False
-    cost_paise: int = Field(..., ge=0, description="Charge in paise (1 INR = 100 paise).")
+    cost_paise: int = Field(
+        ..., ge=0, le=10**12, description="Charge in paise (1 INR = 100 paise). Max: ~10 trillion rupees."
+    )
     start_time: datetime
     end_time: datetime | None = None
 
@@ -53,10 +55,20 @@ class VoiceCdr(CdrBase):
     """Voice call CDR (``billing_cdr_events`` voice-specific columns)."""
 
     cdr_type: Literal["voice"] = "voice"
-    from_number: str = Field(..., max_length=20, description="Calling MSISDN (E.164 string).")
-    to_number: str = Field(..., max_length=20, description="Called MSISDN (E.164 string).")
+    from_number: str = Field(
+        ...,
+        pattern=r"^\+?[1-9]\d{6,14}$",
+        max_length=15,
+        description="Calling MSISDN (E.164 format, 7-15 digits, optional + prefix).",
+    )
+    to_number: str = Field(
+        ...,
+        pattern=r"^\+?[1-9]\d{6,14}$",
+        max_length=15,
+        description="Called MSISDN (E.164 format, 7-15 digits, optional + prefix).",
+    )
     call_direction: CallDirection
-    duration_seconds: int = Field(..., ge=0)
+    duration_seconds: int = Field(..., ge=0, le=86400 * 30, description="Call duration in seconds (max 30 days).")
     call_status: CallStatus
 
 
@@ -79,6 +91,18 @@ class DataCdr(CdrBase):
     apn: str | None = Field(default=None, max_length=100)
     imei: str | None = Field(default=None, max_length=20)
     operator_id: str | None = Field(default=None, max_length=50)
+
+    @model_validator(mode="after")
+    def _volume_consistency(self) -> "DataCdr":
+        """Ensure volume_mb equals downloaded_mb + uploaded_mb when all are present."""
+        if self.volume_mb is not None and self.downloaded_mb is not None and self.uploaded_mb is not None:
+            expected_volume = self.downloaded_mb + self.uploaded_mb
+            if abs(self.volume_mb - expected_volume) > 0.001:  # Tolerance for float comparison
+                raise ValueError(
+                    f"volume_mb ({self.volume_mb}) must equal downloaded_mb ({self.downloaded_mb}) + "
+                    f"uploaded_mb ({self.uploaded_mb})"
+                )
+        return self
 
 
 # Discriminated union: pydantic routes by ``cdr_type`` to the right variant.

@@ -54,17 +54,38 @@ async def provision_topics(bootstrap_servers: str | None = None) -> dict[str, st
     """
     brokers = bootstrap_servers or settings.kafka_brokers
     results: dict[str, str] = {}
-    admin = AIOKafkaAdminClient(bootstrap_servers=brokers)
+    admin = AIOKafkaAdminClient(bootstrap_servers=brokers, request_timeout_ms=10000)
     try:
         await admin.start()
         existing = set(await admin.list_topics())
 
+        # CRITICAL FIX: Verify partition counts for existing topics (AC #1 compliance)
+        existing_topics_to_verify = [name for name, _, _ in TOPIC_SPEC if name in existing]
+        if existing_topics_to_verify:
+            metadata = await admin.describe_topics(existing_topics_to_verify)
+            spec_map = {name: (partitions, rf) for name, partitions, rf in TOPIC_SPEC}
+            for info in metadata:
+                topic = info["topic"]
+                expected_partitions, expected_rf = spec_map[topic]
+                actual_partitions = len(info["partitions"])
+                if actual_partitions != expected_partitions:
+                    logger.error(
+                        "topic %s has %d partitions but spec requires %d — topology mismatch!",
+                        topic,
+                        actual_partitions,
+                        expected_partitions,
+                    )
+                    results[topic] = "mismatch"
+                else:
+                    logger.info("topic %s: exists (%d partitions, rf=1)", topic, actual_partitions)
+                    results[topic] = "exists"
+
         to_create: list[NewTopic] = []
         for name, partitions, replication_factor in TOPIC_SPEC:
-            if name in existing:
-                logger.info("topic %s: exists (%d partitions)", name, partitions)
-                results[name] = "exists"
-            else:
+            if name in existing and results.get(name) != "mismatch":
+                # Already handled above; skip creation
+                continue
+            elif name not in existing:
                 to_create.append(
                     NewTopic(
                         name=name,
@@ -106,10 +127,23 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     logger.info("provisioning %d topics against %s", len(TOPIC_SPEC), settings.kafka_brokers)
-    results: dict[str, str] = asyncio.run(provision_topics())
+    # MEDIUM FIX: Add 60s timeout to prevent infinite hangs on unhealthy broker
+    try:
+        results: dict[str, str] = asyncio.wait_for(
+            asyncio.run(provision_topics()),
+            timeout=60.0,
+        )
+    except asyncio.TimeoutError:
+        logger.error("provisioning timed out after 60s — broker may be unhealthy")
+        raise SystemExit(1) from None
     for name, status in results.items():
         print(f"{name}: {status}")
-    missing = [n for n, s in results.items() if s not in {"created", "exists"}]
+    # MEDIUM FIX: Check against TOPIC_SPEC, not just results (catches partial failures)
+    missing = [
+        name
+        for name, _, _ in TOPIC_SPEC
+        if name not in results or results[name] not in {"created", "exists"}
+    ]
     if missing:
         logger.error("provisioning incomplete for: %s", missing)
         raise SystemExit(1)

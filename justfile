@@ -26,7 +26,7 @@ deps:
     @grep -q "change_me" docker/.env && { echo "ERROR: docker/.env contains placeholder passwords. Edit the file with real values."; exit 1; } || true
     podman compose -f docker/docker-compose-dependencies.yaml --env-file docker/.env up -d
     @echo "→ LangFuse dashboard: http://localhost:3000  (Story 1.5; login via LANGFUSE_INIT_USER_* in docker/.env)"
-    @until podman exec redpanda rpk cluster health > /dev/null 2>&1; do sleep 1; done
+    @i=0; until podman exec redpanda rpk cluster health > /dev/null 2>&1 || [ $i -ge 60 ]; do i=$((i+1)); sleep 1; done; if [ $i -ge 60 ]; then echo "ERROR: Redpanda health check timeout after 60s"; exit 1; fi
     @just provision-topics
     @just provision-cognito
 
@@ -40,9 +40,14 @@ provision-cognito:
 # Provision the CDR pipeline Kafka/Redpanda topics (idempotent — AC #2). Runs
 # automatically after Redpanda is healthy via `just up` / `just deps`; safe to
 # re-run by hand once the stack is up. Host-script pattern mirrors provision-cognito.
+# NOTE: If provisioning fails, Redpanda auto-creates topics with 1 partition (not 24).
 provision-topics:
     @command -v uvx > /dev/null || { echo "ERROR: uv not installed. See README §1 prerequisites."; exit 1; }
-    cd cdr-pipeline && PYTHONPATH=src uvx --with aiokafka --with pydantic --with pydantic-settings --with uuid7 python scripts/provision_topics.py
+    @cd cdr-pipeline && PYTHONPATH=src uvx --with aiokafka --with pydantic --with pydantic-settings --with uuid7 python scripts/provision_topics.py \
+    || { \
+    echo "WARN: topic provisioning failed; topics will be auto-created with 1 partition (consumer parallelism may be impacted)."; \
+    echo "Re-run manually: just provision-topics"; \
+    }
 
 # Destroy infrastructure-only stack (stop containers, remove volumes and networks).
 deps_destroy:
@@ -50,10 +55,10 @@ deps_destroy:
 
 # Start the full application stack (infra + cdr-pipeline + service_webapp + frontend).
 up:
-    @[ -f docker/.env ] || { echo "ERROR: docker/.env not found. Run: cp .env.example docker/.env"; exit 1; }
+    @[ -f docker/.env ] || { echo "ERROR: docker `.env not found. Run: cp .env.example docker/.env"; exit 1; }
     @until podman exec postgres pg_isready -U sboai_superuser > /dev/null 2>&1; do sleep 1; done
     podman compose -f docker/docker-compose.yaml --env-file docker/.env up -d
-    @until podman exec redpanda rpk cluster health > /dev/null 2>&1; do sleep 1; done
+    @i=0; until podman exec redpanda rpk cluster health > /dev/null 2>&1 || [ $i -ge 60 ]; do i=$((i+1)); sleep 1; done; if [ $i -ge 60 ]; then echo "ERROR: Redpanda health check timeout after 60s"; exit 1; fi
     @just provision-topics
     @echo "→ LangFuse dashboard: http://localhost:3000  (requires 'just deps' first; login via LANGFUSE_INIT_USER_* in docker/.env)"
 

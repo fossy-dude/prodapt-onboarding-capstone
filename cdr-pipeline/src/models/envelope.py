@@ -7,12 +7,24 @@ a W3C `traceparent` header is set on the Kafka message by the producer helper.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID  # noqa: TC003  # pydantic resolves field types at runtime
 
-from pydantic import BaseModel, ConfigDict, field_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_serializer
 from uuid_extensions import uuid7
+
+
+def _reject_non_json_types(v: Any) -> Any:
+    """Walk a dict and reject non-JSON-native types (bytes, set, etc.)."""
+    if isinstance(v, dict):
+        return {k: _reject_non_json_types(item) for k, item in v.items()}
+    if isinstance(v, list):
+        return [_reject_non_json_types(item) for item in v]
+    if isinstance(v, (bytes, set, frozenset, bytearray)):
+        raise TypeError(f"Non-JSON-serializable type {type(v).__name__} not allowed in payload")
+    return v
 
 
 class EventEnvelope(BaseModel):
@@ -36,9 +48,24 @@ class EventEnvelope(BaseModel):
 
     event_type: str
     event_id: UUID
-    trace_id: str
+    trace_id: str = Field(..., pattern=r"[0-9a-f]{32}", description="W3C trace-id (32 lowercase hex chars).")
     timestamp: datetime
     payload: dict[str, Any]
+
+    @field_validator("timestamp")
+    @classmethod
+    def _timestamp_must_be_tz_aware(cls, v: datetime) -> datetime:
+        """Reject naive datetimes — they would be silently interpreted as local time."""
+        if v.tzinfo is None:
+            raise ValueError("timestamp must be timezone-aware (use datetime.now(UTC) or pass tzinfo)")
+        return v
+
+    @field_validator("payload")
+    @classmethod
+    def _payload_must_be_json_serializable(cls, v: dict[str, Any]) -> dict[str, Any]:
+        """Reject non-JSON-native types (bytes, set, etc.) that corrupt on serialization."""
+        _reject_non_json_types(v)
+        return v
 
     @field_serializer("event_id")
     def _serialise_event_id(self, v: UUID) -> str:
@@ -46,7 +73,7 @@ class EventEnvelope(BaseModel):
 
     @field_serializer("timestamp")
     def _serialise_timestamp(self, v: datetime) -> str:
-        # Force UTC and emit ISO-8601 with Z suffix.
+        # Force UTC and emit ISO-8601 (produces +00:00, not Z suffix).
         return v.astimezone(UTC).isoformat()
 
     @classmethod

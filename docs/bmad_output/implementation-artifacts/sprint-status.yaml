@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-22  # Epic 3 stories 3-1..3-7 created (ready-for-dev); epic-3 → in-progress
+last_updated: 2026-06-22  # Story 1.9 dev complete → review (profile GET/PATCH, KYC badge, address V4; 24 tests green). Story 1.10 still in-progress.
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -53,8 +53,8 @@ development_status:
   1-6-subscriber-registration-trai-caf-pii-encryption: done
   1-7-sim-activation-order-tracker-ui: done
   1-8-login-otp-step-up-jwt-role-based-auth: done
-  1-9-profile-management-kyc-status-view: ready-for-dev
-  1-10-saved-payment-methods-pci-dss-tokenisation: ready-for-dev
+  1-9-profile-management-kyc-status-view: review
+  1-10-saved-payment-methods-pci-dss-tokenisation: in-progress
   epic-1-retrospective: optional
 
   # Epic 2: CDR Pipeline, Balance Engine, Synthetic Data & Simulator Tools

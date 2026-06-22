@@ -28,8 +28,9 @@ from core.errors import register_exception_handlers
 from core.middleware import OtelTraceMiddleware
 from core.step_up import StepUpOtpService
 from routers.account import (
+    account_router,
     auth_router,
-    router as account_router,
+    router as subscriber_router,
 )
 from routers.health import router as health_router
 from routers.simulator import router as simulator_router
@@ -113,8 +114,9 @@ def create_app(
     app.add_middleware(OtelTraceMiddleware)
     register_exception_handlers(app)
     app.include_router(health_router)
-    app.include_router(account_router)
+    app.include_router(subscriber_router)
     app.include_router(auth_router)
+    app.include_router(account_router)
     app.include_router(simulator_router)
     app.state.db_adapter = db_adapter
     app.state.cache_adapter = cache_adapter

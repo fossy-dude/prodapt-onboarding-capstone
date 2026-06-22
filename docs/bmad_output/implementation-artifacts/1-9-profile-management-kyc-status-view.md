@@ -1,6 +1,10 @@
+---
+baseline_commit: d94666c02e6a376e8cc7bfaebb49af037db61e6d
+---
+
 # Story 1.9: Profile Management & KYC Status View
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -22,30 +26,30 @@ so that my account information stays accurate and I understand what actions are 
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Backend — GET profile (decrypt-on-read)** (AC: #1, #6, #7)
-  - [ ] Add/extend `GET /api/v1/subscriber/profile` in `service_webapp/src/routers/account.py` (FR-1–7 grouping; `async def`)
-  - [ ] Resolve the subscriber from the JWT `sub` claim (Story 1.8's `core/auth.py` guard) — never from a client-supplied id
-  - [ ] Read `identity_subscribers` (PII columns) + the subscriber's latest `identity_kyc_records` row (status + rejection reason) via the `DatabaseProtocol` Postgres adapter
-  - [ ] Decrypt name/email/address with `pgp_sym_decrypt(...)` using the key from `settings` (no hard-coded key) — decrypt ONLY for the authorized owner
-  - [ ] Return the standard envelope; ensure no PII is logged or placed in span attributes (use UUID / `msisdn[-4:]`)
-- [ ] **Task 2: Backend — PATCH profile (re-encrypt + audit)** (AC: #3, #4, #6)
-  - [ ] `PATCH /api/v1/subscriber/profile` accepts editable fields (address, email; name editability per UX brief)
-  - [ ] Re-encrypt updated PII fields with `pgp_sym_encrypt(...)` before write; update `identity_subscribers` (`modified_at` advances via the V2 trigger)
-  - [ ] Append a `billing_audit_log` row (`event_type='UPDATE_PROFILE'`, subscriber UUID, timestamp) — INSERT only (append-only table; never UPDATE/DELETE)
-  - [ ] Return HTTP 200 with the updated **decrypted** profile in the standard envelope
-  - [ ] Authorize on `sub` claim; validate payload (422 on bad input; envelope error shape)
-- [ ] **Task 3: Frontend — Profile page** (AC: #1, #2, #5)
-  - [ ] `frontend/src/portals/subscriber/Profile.tsx` at route `/subscriber/profile`, role-gated under `/subscriber/*` via Story 1.8's `RoleGuard`
-  - [ ] Fetch profile via TanStack Query through `lib/api.ts`; render decrypted name/email/address + KYC `Badge`
-  - [ ] KYC status → `Badge` variant: Verified=green, Pending=amber, Rejected=red (reuse `components/ui/Badge.tsx` variant API from Story 1.1 — do NOT build a new badge)
-  - [ ] When KYC = REJECTED: show the rejection reason and a "Re-submit KYC documents" link/CTA (route per UX brief, e.g. `/profile/kyc`)
-  - [ ] TailwindCSS utility classes only; PascalCase component; `usePascalCase.ts` hook if extracted
-- [ ] **Task 4: Frontend — edit form** (AC: #3, #4)
-  - [ ] Editable form for address/email; submit → `PATCH` via TanStack Query mutation; invalidate/refetch the profile query on success
-  - [ ] Surface validation/envelope errors inline
-- [ ] **Task 5: Tests** (AC: #1–#7)
-  - [ ] Backend unit (`service_webapp/tests/unit/`): encrypt→decrypt round-trip yields original value; PATCH writes exactly one `UPDATE_PROFILE` audit row; authz — a token whose `sub` ≠ record owner gets 403; assert no PII in captured logs
-  - [ ] Frontend (Vitest + RTL): correct `Badge` variant per KYC status; Rejected renders reason + resubmit link; edit submit triggers PATCH and refetch
+- [x] **Task 1: Backend — GET profile (decrypt-on-read)** (AC: #1, #6, #7)
+  - [x] Add/extend `GET /api/v1/subscriber/profile` in `service_webapp/src/routers/account.py` (FR-1–7 grouping; `async def`)
+  - [x] Resolve the subscriber from the JWT `sub` claim (Story 1.8's `core/auth.py` guard) — never from a client-supplied id
+  - [x] Read `identity_subscribers` (PII columns) + the subscriber's latest `identity_kyc_records` row (status + rejection reason) via the `DatabaseProtocol` Postgres adapter
+  - [x] Decrypt name/email/address with `pgp_sym_decrypt(...)` using the key from `settings` (no hard-coded key) — decrypt ONLY for the authorized owner
+  - [x] Return the standard envelope; ensure no PII is logged or placed in span attributes (use UUID / `msisdn[-4:]`)
+- [x] **Task 2: Backend — PATCH profile (re-encrypt + audit)** (AC: #3, #4, #6)
+  - [x] `PATCH /api/v1/subscriber/profile` accepts editable fields (address, email; name editability per UX brief)
+  - [x] Re-encrypt updated PII fields with `pgp_sym_encrypt(...)` before write; update `identity_subscribers` (`modified_at` advances via the V2 trigger)
+  - [x] Append a `billing_audit_log` row (`event_type='UPDATE_PROFILE'`, subscriber UUID, timestamp) — INSERT only (append-only table; never UPDATE/DELETE)
+  - [x] Return HTTP 200 with the updated **decrypted** profile in the standard envelope
+  - [x] Authorize on `sub` claim; validate payload (422 on bad input; envelope error shape)
+- [x] **Task 3: Frontend — Profile page** (AC: #1, #2, #5)
+  - [x] `frontend/src/portals/subscriber/Profile.tsx` at route `/subscriber/profile`, role-gated under `/subscriber/*` via Story 1.8's `RoleGuard`
+  - [x] Fetch profile via TanStack Query through `lib/api.ts`; render decrypted name/email/address + KYC `Badge`
+  - [x] KYC status → `Badge` variant: Verified=green, Pending=amber, Rejected=red (reuse `components/ui/Badge.tsx` variant API from Story 1.1 — do NOT build a new badge)
+  - [x] When KYC = REJECTED: show the rejection reason and a "Re-submit KYC documents" link/CTA (route per UX brief, e.g. `/profile/kyc`)
+  - [x] TailwindCSS utility classes only; PascalCase component; `usePascalCase.ts` hook if extracted
+- [x] **Task 4: Frontend — edit form** (AC: #3, #4)
+  - [x] Editable form for address/email; submit → `PATCH` via TanStack Query mutation; invalidate/refetch the profile query on success
+  - [x] Surface validation/envelope errors inline
+- [x] **Task 5: Tests** (AC: #1–#7)
+  - [x] Backend unit (`service_webapp/tests/unit/`): encrypt→decrypt round-trip yields original value; PATCH writes exactly one `UPDATE_PROFILE` audit row; authz — a token whose `sub` ≠ record owner gets 403; assert no PII in captured logs
+  - [x] Frontend (Vitest + RTL): correct `Badge` variant per KYC status; Rejected renders reason + resubmit link; edit submit triggers PATCH and refetch
 
 ## Dev Notes
 
@@ -106,10 +110,77 @@ All tables already exist in the **full V1 all-domain baseline** (Story 1.2). Thi
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+GLM-5.2 (Claude Code, bmad-dev-story workflow)
 
 ### Debug Log References
 
+No blockers. Four spec/codebase conflicts surfaced at implementation time (story
+ACs/Dev Notes were written against the pre-2026-06-20 architecture doc); all four
+were resolved via an explicit user decision before coding:
+
+1. **PII encryption** — story says pgcrypto `pgp_sym_*` at-rest; codebase (Story 1.6
+   + `security.py` + V3 comment) stores PII plaintext with `PiiCipher` (AES-256-GCM)
+   for consumption/sharing only. Used the codebase model — pgcrypto would have mixed
+   ciphertext with Story 1.6's plaintext rows and broken decrypt.
+2. **Audit column** — story says `event_type='UPDATE_PROFILE'`; `billing_audit_log`
+   has no `event_type` column. Mapped to the actual schema (`entity_type`/`action`).
+3. **KYC rejection reason** — `identity_kyc_records` has no reason column; a generic
+   static reason is shown on Rejected (user choice — no migration).
+4. **Saved address** — `identity_subscribers` has no address column; added a minimal
+   V4 migration (NULLable address fields, V3 precedent).
+
 ### Completion Notes List
 
+- **GET `/api/v1/subscriber/profile`** — resolves the subscriber from the JWT `sub`
+  claim (never a client-supplied id), reads `identity_subscribers` + the latest
+  `identity_kyc_records.kyc_status` via a `LATERAL` join, and returns the decrypted
+  name/email/address + normalised `kyc_status` in the standard envelope. Owner-only
+  access is enforced by construction (AC #6); a wrong role yields 403, a missing
+  record 404, a token lacking `sub` 401.
+- **PATCH `/api/v1/subscriber/profile`** — validates editable email + address fields
+  (422 on bad email / empty body / unknown field via `extra="forbid"`), `UPDATE`s
+  `identity_subscribers` (`modified_at` advances via the V2 trigger), appends exactly
+  one append-only `billing_audit_log` row (`entity_type='SUBSCRIBER_PROFILE'`,
+  `action='UPDATE_PROFILE'`, `new_value = {"fields_updated": [...]}` — field names
+  only, never raw PII), and returns 200 with the updated decrypted profile.
+- **PII model**: plaintext at rest + `PiiCipher` for consumption (user decision
+  2026-06-20); the owner GET returns the stored value (= "decrypted"). No raw PII is
+  logged or placed in span attributes — only the subscriber UUID (AC #7, NFR-16);
+  verified by `test_*_logs_no_raw_pii`.
+- **Name is read-only** (AC #3 lists only address/email; UX brief is silent on name).
+- **Frontend** — `portals/subscriber/Profile.tsx` at `/subscriber/profile` (RoleGuard-
+  gated), TanStack Query via `hooks/useProfile.ts` + `lib/api.ts`; renders decrypted
+  profile + the shared `Badge` (Verified=green / Pending=amber / Rejected=red — reused
+  unchanged from Story 1.1). Rejected shows a generic reason + a "Re-submit KYC
+  documents" link to `/subscriber/profile/kyc`. Edit form PATCHes email/address and
+  invalidates the profile query on success; errors surface inline.
+- **Migration** — `V4__profile_address_columns.sql` adds NULLable
+  `address_line1/2/city/state/pin_code` to `identity_subscribers` (idempotent). Added
+  to the integration-test migration list.
+- **Tests** — 16 backend unit tests (`test_profile_endpoint.py`, incl. encrypt-free
+  round-trip read, exactly-one `UPDATE_PROFILE` audit row, owner-isolation, 403/404/
+  401, no-PII-in-logs) + 8 frontend tests (`Profile.test.tsx`, incl. Badge variant per
+  status, Rejected reason+link, edit→PATCH+refetch). Backend: 107 passed / ruff +
+  pyrefly clean. Frontend: 77 passed / eslint clean; `tsc --noEmit` clean for this
+  story's files.
+- **Parallel work note**: Story 1.10 (in-progress concurrently) added
+  `PaymentMethods` + `tokenize` and has pre-existing `tsc` errors in
+  `PaymentMethods.test.tsx`; none of this story's files typecheck-fail.
+
 ### File List
+
+- `service_webapp/db/migrations/V4__profile_address_columns.sql` (created)
+- `service_webapp/src/routers/account.py` (modified — GET/PATCH `/profile`)
+- `service_webapp/tests/unit/test_profile_endpoint.py` (created)
+- `service_webapp/tests/integration/test_registration_repository.py` (modified — V4 added to migration list)
+- `frontend/src/lib/api.ts` (modified — `getProfile`/`updateProfile` + types)
+- `frontend/src/hooks/useProfile.ts` (created)
+- `frontend/src/portals/subscriber/Profile.tsx` (created)
+- `frontend/src/portals/subscriber/Profile.test.tsx` (created)
+- `frontend/src/App.tsx` (modified — `/subscriber/profile` route)
+- `docs/bmad_output/implementation-artifacts/1-9-profile-management-kyc-status-view.md` (updated — tasks, record, status)
+- `docs/bmad_output/implementation-artifacts/sprint-status.yaml` (updated — story status)
+
+## Change Log
+
+- 2026-06-22: Story 1.9 dev complete → review. Added GET/PATCH `/api/v1/subscriber/profile` (decrypt-on-read, audit-on-write, owner-only), the V4 address migration, and the `Profile.tsx` page + edit form with the KYC `Badge`. 24 tests added (16 backend unit + 8 frontend). Resolved 4 spec/codebase conflicts via user decision (PII plaintext+PiiCipher, audit `action` mapping, generic KYC reason, V4 address columns).

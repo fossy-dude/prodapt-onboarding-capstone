@@ -1,6 +1,8 @@
 # Story 1.10: Saved Payment Methods & PCI-DSS Tokenisation
 
-Status: ready-for-dev
+Status: in-progress
+
+baseline_commit: 01065f31a525e73748217d7ba1a8fe69f580673e
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -21,14 +23,14 @@ so that I can recharge quickly without re-entering payment details and my card d
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Client-side tokenisation utility** (AC: #1, #2)
-  - [ ] Create `frontend/src/lib/tokenize.ts` — `tokenizeCard(pan: string) => { token: string; last4: string }`. Generate an opaque token (UUID v4) and extract the last 4 digits. The raw PAN exists only in component state during entry and is **never** placed in any object that is sent over the network.
-  - [ ] The PAN input field value is consumed by `tokenizeCard` and then discarded; the form submits `{ type, token, display_label }` only.
-  - [ ] **Simulated tokenisation** — there is no real PCI gateway in MVP. This mimics a tokenisation provider returning an opaque reference (architecture §1.8.2: "raw PAN → UUID token at point of entry; raw PAN never written to DB").
-- [ ] **Task 2: Payment methods UI** (AC: #1, #4, #5)
-  - [ ] Create `frontend/src/portals/subscriber/PaymentMethods.tsx` at route `/subscriber/profile/payment-methods` (role-gated under `/subscriber/*` via the RoleGuard from Story 1.8).
-  - [ ] Add form supports all four `type` values. For `CREDIT_CARD`, run `tokenizeCard` and build `display_label = "•••• " + last4`. For `UPI`/`NET_BANKING`/`MOBILE_WALLET`, take the identifier as-is and derive a sensible `display_label` (e.g. masked UPI handle / bank name).
-  - [ ] List view: type icon + `display_label` + "Set Default" action. Reuse `components/ui/` (`Button`, `Card`, `Table`). TailwindCSS utility classes only; PascalCase component; server state via TanStack Query against `lib/api.ts`.
+- [x] **Task 1: Client-side tokenisation utility** (AC: #1, #2)
+  - [x] Create `frontend/src/lib/tokenize.ts` — `tokenizeCard(pan: string) => { token: string; last4: string }`. Generate an opaque token (UUID v4) and extract the last 4 digits. The raw PAN exists only in component state during entry and is **never** placed in any object that is sent over the network.
+  - [x] The PAN input field value is consumed by `tokenizeCard` and then discarded; the form submits `{ type, token, display_label }` only.
+  - [x] **Simulated tokenisation** — there is no real PCI gateway in MVP. This mimics a tokenisation provider returning an opaque reference (architecture §1.8.2: "raw PAN → UUID token at point of entry; raw PAN never written to DB").
+- [x] **Task 2: Payment methods UI** (AC: #1, #4, #5)
+  - [x] Create `frontend/src/portals/subscriber/PaymentMethods.tsx` at route `/subscriber/profile/payment-methods` (role-gated under `/subscriber/*` via the RoleGuard from Story 1.8).
+  - [x] Add form supports all four `type` values. For `CREDIT_CARD`, run `tokenizeCard` and build `display_label = "•••• " + last4`. For `UPI`/`NET_BANKING`/`MOBILE_WALLET`, take the identifier as-is and derive a sensible `display_label` (e.g. masked UPI handle / bank name).
+  - [x] List view: type icon + `display_label` + "Set Default" action. Reuse `components/ui/` (`Button`, `Card`, `Table`). TailwindCSS utility classes only; PascalCase component; server state via TanStack Query against `lib/api.ts`.
 - [ ] **Task 3: Backend payment-method endpoints** (AC: #1, #3, #4, #6)
   - [ ] Add CRUD routes to `service_webapp/src/routers/account.py` (profile-adjacent, FR-6): `POST` (add), `GET` (list), `PATCH .../{id}/default` (set default), `DELETE .../{id}`. (Placed in `account.py` rather than a recharge router because these are profile-management operations, not recharge transactions.)
   - [ ] Persist to `recharge_payment_methods` via the `DatabaseProtocol` adapter. PK `id` defaults to `gen_random_uuid()` (UUIDv4); `subscriber_id` FK from the JWT `sub` claim.
@@ -116,5 +118,14 @@ so that I can recharge quickly without re-entering payment details and my card d
 ### Debug Log References
 
 ### Completion Notes List
+- ✅ **Task 1 complete**: Client-side tokenisation utility implemented following red-green-refactor cycle. Created `frontend/src/lib/tokenize.ts` with `tokenizeCard()` function that generates UUID v4 tokens and extracts last-4 digits. Comprehensive test suite (16 tests) covering security requirements (no PAN exposure), token generation, last-4 extraction, input validation, and output format consistency. All tests pass, TypeScript strict mode and ESLint validation successful.
+- ✅ **Task 2 complete**: Payment methods UI implemented at `frontend/src/portals/subscriber/PaymentMethods.tsx` with route `/subscriber/profile/payment-methods`. Supports all 4 payment types (CREDIT_CARD, UPI, NET_BANKING, MOBILE_WALLET). Integrated client-side tokenisation for cards, TanStack Query for server state, TailwindCSS styling, and emoji icons. Comprehensive test suite (11 tests) including critical security tests asserting no PAN in API payloads. All tests pass, TypeScript and ESLint validation successful.
 
 ### File List
+- frontend/src/lib/tokenize.ts (new)
+- frontend/src/lib/tokenize.test.ts (new)
+- frontend/src/types/payment-method.ts (new)
+- frontend/src/portals/subscriber/PaymentMethods.tsx (new)
+- frontend/src/portals/subscriber/PaymentMethods.test.tsx (new)
+- frontend/src/lib/api.ts (modified)
+- frontend/src/App.tsx (modified)
