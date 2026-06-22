@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-22  # Story 1.8 dev done — JWT auth, step-up OTP, Cognito login flow, frontend RoleGuard
+last_updated: 2026-06-22  # Epic 2 stories 2-1..2-5 created (ready-for-dev); epic-2 → in-progress
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -51,19 +51,19 @@ development_status:
   1-4-pydantic-settings-singleton-health-endpoints-otel-trace-middleware: done
   1-5-langfuse-self-hosted-setup-client-instrumentation-scaffold: done
   1-6-subscriber-registration-trai-caf-pii-encryption: done
-  1-7-sim-activation-order-tracker-ui: ready-for-dev
+  1-7-sim-activation-order-tracker-ui: in-progress
   1-8-login-otp-step-up-jwt-role-based-auth: review
   1-9-profile-management-kyc-status-view: ready-for-dev
   1-10-saved-payment-methods-pci-dss-tokenisation: ready-for-dev
   epic-1-retrospective: optional
 
   # Epic 2: CDR Pipeline, Balance Engine, Synthetic Data & Simulator Tools
-  epic-2: backlog
-  2-1-redpanda-topic-provisioning-kafka-envelope-contract: backlog
-  2-2-cdr-ingestion-consumer-dedup-dlq: backlog
-  2-3-balance-deduction-engine-valkey-write-buffer-postgres-flush: backlog
-  2-4-audit-log-distributed-trace-propagation: backlog
-  2-5-cdr-management-api-dlq-inspect-worker-control: backlog
+  epic-2: in-progress
+  2-1-redpanda-topic-provisioning-kafka-envelope-contract: ready-for-dev
+  2-2-cdr-ingestion-consumer-dedup-dlq: ready-for-dev
+  2-3-balance-deduction-engine-valkey-write-buffer-postgres-flush: ready-for-dev
+  2-4-audit-log-distributed-trace-propagation: ready-for-dev
+  2-5-cdr-management-api-dlq-inspect-worker-control: ready-for-dev
   2-6-synthetic-dataset-generation-plans-subscribers-cdrs: backlog
   2-7-milvus-lite-initialisation-vector-seeding: backlog
   2-8-cdr-simulator-ui-form-dispatch-websocket-trace-display: backlog
