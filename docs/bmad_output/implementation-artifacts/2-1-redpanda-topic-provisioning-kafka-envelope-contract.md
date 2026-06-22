@@ -1,6 +1,10 @@
+---
+baseline_commit: 75578fdd40c9bf8c8aac24a2c8e366220cfe4b6d
+---
+
 # Story 2.1: Redpanda Topic Provisioning & Kafka Envelope Contract
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -21,26 +25,26 @@ so that all pipeline components can communicate reliably and every event is trac
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Define the shared Kafka event envelope model** (AC: #3)
-  - [ ] Create `cdr-pipeline/src/models/__init__.py` and `cdr-pipeline/src/models/envelope.py`
-  - [ ] `class EventEnvelope(BaseModel)` with fields `event_type: str`, `event_id: UUID`, `trace_id: str`, `timestamp: datetime`, `payload: dict[str, Any]`. Use `model_config = ConfigDict(...)` per pydantic v2; serialise `event_id` as `str`, `timestamp` as ISO-8601 UTC.
-  - [ ] Add a factory `EventEnvelope.new(event_type, payload, trace_id, *, event_id=None, timestamp=None)` that defaults `event_id` to a fresh **UUIDv7** (use the `uuid7` package — add `uuid7>=0.1` to deps) and `timestamp` to `datetime.now(UTC)`. Do NOT call `uuid4`.
-  - [ ] Add the CDR payload schema `cdr-pipeline/src/models/cdr.py` mirroring `billing_cdr_events` columns (CORE + voice/sms/data variants). Validate `cdr_type ∈ {voice, sms, data}`, `cost_paise: int`, MSISDNs as strings. This is the schema Story 2.2 validates against. [Source: service_webapp/db/migrations/V1__baseline_schema.sql:177-209]
-- [ ] **Task 2: Implement the producer helper with dual trace propagation** (AC: #4, #5)
-  - [ ] Create `cdr-pipeline/src/adapters/kafka.py` with an aiokafka `AIOKafkaProducer` wrapper (async; `kafka_brokers` from `settings`).
-  - [ ] `async publish(topic, *, key, envelope)` serialises the envelope to JSON (UTF-8) as the value, sets `key` to `subscriber_id` bytes, and injects a W3C `traceparent` header built from `envelope.trace_id` into the Kafka message headers. Body already carries `trace_id`.
-  - [ ] Expose a `MessageBrokerProtocol` in `cdr-pipeline/src/core/protocols/broker.py` (typed Protocol, async) so the consumer/screener depend on the interface, mirroring the existing `DatabaseProtocol`/`CacheProtocol` DI convention. [Source: architecture.md#1.12.1 (Protocol interfaces, async-only — ARCH-15)]
-- [ ] **Task 3: Implement the idempotent provisioning script** (AC: #1, #2, #6)
-  - [ ] Create `cdr-pipeline/scripts/provision_topics.py`. Use the aiokafka admin client (`aiokafka.admin.AIOKafkaAdminClient`) — or `kafka-python`'s `KafkaAdminClient` if the aiokafka admin surface is insufficient; prefer aiokafka to avoid a new dep.
-  - [ ] Define the topic spec as a module-level list of `(name, partitions, replication_factor=1)`: `cdr.raw`/24, `cdr.enriched.filtered`/24, `cdr.fraud.flagged`/6, `fraud.alerts`/6, `notification.events`/12, `cdr.dlq`/6. (ARCH-10)
-  - [ ] List existing topics first; create only the missing ones (`create_topics` with the existing-topic error swallowed). Log `created`/`exists` per topic. Re-running must be a no-op. Connect via `settings.kafka_brokers`.
-- [ ] **Task 4: Wire provisioning into compose / justfile** (AC: #1, #6)
-  - [ ] Add `provision-topics` recipe to the root `justfile` (pattern: `cd cdr-pipeline && PYTHONPATH=src python scripts/provision_topics.py`), matching the cross-platform `{{ justfile_directory() }}` convention used by `provision-cognito`.
-  - [ ] Ensure provisioning runs after Redpanda is healthy on `just up` — either append the recipe call to `up`, or add a short-lived `provision-topics` service to `docker/docker-compose.yaml` (depends_on redpanda: service_healthy, `restart: no`), consistent with how the `flyway` runner is wired. Document the chosen approach in Completion Notes. [Source: 1-2 story (flyway short-lived runner pattern); 1-3 story (justfile recipes)]
-- [ ] **Task 5: Tests** (AC: #2, #3, #4)
-  - [ ] Unit: `EventEnvelope.new()` produces a UUIDv7 `event_id` (version nibble == 7), UTC timestamp, and round-trips through `model_dump_json()`/`model_validate_json()`.
-  - [ ] Unit: the producer helper sets `traceparent` header AND a body `trace_id` equal to the envelope's `trace_id`; key is the `subscriber_id` bytes. Mock the `AIOKafkaProducer` (no live broker).
-  - [ ] Integration (`@pytest.mark.slow`/`integration`, testcontainers Redpanda/Kafka): running `provision_topics.py` twice yields the 6 topics with correct partition counts and the second run is a clean no-op. Use `DOCKER_HOST=unix:///run/user/1000/podman/podman.sock` (rootless podman). [Source: 1-4 debug log]
+- [x] **Task 1: Define the shared Kafka event envelope model** (AC: #3)
+  - [x] Create `cdr-pipeline/src/models/__init__.py` and `cdr-pipeline/src/models/envelope.py`
+  - [x] `class EventEnvelope(BaseModel)` with fields `event_type: str`, `event_id: UUID`, `trace_id: str`, `timestamp: datetime`, `payload: dict[str, Any]`. Use `model_config = ConfigDict(...)` per pydantic v2; serialise `event_id` as `str`, `timestamp` as ISO-8601 UTC.
+  - [x] Add a factory `EventEnvelope.new(event_type, payload, trace_id, *, event_id=None, timestamp=None)` that defaults `event_id` to a fresh **UUIDv7** (use the `uuid7` package — add `uuid7>=0.1` to deps) and `timestamp` to `datetime.now(UTC)`. Do NOT call `uuid4`.
+  - [x] Add the CDR payload schema `cdr-pipeline/src/models/cdr.py` mirroring `billing_cdr_events` columns (CORE + voice/sms/data variants). Validate `cdr_type ∈ {voice, sms, data}`, `cost_paise: int`, MSISDNs as strings. This is the schema Story 2.2 validates against. [Source: service_webapp/db/migrations/V1__baseline_schema.sql:177-209]
+- [x] **Task 2: Implement the producer helper with dual trace propagation** (AC: #4, #5)
+  - [x] Create `cdr-pipeline/src/adapters/kafka.py` with an aiokafka `AIOKafkaProducer` wrapper (async; `kafka_brokers` from `settings`).
+  - [x] `async publish(topic, *, key, envelope)` serialises the envelope to JSON (UTF-8) as the value, sets `key` to `subscriber_id` bytes, and injects a W3C `traceparent` header built from `envelope.trace_id` into the Kafka message headers. Body already carries `trace_id`.
+  - [x] Expose a `MessageBrokerProtocol` in `cdr-pipeline/src/core/protocols/broker.py` (typed Protocol, async) so the consumer/screener depend on the interface, mirroring the existing `DatabaseProtocol`/`CacheProtocol` DI convention. [Source: architecture.md#1.12.1 (Protocol interfaces, async-only — ARCH-15)]
+- [x] **Task 3: Implement the idempotent provisioning script** (AC: #1, #2, #6)
+  - [x] Create `cdr-pipeline/scripts/provision_topics.py`. Use the aiokafka admin client (`aiokafka.admin.AIOKafkaAdminClient`) — or `kafka-python`'s `KafkaAdminClient` if the aiokafka admin surface is insufficient; prefer aiokafka to avoid a new dep.
+  - [x] Define the topic spec as a module-level list of `(name, partitions, replication_factor=1)`: `cdr.raw`/24, `cdr.enriched.filtered`/24, `cdr.fraud.flagged`/6, `fraud.alerts`/6, `notification.events`/12, `cdr.dlq`/6. (ARCH-10)
+  - [x] List existing topics first; create only the missing ones (`create_topics` with the existing-topic error swallowed). Log `created`/`exists` per topic. Re-running must be a no-op. Connect via `settings.kafka_brokers`.
+- [x] **Task 4: Wire provisioning into compose / justfile** (AC: #1, #6)
+  - [x] Add `provision-topics` recipe to the root `justfile` (pattern: `cd cdr-pipeline && PYTHONPATH=src python scripts/provision_topics.py`), matching the cross-platform `{{ justfile_directory() }}` convention used by `provision-cognito`.
+  - [x] Ensure provisioning runs after Redpanda is healthy on `just up` — either append the recipe call to `up`, or add a short-lived `provision-topics` service to `docker/docker-compose.yaml` (depends_on redpanda: service_healthy, `restart: no`), consistent with how the `flyway` runner is wired. Document the chosen approach in Completion Notes. [Source: 1-2 story (flyway short-lived runner pattern); 1-3 story (justfile recipes)]
+- [x] **Task 5: Tests** (AC: #2, #3, #4)
+  - [x] Unit: `EventEnvelope.new()` produces a UUIDv7 `event_id` (version nibble == 7), UTC timestamp, and round-trips through `model_dump_json()`/`model_validate_json()`.
+  - [x] Unit: the producer helper sets `traceparent` header AND a body `trace_id` equal to the envelope's `trace_id`; key is the `subscriber_id` bytes. Mock the `AIOKafkaProducer` (no live broker).
+  - [x] Integration (`@pytest.mark.slow`/`integration`, testcontainers Redpanda/Kafka): running `provision_topics.py` twice yields the 6 topics with correct partition counts and the second run is a clean no-op. Use `DOCKER_HOST=unix:///run/user/1000/podman/podman.sock` (rootless podman). [Source: 1-4 debug log]
 
 ## Dev Notes
 
@@ -125,8 +129,42 @@ so that all pipeline components can communicate reliably and every event is trac
 
 ### Agent Model Used
 
+Claude (GLM-5.2) via `bmad-dev-story` workflow.
+
 ### Debug Log References
+
+- **uuid7 import bug in partial dev work:** the pre-existing `envelope.py` used `import uuid7 as _uuid7` / `_uuid7.uuid7()`, but the `uuid7>=0.1` PyPI package installs under the module name **`uuid_extensions`** (`from uuid_extensions import uuid7`). `import uuid7` raised `ModuleNotFoundError`, so `test_envelope.py` failed at collection. Fixed to `from uuid_extensions import uuid7`; `uuid7()` returns a `UUID` at runtime (its stub is the broad `Union[UUID, str, int, bytes]`, hence the `cast` in `EventEnvelope.new`). Confirmed against the installed `uuid7==0.1.0` (`top_level.txt = uuid_extensions`).
+- **Live verification against the running stack:** Redpanda was already up on `localhost:9092`, so `provision_topics.py` was exercised directly. Run 1 created all 6 topics; run 2 reported every topic `exists` (idempotent no-op). `describe_topics` (keys: `topic`, `partitions`) confirmed exact partition counts `24/24/6/6/12/6` @ RF=1 on the broker.
+- **testcontainers 429:** the default `RedpandaContainer` image (`docker.redpanda.com/redpandadata/redpanda:v23.1.13`) hit an unauthenticated Docker Hub rate limit (429). Pinned the fixture to the compose stack's already-cached image `docker.io/redpandadata/redpanda:v24.2.1` — matches the version under test and avoids the pull.
+- **pyrefly vs pydantic discriminated union:** the canonical pydantic discriminator pattern (base declares the discriminator; variants narrow it) trips pyrefly `bad-override-mutable-attribute`. Resolved by declaring `cdr_type` per-variant only (removed from `CdrBase`); pydantic discrimination is unchanged. Separately, `UUID`/`datetime` cannot move behind `TYPE_CHECKING` in pydantic model modules (verified: raises `PydanticUserError: not fully defined`) — those imports are suppressed with `# noqa: TC003`, while the truly annotation-only `EventEnvelope` imports in `adapters/kafka.py` and `core/protocols/broker.py` were moved into `TYPE_CHECKING` blocks as ruff intended.
 
 ### Completion Notes List
 
+- **All ACs satisfied and verified:** (1) 6 topics @ correct partitions — proven both live and via the testcontainers integration test; (2) idempotent re-run is a no-op — proven live + in test; (3) `EventEnvelope` + `CdrEvent` discriminated-union schema with 16 unit tests; (4) dual trace propagation (`traceparent` header **and** body `trace_id`) — unit-tested with a mocked producer; (5) `key=subscriber_id` bytes — unit-tested; (6) `just provision-topics` recipe wired into `just up` and `just deps` after Redpanda is healthy (`until podman exec redpanda rpk cluster health`).
+- **Tests gate:** `uvx --with tox-uv tox` → lint OK (ruff check + ruff format --check + pyrefly 0 errors) and test OK (34 passed, 2 deselected). The 2 deselected `@pytest.mark.slow` integration tests pass when run against rootless Podman: `DOCKER_HOST=unix:///run/user/1000/podman/podman.sock cd cdr-pipeline && uvx --with tox-uv tox -e test -- -m slow`.
+- **Task 4 approach (documented per AC #6):** chose the **justfile recipe** path (not a short-lived compose service) because there is no `cdr-pipeline` Dockerfile yet — the consumer image doesn't exist. `provision-topics` mirrors `provision-cognito` (`uvx --with aiokafka,pydantic,pydantic-settings,uuid7 python scripts/provision_topics.py`). The compose-service option is deferred to whenever the cdr-pipeline image lands.
+- **Envelope duplication risk (flag for Story 2.8):** per the two-codebase MVP, `service_webapp`'s Story 2.8 simulator producer must emit the **identical** `EventEnvelope` (same 5 fields, UUIDv7 `event_id`, dual-trace rule). The canonical definition lives here in `cdr-pipeline/src/models/envelope.py`; 2.8 should copy it verbatim (or extract a tiny shared module) rather than re-deriving fields. ⚠️ keep the two copies byte-compatible.
+- **Dev convenience (user-requested):** added `cdr-pipeline/.env` (gitignored, mirrors `docker/.env`) + `cdr-pipeline/.env.example` (tracked template) so `provision_topics.py`, the future consumer, and local dev runs load `DB__*`/`VALKEY_URL`/`KAFKA_BROKERS` without inline env vars. `pytest-env` (in `pyproject.toml`) remains as the CI belt-and-suspenders for collection without a `.env`.
+- **Pre-existing env-var mismatch noted (not fixed here):** `docker/docker-compose.yaml` sets `KAFKA_BOOTSTRAP_SERVERS`/`DATABASE_URL` for the cdr-pipeline container, but `core/config.py` reads `KAFKA_BROKERS`/`DB__*`. The container never runs the consumer yet (no image), so this is latent; Story 2.2/2.x should reconcile the container env to `DB__*`/`KAFKA_BROKERS` when the consumer is containerised.
+
 ### File List
+
+- `cdr-pipeline/src/models/__init__.py` — extended (package docstring; was stub from partial dev)
+- `cdr-pipeline/src/models/envelope.py` — **fixed** uuid7 import bug; added `cast` + `# noqa: TC003` (was partial dev)
+- `cdr-pipeline/src/models/cdr.py` — **NEW**: `CdrEvent` discriminated union (Voice/Sms/Data) mirroring `billing_cdr_events`
+- `cdr-pipeline/src/adapters/__init__.py` — **NEW**: adapters package
+- `cdr-pipeline/src/adapters/kafka.py` — **NEW**: async `KafkaProducer` (dual trace, `key=subscriber_id` bytes); `MessageBrokerProtocol` impl
+- `cdr-pipeline/src/core/protocols/__init__.py` — **NEW**: protocols package
+- `cdr-pipeline/src/core/protocols/broker.py` — **NEW**: `MessageBrokerProtocol` (runtime_checkable, async)
+- `cdr-pipeline/scripts/provision_topics.py` — **NEW**: idempotent topic provisioning (6 topics, fixed partitions)
+- `cdr-pipeline/tests/unit/test_cdr.py` — **NEW**: 16 CDR-schema unit tests
+- `cdr-pipeline/tests/unit/test_kafka_producer.py` — **NEW**: 5 producer unit tests (mocked broker)
+- `cdr-pipeline/tests/integration/test_provision_topics.py` — **NEW**: 2 `@pytest.mark.slow` testcontainers integration tests
+- `cdr-pipeline/pyproject.toml` — **MODIFIED**: runtime deps (pydantic, aiokafka, uuid7) + lint/test tox deps (incl. testcontainers[kafka], pytest-mock)
+- `cdr-pipeline/.env` — **NEW** (gitignored): local dev env mirroring `docker/.env`
+- `cdr-pipeline/.env.example` — **NEW** (tracked): env template
+- `justfile` — **MODIFIED**: added `provision-topics` recipe; wired into `just up` + `just deps` after Redpanda healthy
+
+### Change Log
+
+- 2026-06-22: Story 2.1 implementation complete — CDR envelope model fixed (uuid7 import), CDR payload schema, async producer + broker Protocol, idempotent topic provisioning script, justfile wiring, unit + integration tests. All ACs met; lint + test gates green. Status → review.

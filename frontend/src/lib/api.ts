@@ -138,9 +138,10 @@ export interface OrderStatusResponse {
 
 export interface ActiveOrderResponse {
   readonly data: {
-    readonly order_id: string;
-    readonly status: string;
-    readonly updated_at: string;
+    // order_id/status/updated_at are null when the subscriber has no active order (D7).
+    readonly order_id: string | null;
+    readonly status: string | null;
+    readonly updated_at: string | null;
   };
   readonly meta: { readonly trace_id: string; readonly timestamp: string };
 }
@@ -158,6 +159,23 @@ export async function getOrderStatus(orderId: string): Promise<OrderStatusRespon
 }
 
 // ── Simulator developer tool (Story 1.7) ─────────────────────────────────────
+
+export interface SimulatorOrder {
+  readonly order_id: string;
+  readonly current_status: string;
+  readonly created_at: string | null;
+}
+
+export interface SimulatorOrdersResponse {
+  readonly data: { readonly orders: readonly SimulatorOrder[] };
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/** GET /simulator/orders — list recent orders for the dev tool (dev role). */
+export async function getSimulatorOrders(): Promise<SimulatorOrdersResponse['data']> {
+  const { data } = await apiClient.get<SimulatorOrdersResponse>('/simulator/orders');
+  return data.data;
+}
 
 export interface AdvanceOrderResponse {
   readonly data: {

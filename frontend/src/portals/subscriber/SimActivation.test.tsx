@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -34,6 +34,11 @@ describe('SimActivation subscriber tracker', () => {
   beforeEach(() => {
     vi.mocked(getActiveOrder).mockReset();
     vi.mocked(getOrderStatus).mockReset();
+  });
+
+  afterEach(() => {
+    // Guard against fake-timer leakage from the polling-recurrence test.
+    vi.useRealTimers();
   });
 
   it('shows loading state initially', () => {
@@ -102,11 +107,38 @@ describe('SimActivation subscriber tracker', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/unable to load/i);
   });
 
-  it('polling interval is configured — getOrderStatus is called after initial load', async () => {
+  it('re-fetches status on the 10s polling interval (polling actually recurs)', async () => {
+    // Strengthened (P10): the old test only asserted the initial fetch, so a
+    // regression that deleted refetchInterval entirely still passed. Advance fake
+    // timers past one interval and assert getOrderStatus is called again.
+    vi.useFakeTimers();
     vi.mocked(getActiveOrder).mockResolvedValue({ order_id: ORDER_ID, status: 'CREATED', updated_at: '' });
     vi.mocked(getOrderStatus).mockResolvedValue({ status: 'CREATED', updated_at: '', msisdn: null });
     renderComponent();
-    await waitFor(() => expect(vi.mocked(getOrderStatus)).toHaveBeenCalledWith(ORDER_ID));
+    // Let the initial fetch chain settle first (flush microtasks, no clock advance),
+    // so the refetch timer is scheduled before we advance time.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(vi.mocked(getOrderStatus)).toHaveBeenCalledWith(ORDER_ID);
+    // Advance one full interval; CREATED is non-terminal so a refetch should fire.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    // Initial fetch + at least one scheduled refetch ⇒ refetchInterval is wired.
+    expect(vi.mocked(getOrderStatus).mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('shows an empty state (not an error) when the subscriber has no active order', async () => {
+    // D7: a 200 + null active order renders an empty/CTA state, not the error page.
+    vi.mocked(getActiveOrder).mockResolvedValue({ order_id: null, status: null, updated_at: null });
+    renderComponent();
+    await waitFor(() => expect(screen.getByLabelText('No activation in progress')).toBeInTheDocument());
+    expect(screen.getByText(/no sim activation in progress/i)).toBeInTheDocument();
+    expect(screen.queryByText(/unable to load/i)).not.toBeInTheDocument();
   });
 
   it('getOrderStatus is NOT called when ACTIVATED (polling stops)', async () => {

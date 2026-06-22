@@ -18,6 +18,13 @@ const STATUS_INDEX: Record<OrderStatus, number> = {
   ACTIVATED: 3,
 };
 
+const KNOWN_STATUSES: ReadonlySet<string> = new Set(STEPS.map((step) => step.key));
+
+/** Narrow an arbitrary API status string to a known tracker step. */
+function isOrderStatus(value: unknown): value is OrderStatus {
+  return typeof value === 'string' && KNOWN_STATUSES.has(value);
+}
+
 function StepIndicator({ currentStatus }: { readonly currentStatus: OrderStatus }) {
   const currentIndex = STATUS_INDEX[currentStatus];
   return (
@@ -59,7 +66,7 @@ function StepIndicator({ currentStatus }: { readonly currentStatus: OrderStatus 
 }
 
 function SimActivationContent() {
-  const { status, msisdn, isLoading, isError } = useOrderStatus();
+  const { status, msisdn, hasActiveOrder, isLoading, isError } = useOrderStatus();
 
   if (isLoading) {
     return (
@@ -69,7 +76,7 @@ function SimActivationContent() {
     );
   }
 
-  if (isError || status === null) {
+  if (isError) {
     return (
       <p className="text-sm text-danger-600" role="alert">
         Unable to load your activation order. Please refresh or contact support.
@@ -77,7 +84,32 @@ function SimActivationContent() {
     );
   }
 
-  const orderStatus = status as OrderStatus;
+  // No active order — a legitimate state, not an error (D7: discovery returns 200 null).
+  if (!hasActiveOrder) {
+    return (
+      <div
+        className="rounded-lg border border-neutral-200 bg-neutral-50 p-4"
+        role="status"
+        aria-label="No activation in progress"
+      >
+        <p className="text-sm font-medium text-neutral-700">No SIM activation in progress.</p>
+        <p className="mt-1 text-xs text-neutral-500">
+          Once you start a SIM activation, its step-by-step progress will appear here.
+        </p>
+      </div>
+    );
+  }
+
+  // Unexpected status value (e.g. REJECTED) — guard before indexing to avoid NaN highlight.
+  if (!isOrderStatus(status)) {
+    return (
+      <p className="text-sm text-danger-600" role="alert">
+        Unexpected order status{status ? ` “${status}”` : ''}. Please refresh or contact support.
+      </p>
+    );
+  }
+
+  const orderStatus = status;
 
   return (
     <div className="space-y-6">
@@ -106,7 +138,7 @@ function SimActivationContent() {
 
 /**
  * Read-only SIM activation order tracker (Story 1.7 AC #1–#4).
- * Route: /activate (behind /subscriber/* RoleGuard).
+ * Route: /subscriber/activate (behind /subscriber/* RoleGuard).
  * Polls GET /api/v1/subscriber/orders/{orderId}/status every 10 s;
  * stops polling and shows a success banner once ACTIVATED.
  */

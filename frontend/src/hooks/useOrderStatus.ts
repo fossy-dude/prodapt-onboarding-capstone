@@ -4,7 +4,8 @@ import { getActiveOrder, getOrderStatus } from '../lib/api';
 
 /**
  * Discover the subscriber's active order then poll its status every 10 seconds.
- * Polling stops once status reaches 'ACTIVATED' (terminal state).
+ * Polling stops once status reaches 'ACTIVATED' (terminal state) or on any query
+ * error (403/404/network) to avoid retrying a permanently-failing request.
  *
  * Architecture: TanStack Query + refetchInterval (Story 1.7 AC #2; §1.9.3).
  * No manual setInterval — polling is managed entirely by the query layer.
@@ -22,6 +23,7 @@ export function useOrderStatus() {
     queryFn: () => getOrderStatus(orderId!),
     enabled: orderId !== null,
     refetchInterval: (query) => {
+      if (query.state.error) return false;
       if (query.state.data?.status === 'ACTIVATED') return false;
       return 10_000;
     },
@@ -29,6 +31,7 @@ export function useOrderStatus() {
 
   return {
     orderId,
+    hasActiveOrder: orderId !== null,
     status: statusQuery.data?.status ?? null,
     msisdn: statusQuery.data?.msisdn ?? null,
     updatedAt: statusQuery.data?.updated_at ?? null,

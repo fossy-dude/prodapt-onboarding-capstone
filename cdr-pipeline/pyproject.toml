@@ -9,8 +9,11 @@ description = "CDR ingestion, balance engine and fraud pre-screener pipeline (MV
 requires-python = ">=3.11"
 dependencies = [
     # Story 1.4: config singleton (same eager-load pattern as service_webapp).
-    # The aiokafka consumer / balance engine land in Epic 2.
     "pydantic-settings>=2.3",
+    # Story 2.1: Kafka envelope model, async producer, topic provisioning.
+    "pydantic>=2",
+    "aiokafka>=0.11",
+    "uuid7>=0.1",
 ]
 
 [project.optional-dependencies]
@@ -24,6 +27,7 @@ test = [
     "pytest-env>=1.1.0",
     "tox>=4.0.0",
     "pyrefly>=0.31.0",
+    "testcontainers[kafka]>=4",
 ]
 
 # ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -278,6 +282,9 @@ deps = [
     "ruff>=0.12.9",
     "pyrefly>=0.31.0",
     "pydantic-settings>=2.3",
+    "pydantic>=2",
+    "aiokafka>=0.11",
+    "uuid7>=0.1",
 ]
 commands = [
     ["ruff", "check", "."],
@@ -293,5 +300,10 @@ deps = [
     "pytest-env>=1.1.0",
     "pytest-asyncio>=0.23",
     "pydantic-settings>=2.3",
+    "pydantic>=2",
+    "aiokafka>=0.11",
+    "uuid7>=0.1",
+    "pytest-mock>=3",
+    "testcontainers[kafka]>=4",
 ]
 commands = [["pytest", "-m", "not slow", "{posargs}"]]

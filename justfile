@@ -26,6 +26,8 @@ deps:
     @grep -q "change_me" docker/.env && { echo "ERROR: docker/.env contains placeholder passwords. Edit the file with real values."; exit 1; } || true
     podman compose -f docker/docker-compose-dependencies.yaml --env-file docker/.env up -d
     @echo "→ LangFuse dashboard: http://localhost:3000  (Story 1.5; login via LANGFUSE_INIT_USER_* in docker/.env)"
+    @until podman exec redpanda rpk cluster health > /dev/null 2>&1; do sleep 1; done
+    @just provision-topics
     @just provision-cognito
 
 # Provision MiniStack Cognito (user pool, role groups, app client, demo users). Idempotent.
@@ -34,6 +36,13 @@ deps:
 provision-cognito:
     @command -v uvx > /dev/null || { echo "ERROR: uv not installed. See README §1 prerequisites."; exit 1; }
     uvx --with boto3 python scripts/provision_cognito.py
+
+# Provision the CDR pipeline Kafka/Redpanda topics (idempotent — AC #2). Runs
+# automatically after Redpanda is healthy via `just up` / `just deps`; safe to
+# re-run by hand once the stack is up. Host-script pattern mirrors provision-cognito.
+provision-topics:
+    @command -v uvx > /dev/null || { echo "ERROR: uv not installed. See README §1 prerequisites."; exit 1; }
+    cd cdr-pipeline && PYTHONPATH=src uvx --with aiokafka --with pydantic --with pydantic-settings --with uuid7 python scripts/provision_topics.py
 
 # Destroy infrastructure-only stack (stop containers, remove volumes and networks).
 deps_destroy:
@@ -44,6 +53,8 @@ up:
     @[ -f docker/.env ] || { echo "ERROR: docker/.env not found. Run: cp .env.example docker/.env"; exit 1; }
     @until podman exec postgres pg_isready -U sboai_superuser > /dev/null 2>&1; do sleep 1; done
     podman compose -f docker/docker-compose.yaml --env-file docker/.env up -d
+    @until podman exec redpanda rpk cluster health > /dev/null 2>&1; do sleep 1; done
+    @just provision-topics
     @echo "→ LangFuse dashboard: http://localhost:3000  (requires 'just deps' first; login via LANGFUSE_INIT_USER_* in docker/.env)"
 
 # Stop the full application stack.

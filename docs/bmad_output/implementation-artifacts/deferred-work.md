@@ -1,5 +1,15 @@
 # Deferred Work
 
+## Deferred from: code review of 1-7-sim-activation-order-tracker-ui (2026-06-22)
+
+- **401 hard redirect, no refresh-token retry** — `api.ts` interceptor redirects to `/login` on the first 401 with no refresh-token retry despite a refresh token being stored. Token-refresh flow is Story 1.8 auth territory; not this story's job to introduce.
+- **UUID case-sensitivity in `sub` comparison** — `account.py` does `subscriber_id != sub` on raw strings; canonical UUIDs are lowercase on both sides (Postgres `::text` output + Cognito `sub`), so real risk ≈ 0. Normalising both via `str().lower()` would be defensive but not warranted now.
+- **`getOrderStatus(orderId!)` non-null assertion** — the `!` is safe only because `enabled: orderId !== null` guards the queryFn; refactor-fragile but guarded today.
+- **`modified_at = NOW()` divergence from app clock** — simulator advance writes DB wall-clock time via `NOW()` rather than an app-level timestamp; dev-only tool, speculative ordering impact on `getActiveOrder`'s `created_at DESC`.
+- **Import naming collision `SimActivation as SimActivationSimulator`** — foot-gun alongside the subscriber `SimActivation` default import in `App.tsx`; cosmetic.
+- **`test_order_status_msisdn_absent_for_kyc_pending` is a `for` loop, not `pytest.parametrize`** — a failure aborts the loop and masks partial regressions; no parametrized id reported.
+- **Checkmark-count test name vs assertion mismatch** — test name says "three checkmarks" but asserts `toHaveLength(2)` for `KYC_VERIFIED`; cosmetic.
+
 ## Deferred from: code review of 1-8-login-otp-step-up-jwt-role-based-auth (2026-06-22)
 
 - **D1 — OTEL `trace_id` not asserted in auth tests** — `require_role` and `JWTValidator` run inside the OTEL middleware stack but no unit test asserts `request.state.trace_id` is preserved or that `X-Trace-Id` appears on `401`/`403` responses. Middleware ordering is correct structurally but untested; add an integration assertion in a later observability pass.
