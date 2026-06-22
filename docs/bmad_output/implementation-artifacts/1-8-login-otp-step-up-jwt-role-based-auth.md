@@ -101,7 +101,7 @@ Therefore this story creates **no migration and no table**. Session/identity sta
 
 ### Project Structure Notes
 
-- New: `service_webapp/src/core/auth.py` (JWT decode + role guard). Login routes extend `service_webapp/src/routers/account.py` (FR-1–7). Backend dir is `service_webapp/` (architecture's `app-backend/`/`service_backend/` → `service_webapp/` per Story 1.2 RESOLVED decision).
+- New: `service_webapp/src/core/auth.py` (JWT decode + role guard). Login routes extend `service_webapp/src/routers/account.py` (FR-1–7). Backend dir is `service_webapp/` (architecture's `app-backend/`/`service_webapp/` → `service_webapp/` per Story 1.2 RESOLVED decision).
 - Extends (does not replace): `service_webapp/src/core/config.py` (Story 1.4) — add Cognito + OTP-TTL keys.
 - New frontend: `frontend/src/lib/auth.ts`, `frontend/src/components/layout/RoleGuard.tsx`, the `/login` screen, and the bearer-token interceptor in `frontend/src/lib/api.ts`. Frontend layout follows the **architecture** `src/portals/*` + `components/ui|layout/` convention (Story 1.1 RESOLVED — architecture layout wins over `frontend/CLAUDE.md`).
 - Step-up OTP uses the existing `CacheProtocol`/`RedisAdapter` (Valkey from Story 1.2; `noeviction` policy — `otp:{msisdn}` keys must not be evicted).

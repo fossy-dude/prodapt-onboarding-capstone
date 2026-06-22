@@ -49,7 +49,7 @@ so that code quality is enforced automatically and onboarding requires no tribal
   - [x] Replace the current stub (`# prodapt-onboarding-capstone`)
   - [x] Follow the exact section structure in architecture §1.15.1: Prerequisites, MVP Setup (2.1–2.6), Target State stub (section 3), Development Workflow (section 4), Troubleshooting (section 5)
   - [x] Reference the architecture diagram (`docs/architecture_diagrams.md`) and `architecture.md`
-  - [x] Use `service_webapp` (not `app-backend`/`service_backend`) for backend command examples — reconcile the architecture's `service_backend` naming to the actual `service_webapp` dir
+  - [x] Use `service_webapp` (not `app-backend`/`service_webapp`) for backend command examples — reconcile the architecture's `service_webapp` naming to the actual `service_webapp` dir
 - [x] **Task 6: Author `.env.example` and confirm `.gitignore`** (AC: #6)
   - [x] `.env.example` at project root with ALL required keys (see "Environment variable keys" in Dev Notes), placeholder values only
   - [x] Confirm `.env` is gitignored (the repo `.gitignore` exists — verify it covers `.env`)
@@ -67,7 +67,7 @@ so that code quality is enforced automatically and onboarding requires no tribal
 ### RESOLVED directory & naming decisions
 
 - Backend dir is `service_webapp/` (NOT `app-backend/`). `cdr-pipeline/` is created in this story (at least `pyproject.toml` + a stub `src/` + tox config) so CI has something to run. [user decision 2026-06-19]
-- Architecture's README snippet says `service_backend` and `app-backend` interchangeably — both mean the actual `service_webapp/` dir. Normalise to `service_webapp` in the README and justfile.
+- Architecture's README snippet says `service_webapp` and `app-backend` interchangeably — both mean the actual `service_webapp/` dir. Normalise to `service_webapp` in the README and justfile.
 
 ### justfile reference (cross-platform — adapt from architecture §1.12.2)
 
@@ -224,7 +224,7 @@ Not verified locally (tools absent on this host): `podman`, `flyway`. Their just
 
 7. **CI (AC #4).** `.github/workflows/ci-pipeline.yml` (jobs: `service_webapp` tox + `frontend` `npm ci && npm run lint && npm run test`) and `.github/workflows/ci-cdr.yml` (job: `cdr-pipeline` tox), on `pull_request` + push to `main`, using `astral-sh/setup-uv@v5`, `actions/setup-python@5` (3.13) and `actions/setup-node@4` (Node 20). All invoke the same `uvx --with tox-uv tox` gate as the justfile. **Branch protection** (requiring these checks before merge) is a GitHub repo setting, not a workflow field — flagged in the workflow comments for the maintainer to enable.
 
-8. **README (AC #5).** Follows architecture §1.15.1 section structure (Prerequisites, MVP Setup 2.1–2.6, Target State stub, Development Workflow, Troubleshooting); references `architecture.md` + `docs/architecture_diagrams.md`; normalises `service_backend`/`app-backend` → `service_webapp`. Active env file is `docker/.env` (matches the justfile `--env-file docker/.env`); `.env.example` stays at the repo root per AC #6.
+8. **README (AC #5).** Follows architecture §1.15.1 section structure (Prerequisites, MVP Setup 2.1–2.6, Target State stub, Development Workflow, Troubleshooting); references `architecture.md` + `docs/architecture_diagrams.md`; normalises `service_webapp`/`app-backend` → `service_webapp`. Active env file is `docker/.env` (matches the justfile `--env-file docker/.env`); `.env.example` stays at the repo root per AC #6.
 
 9. **`.env.example` + `.gitignore` (AC #6).** `.env.example` at repo root, superset-complete: 4 required Postgres role passwords (no safe defaults), `DATABASE_URL`, pydantic-settings `DB__*` (Story 1.4), Redis/Valkey, Kafka, Azure OpenAI, Langfuse app keys (Story 1.5), `ENCRYPTION_KEY` (Story 1.6), OTEL, and the compose-infra defaults (Langfuse/MiniStack) for completeness. `.env` is gitignored (root line 153; the `.env` pattern also covers `docker/.env`). Added `node_modules/`, `dist/`, `coverage/`, `.vite/`, `*.tsbuildinfo`, `.eslintcache` to root `.gitignore` (a pre-existing `frontend/.gitignore` already covers the frontend subset).
 

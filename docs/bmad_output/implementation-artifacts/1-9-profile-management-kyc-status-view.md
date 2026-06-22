@@ -82,7 +82,7 @@ All tables already exist in the **full V1 all-domain baseline** (Story 1.2). Thi
 ### Project Structure Notes
 
 - New/extended backend: `service_webapp/src/routers/account.py` (GET + PATCH profile). New frontend: `frontend/src/portals/subscriber/Profile.tsx`.
-- Backend dir is **`service_webapp/`** (architecture says `app-backend/`/`service_backend/` — read as `service_webapp/` per the project decision). [Source: 1-2 story "RESOLVED backend directory decision"]
+- Backend dir is **`service_webapp/`** (architecture says `app-backend/`/`service_webapp/` — read as `service_webapp/` per the project decision). [Source: 1-2 story "RESOLVED backend directory decision"]
 - Variance: the UX brief places the KYC re-submit behind `/profile/kyc`; confirm the exact resubmit route/affordance against the brief at implementation time.
 
 ### Testing standards summary

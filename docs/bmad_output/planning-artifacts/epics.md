@@ -211,7 +211,7 @@ NFR-16: PII must never appear in logs or OTEL span attributes — use subscriber
 
 NFR-17: Every Kafka message must include traceparent in headers AND trace_id in JSON body.
 
-NFR-18: The two-codebase boundary (cdr-pipeline/ vs service_backend/) is hard — no HTTP calls between them in MVP; communication only via shared Postgres and Redis/Valkey.
+NFR-18: The two-codebase boundary (cdr-pipeline/ vs service_webapp/) is hard — no HTTP calls between them in MVP; communication only via shared Postgres and Redis/Valkey.
 
 NFR-19: Health check endpoints (/health, /ready) must respond within 200ms under normal operating conditions.
 
@@ -223,7 +223,7 @@ NFR-20: Rate limit threshold is configurable via a database configuration record
 
 From Architecture document — technical requirements that impact epic and story creation:
 
-ARCH-1: Two-codebase structure: cdr-pipeline/ (Python + aiokafka) and service_backend/ (Python + FastAPI). No inter-service HTTP calls in MVP; they share Postgres and Valkey.
+ARCH-1: Two-codebase structure: cdr-pipeline/ (Python + aiokafka) and service_webapp/ (Python + FastAPI). No inter-service HTTP calls in MVP; they share Postgres and Valkey.
 
 ARCH-2: Postgres container init scripts (docker/postgres/init/01_extensions.sql, 02_roles.sql, 03_databases.sql) must run at container creation time. Extensions: pg_uuidv7, pgcrypto, pg_trgm, btree_gin.
 
@@ -235,7 +235,7 @@ ARCH-5: Valkey key domains: dedup:{cdr_id} (24h TTL), balance:{msisdn} (no TTL �
 
 ARCH-6: balance:{msisdn} key must never be evicted. Valkey maxmemory-policy must be set to noeviction. On cdr-pipeline restart, load_balances_from_postgres() re-seeds all balance keys before the consumer loop starts.
 
-ARCH-7: Milvus Lite runs embedded in-process (pymilvus[milvus-lite]) in service_backend. No separate container. Data persisted to Podman volume milvus_lite_data mounted at /app/data/milvus/sboai.db.
+ARCH-7: Milvus Lite runs embedded in-process (pymilvus[milvus-lite]) in service_webapp. No separate container. Data persisted to Podman volume milvus_lite_data mounted at /app/data/milvus/sboai.db.
 
 ARCH-8: Three Milvus collections: faq_chunks (category, source_doc, plan_type metadata), plan_vectors (plan_id, plan_type, price, validity), sop_chunks (rule_id, severity, domain). All use text-embedding-3-small (1536 dims), HNSW index, BM25 + RRF for hybrid search.
 
@@ -593,7 +593,7 @@ So that code quality is enforced automatically and onboarding requires no tribal
 
 **Acceptance Criteria:**
 
-**Given** the project root exists with both cdr-pipeline/ and service_backend/ codebases
+**Given** the project root exists with both cdr-pipeline/ and service_webapp/ codebases
 
 **When** the tooling is configured
 
@@ -621,13 +621,13 @@ So that misconfigured deployments fail fast at boot and every request is traceab
 
 **Acceptance Criteria:**
 
-**Given** both cdr-pipeline and service_backend services exist
+**Given** both cdr-pipeline and service_webapp services exist
 
 **When** either service starts
 
 **Then** a pydantic-settings singleton loads all required env vars at module import time and raises a descriptive error immediately if any required value is missing (ARCH-17)
 
-**And** service_backend exposes GET /health and GET /ready; both respond within 200ms under normal operating conditions (FR-77, NFR-19)
+**And** service_webapp exposes GET /health and GET /ready; both respond within 200ms under normal operating conditions (FR-77, NFR-19)
 
 **And** GET /health returns 200 with `{"status": "ok"}` when the service is running
 
@@ -645,7 +645,7 @@ So that misconfigured deployments fail fast at boot and every request is traceab
 
 As a **platform engineer**,
 
-I want LangFuse running locally and a reusable instrumentation client wired into service_backend so that all future agentic workflows can emit traces with a single decorator,
+I want LangFuse running locally and a reusable instrumentation client wired into service_webapp so that all future agentic workflows can emit traces with a single decorator,
 
 So that agent observability is available from the first agent story without per-agent setup overhead.
 
@@ -657,7 +657,7 @@ So that agent observability is available from the first agent story without per-
 
 **Then** LangFuse UI is accessible at <http://localhost:3000> and accepts traces
 
-**And** a `get_langfuse_client()` singleton factory is implemented in service_backend/core/observability/langfuse.py
+**And** a `get_langfuse_client()` singleton factory is implemented in service_webapp/core/observability/langfuse.py
 
 **And** a `@trace_agent` decorator is implemented that wraps any async function, creates a LangFuse trace with: trace name, input, output, model, token usage (FR-72)
 
@@ -1023,13 +1023,13 @@ So that all downstream epics have representative data for testing agents, foreca
 
 As a **developer**,
 
-I want Milvus Lite running embedded in service_backend and all three vector collections seeded from the synthetic knowledge base,
+I want Milvus Lite running embedded in service_webapp and all three vector collections seeded from the synthetic knowledge base,
 
 So that RAG-dependent stories in Epic 5 (chatbot) and Epic 7 (RCA agent) have a populated vector store from day one.
 
 **Acceptance Criteria:**
 
-**Given** service_backend starts
+**Given** service_webapp starts
 
 **When** the Milvus Lite client initialises
 
@@ -1521,11 +1521,11 @@ So that every agent story can be validated against quality targets from the firs
 
 **When** `just test` runs the eval suite
 
-**Then** a LLM-as-Judge evaluator is implemented in service_backend/evals/judges/response_quality.py with rubrics for: response relevance (does the answer address the question?), factual accuracy (is the answer consistent with the knowledge base?) (FR-73)
+**Then** a LLM-as-Judge evaluator is implemented in service_webapp/evals/judges/response_quality.py with rubrics for: response relevance (does the answer address the question?), factual accuracy (is the answer consistent with the knowledge base?) (FR-73)
 
-**And** a DeepEval test suite is configured in service_backend/evals/deepeval/ with metrics: Faithfulness, AnswerRelevancy, Hallucination (FR-74)
+**And** a DeepEval test suite is configured in service_webapp/evals/deepeval/ with metrics: Faithfulness, AnswerRelevancy, Hallucination (FR-74)
 
-**And** a fixture dataset of 20 golden Q&A pairs covering balance, plan, recharge, dispute, and FAQ queries is stored in service_backend/evals/fixtures/chatbot_golden.json
+**And** a fixture dataset of 20 golden Q&A pairs covering balance, plan, recharge, dispute, and FAQ queries is stored in service_webapp/evals/fixtures/chatbot_golden.json
 
 **And** the harness can run against any LangGraph graph by accepting a graph_callable and fixture set
 
@@ -1783,7 +1783,7 @@ So that fraud agent implementations can be validated against accuracy targets fr
 
 **When** `just test` runs the eval suite
 
-**Then** a fixture dataset of 50 CDR sequences is stored in service_backend/evals/fixtures/fraud_golden.json: 25 true-positive fraud cases (SIM swap, velocity abuse, suspicious recharge), 25 true-negative clean cases
+**Then** a fixture dataset of 50 CDR sequences is stored in service_webapp/evals/fixtures/fraud_golden.json: 25 true-positive fraud cases (SIM swap, velocity abuse, suspicious recharge), 25 true-negative clean cases
 
 **And** an evaluator asserts that the Fraud Detection Agent correctly classifies each case as: confirmed_fraud | false_positive | needs_review
 
@@ -1839,7 +1839,7 @@ So that genuine fraud is distinguished from false positives before entering the 
 
 **And** it invokes GPT-5.4 with a structured prompt containing: rule triggered, CDR pattern, subscriber history summary, and outputs a verdict: confirmed_fraud | false_positive | needs_review with a confidence_score (0.0–1.0)
 
-**And** the agent is implemented as a LangGraph async graph in service_backend/agents/fraud/graph.py
+**And** the agent is implemented as a LangGraph async graph in service_webapp/agents/fraud/graph.py
 
 **And** the full agent run is traced to LangFuse: input (CDR event + history), output (verdict), model, token usage, latency (FR-72)
 
@@ -1971,7 +1971,7 @@ So that accuracy and quality targets are enforced from the first story.
 
 **And** both evaluators return structured pass/fail results and CI fails if targets are not met
 
-**And** fixture files are stored in service_backend/evals/fixtures/: forecast_historical.csv, upsell_golden_segments.json
+**And** fixture files are stored in service_webapp/evals/fixtures/: forecast_historical.csv, upsell_golden_segments.json
 
 ---
 

@@ -51,7 +51,7 @@ development_status:
   1-4-pydantic-settings-singleton-health-endpoints-otel-trace-middleware: done
   1-5-langfuse-self-hosted-setup-client-instrumentation-scaffold: done
   1-6-subscriber-registration-trai-caf-pii-encryption: done
-  1-7-sim-activation-order-tracker-ui: in-progress
+  1-7-sim-activation-order-tracker-ui: review
   1-8-login-otp-step-up-jwt-role-based-auth: review
   1-9-profile-management-kyc-status-view: ready-for-dev
   1-10-saved-payment-methods-pci-dss-tokenisation: ready-for-dev

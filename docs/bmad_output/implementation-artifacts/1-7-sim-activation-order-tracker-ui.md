@@ -1,6 +1,10 @@
 # Story 1.7: SIM Activation Order Tracker UI
 
-Status: ready-for-dev
+---
+baseline_commit: 3c40ce1ee0ec9a42c825a95fa5b6b6c87285e457
+---
+
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -21,24 +25,24 @@ so that I know exactly where I am in the activation process and what to expect n
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Subscriber read endpoint for order status** (AC: #2, #5)
-  - [ ] Add `GET /api/v1/subscriber/orders/{order_id}/status` to `service_webapp/src/routers/account.py` (FR-1–7 / Account & Identity grouping — note: an `orders.py` subscriber router is acceptable, but `account.py` is the canonical home per the FR grouping)
-  - [ ] Query `ops_order_fulfilment` by `id = {order_id}`; return `{status, msisdn, updated_at}` (MSISDN only populated/decrypted once `status='ACTIVATED'`)
-  - [ ] Authorise: the JWT `sub` claim (subscriber UUID, from Story 1.8 `core/auth.py`) must equal the order's `subscriber_id`; otherwise HTTP 403. 404 if the order does not exist
-  - [ ] Wrap the response in the standard envelope (`{data, meta:{trace_id, timestamp}}`) per §1.11.3
-  - [ ] PII hygiene: do NOT log raw MSISDN; use `msisdn[-4:]`. Do NOT place MSISDN in OTEL span attributes
-- [ ] **Task 2: Subscriber tracker component + polling hook** (AC: #1, #2, #3, #4)
-  - [ ] Create `frontend/src/portals/subscriber/SimActivation.tsx` (route `/activate`)
-  - [ ] Create a `useOrderStatus.ts` hook in `frontend/src/hooks/` using TanStack Query with `refetchInterval: 10000`; stop polling (`refetchInterval: false`) once `status === 'ACTIVATED'`
-  - [ ] Render a four-step indicator (Created → KYC Pending → KYC Verified → Activated): current step highlighted; completed steps show a checkmark. Build from shared UI primitives (`Card`, `Badge`) in `frontend/src/components/ui/`
-  - [ ] On `status='ACTIVATED'`: render a success banner with the MSISDN; on order-not-found/403: render an inline error state
-- [ ] **Task 3: Simulator developer tool to advance order state** (AC: #6)
-  - [ ] Add a simulator endpoint to `service_webapp/src/routers/simulator.py` (FR-68–70) that advances a given order's `ops_order_fulfilment.status` forward one step through the state machine (Created → KYC Pending → KYC Verified → Activated)
-  - [ ] Create `frontend/src/portals/simulator/SimActivation.tsx` under `/simulator/*` (simulator role guard): a dev control to pick an order and advance its state; reuse `Button`/`Table` from `components/ui/`
-  - [ ] State machine guardrails: only forward transitions; reject illegal jumps; setting `ACTIVATED` is the terminal step that assigns/reveals the MSISDN
-- [ ] **Task 4: Tests** (AC: #1, #2, #3, #5)
-  - [ ] Frontend (Vitest + React Testing Library): mock the polling endpoint and assert the step indicator renders correctly for each of the four states (highlight + checkmark logic); assert the success banner with MSISDN appears on `ACTIVATED`; assert polling stops on `ACTIVATED`
-  - [ ] Backend (`service_webapp/tests/unit/`): endpoint returns the envelope; 403 when `sub` ≠ `subscriber_id`; 404 for unknown order; MSISDN absent until `ACTIVATED`
+- [x] **Task 1: Subscriber read endpoint for order status** (AC: #2, #5)
+  - [x] Add `GET /api/v1/subscriber/orders/{order_id}/status` to `service_webapp/src/routers/account.py` (FR-1–7 / Account & Identity grouping — note: an `orders.py` subscriber router is acceptable, but `account.py` is the canonical home per the FR grouping)
+  - [x] Query `ops_order_fulfilment` by `id = {order_id}`; return `{status, msisdn, updated_at}` (MSISDN only populated/decrypted once `status='ACTIVATED'`)
+  - [x] Authorise: the JWT `sub` claim (subscriber UUID, from Story 1.8 `core/auth.py`) must equal the order's `subscriber_id`; otherwise HTTP 403. 404 if the order does not exist
+  - [x] Wrap the response in the standard envelope (`{data, meta:{trace_id, timestamp}}`) per §1.11.3
+  - [x] PII hygiene: do NOT log raw MSISDN; use `msisdn[-4:]`. Do NOT place MSISDN in OTEL span attributes
+- [x] **Task 2: Subscriber tracker component + polling hook** (AC: #1, #2, #3, #4)
+  - [x] Create `frontend/src/portals/subscriber/SimActivation.tsx` (route `/activate`)
+  - [x] Create a `useOrderStatus.ts` hook in `frontend/src/hooks/` using TanStack Query with `refetchInterval: 10000`; stop polling (`refetchInterval: false`) once `status === 'ACTIVATED'`
+  - [x] Render a four-step indicator (Created → KYC Pending → KYC Verified → Activated): current step highlighted; completed steps show a checkmark. Build from shared UI primitives (`Card`, `Badge`) in `frontend/src/components/ui/`
+  - [x] On `status='ACTIVATED'`: render a success banner with the MSISDN; on order-not-found/403: render an inline error state
+- [x] **Task 3: Simulator developer tool to advance order state** (AC: #6)
+  - [x] Add a simulator endpoint to `service_webapp/src/routers/simulator.py` (FR-68 to FR-70) that advances a given order's `ops_order_fulfilment.status` forward one step through the state machine (Created → KYC Pending → KYC Verified → Activated)
+  - [x] Create `frontend/src/portals/simulator/SimActivation.tsx` under `/simulator/*` (simulator role guard): a dev control to pick an order and advance its state; reuse `Button`/`Table` from `components/ui/`
+  - [x] State machine guardrails: only forward transitions; reject illegal jumps; setting `ACTIVATED` is the terminal step that assigns/reveals the MSISDN
+- [x] **Task 4: Tests** (AC: #1, #2, #3, #5)
+  - [x] Frontend (Vitest + React Testing Library): mock the polling endpoint and assert the step indicator renders correctly for each of the four states (highlight + checkmark logic); assert the success banner with MSISDN appears on `ACTIVATED`; assert polling stops on `ACTIVATED`
+  - [x] Backend (`service_webapp/tests/unit/`): endpoint returns the envelope; 403 when `sub` ≠ `subscriber_id`; 404 for unknown order; MSISDN absent until `ACTIVATED`
 
 ## Dev Notes
 
@@ -114,10 +118,37 @@ The epics and architecture appeared to conflict on where `SimActivation.tsx` liv
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+claude-sonnet-4-6
 
 ### Debug Log References
 
+- Removed inner QueryClientProvider from SimActivation.tsx — it shadowed the app-root provider, causing tests to time out (mocks not reached). App root in main.tsx already wraps with QueryClientProvider.
+- NotFoundError class added to core/errors.py (404 missing from existing hierarchy).
+- `GET /api/v1/subscriber/orders/active` added alongside the status endpoint — discovery endpoint needed so the tracker UI can obtain order_id (not stored in JWT; not in registration response; route /activate has no path params).
+
 ### Completion Notes List
 
+- Task 1: Added `GET /api/v1/subscriber/orders/{order_id}/status` and supporting `GET /api/v1/subscriber/orders/active` discovery endpoint to account.py. Own-order JWT authorisation (403 on sub mismatch), 404 on unknown order, standard envelope, PII hygiene (mask_msisdn in logs, MSISDN withheld until ACTIVATED). Added NotFoundError to errors.py.
+- Task 2: Created `frontend/src/hooks/useOrderStatus.ts` using TanStack Query with refetchInterval=10000, stops on ACTIVATED. Created `frontend/src/portals/subscriber/SimActivation.tsx` with four-step indicator (checkmarks for completed steps, current step highlighted), success banner with MSISDN on ACTIVATED, error state for failures. Wired route `/subscriber/activate` in App.tsx.
+- Task 3: Created `service_webapp/src/routers/simulator.py` with `POST /api/v1/simulator/orders/{order_id}/advance` — forward-only state machine (CREATED→KYC_PENDING→KYC_VERIFIED→ACTIVATED), 400 on terminal state, 404 on unknown order, requires `dev` role. Registered simulator_router in main.py. Created `frontend/src/portals/simulator/SimActivation.tsx` — dev tool table with Advance button per order row, calls advanceOrderState, invalidates orderStatus queries on success. Wired route `/simulator/activate` in App.tsx.
+- Task 4: Backend — 5 pytest tests in test_order_status_endpoint.py (envelope shape, MSISDN gating, 403 sub mismatch, 404 unknown order) + 6 pytest tests in test_simulator_endpoint.py (state transitions, terminal 400, 404, role guard). Frontend — 8 Vitest + RTL tests in SimActivation.test.tsx covering loading state, all four status states, MSISDN absent/present, error state, polling behaviour. All 80 backend + 41 frontend tests pass.
+- No new DB migrations created; ops_order_fulfilment and identity_subscribers already exist (V1 baseline + V3 extensions).
+
 ### File List
+
+- `service_webapp/src/routers/account.py` — modified: added order status + active-order endpoints, _db helper, NotFoundError/ForbiddenError imports
+- `service_webapp/src/routers/simulator.py` — created: state-advance endpoint, simulator router
+- `service_webapp/src/core/errors.py` — modified: added NotFoundError class
+- `service_webapp/src/main.py` — modified: imported and registered simulator_router
+- `service_webapp/tests/unit/test_order_status_endpoint.py` — created: 5 unit tests for order status endpoint
+- `service_webapp/tests/unit/test_simulator_endpoint.py` — created: 6 unit tests for simulator advance endpoint
+- `frontend/src/hooks/useOrderStatus.ts` — created: TanStack Query polling hook
+- `frontend/src/portals/subscriber/SimActivation.tsx` — created: four-step tracker component
+- `frontend/src/portals/simulator/SimActivation.tsx` — created: simulator dev tool component
+- `frontend/src/portals/subscriber/SimActivation.test.tsx` — created: 8 frontend component tests
+- `frontend/src/lib/api.ts` — modified: added getActiveOrder, getOrderStatus, advanceOrderState
+- `frontend/src/App.tsx` — modified: wired /subscriber/activate and /simulator/activate routes
+
+## Change Log
+
+- 2026-06-22: Story 1.7 implemented — subscriber read endpoint (order status + active order discovery), four-step React tracker with 10s polling, simulator state-advance tool, full test coverage (80 backend + 41 frontend passing)
