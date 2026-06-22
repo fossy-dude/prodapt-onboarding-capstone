@@ -60,7 +60,7 @@ development_status:
   # Epic 2: CDR Pipeline, Balance Engine, Synthetic Data & Simulator Tools
   epic-2: in-progress
   2-1-redpanda-topic-provisioning-kafka-envelope-contract: done
-  2-2-cdr-ingestion-consumer-dedup-dlq: review
+  2-2-cdr-ingestion-consumer-dedup-dlq: done
   2-3-balance-deduction-engine-valkey-write-buffer-postgres-flush: in-progress
   2-4-audit-log-distributed-trace-propagation: in-progress
   2-5-cdr-management-api-dlq-inspect-worker-control: in-progress

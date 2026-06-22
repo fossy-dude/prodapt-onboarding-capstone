@@ -4,7 +4,7 @@ baseline_commit: 31baee8c29ae510be0ded247e4fbd5f7b9abda13
 
 # Story 2.2: CDR Ingestion Consumer — Dedup & DLQ
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -183,6 +183,7 @@ GLM-5.2 (via bmad-dev-story workflow, caveman/independent mode).
 - [x] [Review][Patch] Malformed traceparent logged at debug level [batch_processor.py:86] — Fixed: changed to warning level for better operational visibility
 
 **Deferred:**
-- [x] [Review][Defer] Valkey socket timeout potentially too aggressive [adapters/redis.py:18] — deferred, pre-existing (config choice for production tuning)
-- [x] [Review][Defer] No consumer failure recovery [main.py, batch_processor.py] — deferred, pre-existing (infra concern, out of scope for Story 2.2)
-- [x] [Review][Defer] DLQ publish failure loses records [batch_processor.py:173-211] — deferred, pre-existing (complex retry logic out of scope)
+- [x] [Review][Defer] Poison-pill / no per-record exception isolation [batch_processor.py:144-148] — a record that raises outside the validation paths (cache down on `is_duplicate`, DLQ/enriched publish failure, balance-hook crash) propagates and skips `commit()`; restart re-delivers the same batch and re-fails, blocking the partition. The at-least-once + crash-restart design accepts this for MVP; robust per-record isolation (catch + route unexpected errors to DLQ) is future hardening.
+- [x] [Review][Defer] Valkey socket timeout potentially too aggressive [adapters/redis.py:18] — deferred, config tuning for production load.
+- [x] [Review][Defer] No consumer connection-failure recovery / supervisor [main.py] — deferred, infra concern; restart policy is the operator's (k8s/systemd).
+- [x] [Review][Defer] DLQ publish failure loses the record [batch_processor.py:173-211] — deferred, no retry/backoff on DLQ publish; complex retry out of scope.
