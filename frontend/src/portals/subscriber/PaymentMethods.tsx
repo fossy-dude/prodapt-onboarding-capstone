@@ -162,7 +162,8 @@ export function PaymentMethods() {
                 {form.type === 'CREDIT_CARD' ? 'Card Number' : 'Identifier'}
               </label>
               <input
-                type={form.type === 'CREDIT_CARD' ? 'text' : 'text'}
+                type="text"
+                autoComplete={form.type === 'CREDIT_CARD' ? 'off' : undefined}
                 id="identifier"
                 value={form.identifier}
                 onChange={(e) => setForm({ ...form, identifier: e.target.value })}
@@ -208,16 +209,17 @@ export function PaymentMethods() {
           ) : (
             <div className="mt-4 space-y-3">
               {paymentMethods.map((method) => {
+                const methodConfig = (PAYMENT_METHOD_CONFIG as Record<string, { icon: string; label: string }>)[method.type] ?? { icon: '?', label: method.type };
                 return (
                   <Card key={method.id} className="flex items-center justify-between p-4">
                     <div className="flex items-center gap-3">
                       <span className="text-2xl" aria-hidden="true">
-                        {PAYMENT_METHOD_CONFIG[method.type].icon}
+                        {methodConfig.icon}
                       </span>
                       <div>
                         <p className="font-medium text-neutral-900">{method.display_label}</p>
                         <p className="text-xs text-neutral-500">
-                          {PAYMENT_METHOD_CONFIG[method.type].label}
+                          {methodConfig.label}
                           {method.is_default && (
                             <span className="ml-2 font-medium text-brand-primary">
                               (Default)

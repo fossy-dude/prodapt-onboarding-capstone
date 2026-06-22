@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-22  # Story 1.10 → review (payment-methods tokenisation + CRUD); Story 2-1 code review complete → done (16 patches applied)
+last_updated: 2026-06-22  # Stories 1.9 + 1.10 code review complete → done (13 patches applied)
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -53,8 +53,8 @@ development_status:
   1-6-subscriber-registration-trai-caf-pii-encryption: done
   1-7-sim-activation-order-tracker-ui: done
   1-8-login-otp-step-up-jwt-role-based-auth: done
-  1-9-profile-management-kyc-status-view: review
-  1-10-saved-payment-methods-pci-dss-tokenisation: review
+  1-9-profile-management-kyc-status-view: done
+  1-10-saved-payment-methods-pci-dss-tokenisation: done
   epic-1-retrospective: optional
 
   # Epic 2: CDR Pipeline, Balance Engine, Synthetic Data & Simulator Tools

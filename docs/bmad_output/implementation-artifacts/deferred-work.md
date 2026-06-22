@@ -58,6 +58,11 @@
 - **Compose injects `DATABASE_URL` (deprecated), not the `DB__*` vars** the Story 1.4 config singleton requires — `docker-compose.yaml` `service_webapp.environment` must add `DB__HOST=postgres`, `DB__PORT=5432`, `DB__NAME=sboai`, `DB__USER=sboai_app`, `DB__PASSWORD=${POSTGRES_APP_PASSWORD}` (and `VALKEY_URL`/`KAFKA_BROKERS` are already present) or the container fails fast at boot. Land alongside the Dockerfile.
 - **`.github/workflows/` CI YAMLs are absent** — Story 1.3 notes reference `ci-pipeline.yml` / `ci-cdr.yml` but they were not committed. Not a Story 1.4 task; re-create so the `uv tox` gate runs on PRs.
 
+## Deferred from: code review of 1-9-profile-management-kyc-status-view (2026-06-22)
+
+- **`_FakeConn` always returns same `select_row` regardless of query** — `test_profile_endpoint.py:2509`. Test design pattern where the fake routes all SELECTs to the same row; not a production bug; each test sets the row it expects, so tests pass as intended. Extracting separate `select_row_for_update_reread` to make the fake more rigorous is a cleanup item.
+- **`update_profile` SET clause relies on dict insertion order** — `account.py:1766-1770`. Uses `dict.keys()`/`dict.values()` to build the parameterised SQL; Python 3.7+ guarantees insertion order so this is correct today, but fragile under refactors. Refactor to an explicit `[(col, val), ...]` list if the handler grows.
+
 ## Deferred from: code review of Story 2.1 (2026-06-22)
 
 - **Provisioning swallows only TopicAlreadyExistsError — other errors propagate** — the script only catches the expected concurrent-exists error; auth failures, network errors, and other non-retryable errors intentionally propagate to avoid silently masking real issues. This is a design decision, not a defect.

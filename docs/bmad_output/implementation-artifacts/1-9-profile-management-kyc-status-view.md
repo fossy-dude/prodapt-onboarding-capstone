@@ -4,7 +4,7 @@ baseline_commit: d94666c02e6a376e8cc7bfaebb49af037db61e6d
 
 # Story 1.9: Profile Management & KYC Status View
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -184,3 +184,11 @@ were resolved via an explicit user decision before coding:
 ## Change Log
 
 - 2026-06-22: Story 1.9 dev complete → review. Added GET/PATCH `/api/v1/subscriber/profile` (decrypt-on-read, audit-on-write, owner-only), the V4 address migration, and the `Profile.tsx` page + edit form with the KYC `Badge`. 24 tests added (16 backend unit + 8 frontend). Resolved 4 spec/codebase conflicts via user decision (PII plaintext+PiiCipher, audit `action` mapping, generic KYC reason, V4 address columns).
+
+### Review Findings
+
+- [x] [Review][Patch] Empty string address fields not rejected — ProfileUpdateRequest has no `min_length=1` on address fields; `""` passes validation and writes to DB [`service_webapp/src/routers/account.py:1720-1725`]
+- [x] [Review][Patch] Profile edit form retains stale values after successful PATCH — `EditProfileForm` initialises `useState` from `initial` prop on mount only; after PATCH success + query invalidation the summary updates but the form shows pre-submit values [`frontend/src/portals/subscriber/Profile.tsx:1318-1325`]
+- [x] [Review][Patch] OTEL span PII hygiene not tested (AC #7 / NFR-16) — tests assert PII absent from logs but no test asserts PII absent from OTEL span attributes; both log and span hygiene are required [`service_webapp/tests/unit/test_profile_endpoint.py`]
+- [x] [Review][Defer] `_FakeConn` always returns same `select_row` regardless of query [`service_webapp/tests/unit/test_profile_endpoint.py:2509`] — deferred, test design pattern; not a production bug; tests pass as intended
+- [x] [Review][Defer] `update_profile` SET clause built from `dict.keys()`/`dict.values()` relies on insertion order [`service_webapp/src/routers/account.py:1766-1770`] — deferred, Python 3.7+ guarantees dict order; style concern only

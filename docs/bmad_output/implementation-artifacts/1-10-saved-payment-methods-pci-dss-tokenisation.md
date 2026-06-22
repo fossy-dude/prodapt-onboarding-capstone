@@ -1,6 +1,6 @@
 # Story 1.10: Saved Payment Methods & PCI-DSS Tokenisation
 
-Status: review
+Status: done
 
 baseline_commit: 01065f31a525e73748217d7ba1a8fe69f580673e
 
@@ -135,3 +135,16 @@ so that I can recharge quickly without re-entering payment details and my card d
 - service_webapp/src/routers/account.py (modified)
 - service_webapp/src/main.py (modified)
 - service_webapp/tests/api/test_payment_methods.py (new)
+
+### Review Findings
+
+- [x] [Review][Patch] `created_at` null guard missing in `add_payment_method` POST response — calls `created_at.isoformat()` unconditionally; list and set-default both use `if created_at else None` [`service_webapp/src/routers/account.py:1887`]
+- [x] [Review][Patch] justfile backtick typo in `up` target error message — `"ERROR: docker \`.env not found"` should be `docker/.env`; backtick garbles shell error output [`justfile:1531`]
+- [x] [Review][Patch] `authenticated_client` fixture broken — async generator function assigned as `transaction.return_value` but endpoints use `async with db.transaction() as conn`; requires an async context manager not an async generator [`service_webapp/tests/api/test_payment_methods.py:2134-2137`]
+- [x] [Review][Patch] `test_set_default_success` fetchone mock overwritten — `fetchone.return_value` set to `("valid-sub-id",)` then immediately to the 6-tuple; ownership check sees the wrong tuple, test does not actually verify cross-subscriber 403 path [`service_webapp/tests/api/test_payment_methods.py:2302-2312`]
+- [x] [Review][Patch] `PAYMENT_METHOD_CONFIG[method.type]` throws TypeError for unknown type — no default/fallback key; API returning an unrecognised type crashes the entire list render [`frontend/src/portals/subscriber/PaymentMethods.tsx:1029`]
+- [x] [Review][Patch] `extractLast4` returns 4 chars not 4 digits — `slice(-4)` on the cleaned string; if non-digit characters remain after stripping spaces/hyphens, `last4` contains non-digits [`frontend/src/lib/tokenize.ts:386-388`]
+- [x] [Review][Patch] Card input dead ternary + no autocomplete suppression — `type={form.type === 'CREDIT_CARD' ? 'text' : 'text'}` always resolves to `'text'`; PAN field should use `autoComplete="off"` (or `type="password"`) to prevent browser card-number autofill [`frontend/src/portals/subscriber/PaymentMethods.tsx:979`]
+- [x] [Review][Patch] `crypto.randomUUID` unavailable in non-HTTPS (non-secure) browser context — throws TypeError on plain HTTP; needs availability check with a fallback UUID generator [`frontend/src/lib/tokenize.ts:417`]
+- [x] [Review][Patch] `AsyncIterator` not imported in `test_payment_methods.py` — return annotation uses `AsyncIterator[AsyncClient]` but the type is never imported; mypy/pyrefly gate will flag this [`service_webapp/tests/api/test_payment_methods.py:2108`]
+- [x] [Review][Patch] No test for deleting the sole default payment method — `TestDeletePaymentMethod` only tests non-default deletion; no test or documented behaviour for when the *default* method is deleted [`service_webapp/tests/api/test_payment_methods.py`]

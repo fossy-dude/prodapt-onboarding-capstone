@@ -303,3 +303,24 @@ async def test_profile_endpoints_are_uuid_stable() -> None:
     rand_sub = str(uuid4())
     resp, _ = await _get(sub=rand_sub, select_row=_ROW_A)
     assert resp.status_code == 200
+
+
+async def test_profile_endpoint_spans_no_raw_pii() -> None:
+    """AC #7/NFR-16: GET profile OTEL span attributes never carry raw PII values."""
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    app, _ = _make_app(select_row=_ROW_A)
+    exporter = InMemorySpanExporter()
+    trace.get_tracer_provider().add_span_processor(SimpleSpanProcessor(exporter))
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        await ac.get("/api/v1/subscriber/profile", headers=_AUTH)
+
+    pii_values = ("Priya Sharma", "priya@example.com", "560001", "12 MG Road", "Bengaluru")
+    for span in exporter.get_finished_spans():
+        for attr_value in (span.attributes or {}).values():
+            for pii in pii_values:
+                assert pii not in str(attr_value), f"PII '{pii}' leaked into span {span.name}: {dict(span.attributes)}"

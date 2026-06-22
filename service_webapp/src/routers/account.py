@@ -455,6 +455,14 @@ class ProfileUpdateRequest(BaseModel):
     state: str | None = Field(default=None, max_length=100)
     pin_code: str | None = Field(default=None, max_length=10)
 
+    @field_validator("email", "address_line1", "address_line2", "city", "state", "pin_code", mode="before")
+    @classmethod
+    def _strip_empty(cls, v: object) -> object:
+        """Convert empty/whitespace-only strings to None so they are treated as no-op updates."""
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
+
     @field_validator("email")
     @classmethod
     def _validate_email(cls, v: str | None) -> str | None:
@@ -615,7 +623,7 @@ async def add_payment_method(
                 "token": token,
                 "display_label": display_label,
                 "is_default": is_default,
-                "created_at": created_at.isoformat(),
+                "created_at": created_at.isoformat() if created_at else None,
             },
             trace_id=getattr(request.state, "trace_id", "unknown"),
         ),

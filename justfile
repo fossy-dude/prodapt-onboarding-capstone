@@ -55,7 +55,7 @@ deps_destroy:
 
 # Start the full application stack (infra + cdr-pipeline + service_webapp + frontend).
 up:
-    @[ -f docker/.env ] || { echo "ERROR: docker `.env not found. Run: cp .env.example docker/.env"; exit 1; }
+    @[ -f docker/.env ] || { echo "ERROR: docker/.env not found. Run: cp .env.example docker/.env"; exit 1; }
     @until podman exec postgres pg_isready -U sboai_superuser > /dev/null 2>&1; do sleep 1; done
     podman compose -f docker/docker-compose.yaml --env-file docker/.env up -d
     @i=0; until podman exec redpanda rpk cluster health > /dev/null 2>&1 || [ $i -ge 60 ]; do i=$((i+1)); sleep 1; done; if [ $i -ge 60 ]; then echo "ERROR: Redpanda health check timeout after 60s"; exit 1; fi

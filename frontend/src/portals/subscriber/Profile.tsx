@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Badge, type BadgeVariant, Button, Card, CardSection } from '../../components/ui';
@@ -100,6 +100,19 @@ function EditProfileForm({ initial }: { readonly initial: ProfileData }) {
   }));
   const [error, setError] = useState<string>('');
   const [saved, setSaved] = useState<boolean>(false);
+
+  useEffect(() => {
+    setForm({
+      email: initial.email ?? '',
+      address_line1: initial.address.line1 ?? '',
+      address_line2: initial.address.line2 ?? '',
+      city: initial.address.city ?? '',
+      state: initial.address.state ?? '',
+      pin_code: initial.address.pin_code ?? '',
+    });
+    setError('');
+    setSaved(false);
+  }, [initial]);
 
   const setField = (key: keyof EditFormState, value: string): void => {
     setForm((prev) => ({ ...prev, [key]: value }));

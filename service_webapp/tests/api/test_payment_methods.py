@@ -10,7 +10,8 @@ Critical security requirements:
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock
+from collections.abc import AsyncIterator
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -19,10 +20,8 @@ from httpx import ASGITransport, AsyncClient
 @pytest.fixture
 async def authenticated_client() -> AsyncIterator[AsyncClient]:
     """App with async HTTP client + JWT middleware mocked."""
-    from core.auth import require_role
     from main import create_app
 
-    # Mock the require_role decorator to inject a test JWT payload
     test_sub = str(uuid.uuid4())
     mock_jwt_payload = {"sub": test_sub, "cognito:groups": ["subscriber"]}
 
@@ -33,27 +32,29 @@ async def authenticated_client() -> AsyncIterator[AsyncClient]:
             return wrapped
         return decorator
 
-    # Patch the decorator
     import routers.account as account_module
     original_require_role = account_module.require_role
     account_module.require_role = mock_require_role
 
-    # Mock database adapter
-    mock_db = AsyncMock()
+    # mock_conn.execute.return_value = mock_conn makes the cursor returned by
+    # conn.execute(...) the same object as mock_conn, so tests can set
+    # mock_conn.fetchone/fetchall directly without navigating the execute chain.
     mock_conn = AsyncMock()
-
-    # Mock transaction context manager
-    async def mock_transaction():
-        yield mock_conn
-
-    mock_db.transaction.return_value = mock_transaction
+    mock_conn.execute.return_value = mock_conn
+    mock_db = AsyncMock()
+    mock_db.transaction = MagicMock(
+        return_value=AsyncMock(
+            __aenter__=AsyncMock(return_value=mock_conn),
+            __aexit__=AsyncMock(return_value=False),
+        )
+    )
 
     application = create_app(db_adapter=mock_db)
+    application.state.test_sub = test_sub
     transport = ASGITransport(app=application)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
-    # Restore original
     account_module.require_role = original_require_role
 
 
@@ -211,23 +212,19 @@ class TestSetDefaultPaymentMethod:
         mock_conn = authenticated_client.app.state.db_adapter.transaction.return_value.__aenter__.return_value
 
         method_id = uuid.uuid4()
-        mock_conn.fetchone.return_value = ("valid-sub-id",)  # Owner check passes
-
-        # Mock the final SELECT after UPDATE
-        mock_conn.fetchone.return_value = (
-            str(method_id),
-            "CREDIT_CARD",
-            "uuid-token",
-            "•••• 4242",
-            True,
-            None,
-        )
+        test_sub = authenticated_client.app.state.test_sub
+        # First fetchone: ownership check (must match JWT sub). Second: post-UPDATE re-read.
+        mock_conn.fetchone.side_effect = [
+            (test_sub,),
+            (str(method_id), "CREDIT_CARD", "uuid-token", "•••• 4242", True, None),
+        ]
 
         response = await authenticated_client.patch(f"/account/payment-methods/{method_id}/default")
 
         assert response.status_code == 200
         data = response.json()
         assert data["data"]["is_default"] is True
+        mock_conn.fetchone.side_effect = None
 
     @pytest.mark.asyncio
     async def test_set_default_cross_subscriber_forbidden(self, authenticated_client: AsyncClient) -> None:
@@ -263,7 +260,8 @@ class TestDeletePaymentMethod:
         mock_conn = authenticated_client.app.state.db_adapter.transaction.return_value.__aenter__.return_value
 
         method_id = uuid.uuid4()
-        mock_conn.fetchone.return_value = ("valid-sub-id",)  # Owner check passes
+        test_sub = authenticated_client.app.state.test_sub
+        mock_conn.fetchone.return_value = (test_sub,)  # ownership check passes
 
         response = await authenticated_client.delete(f"/account/payment-methods/{method_id}")
 
@@ -293,6 +291,22 @@ class TestDeletePaymentMethod:
         response = await authenticated_client.delete(f"/account/payment-methods/{method_id}")
 
         assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_delete_default_payment_method_succeeds_with_no_reassignment(
+        self, authenticated_client: AsyncClient
+    ) -> None:
+        """Deleting the current default returns 204; backend does not auto-assign a new default."""
+        mock_conn = authenticated_client.app.state.db_adapter.transaction.return_value.__aenter__.return_value
+        test_sub = authenticated_client.app.state.test_sub
+
+        method_id = uuid.uuid4()
+        mock_conn.fetchone.return_value = (test_sub,)
+
+        response = await authenticated_client.delete(f"/account/payment-methods/{method_id}")
+
+        assert response.status_code == 204
+        assert response.content == b""
 
 
 class TestPANHygiene:
