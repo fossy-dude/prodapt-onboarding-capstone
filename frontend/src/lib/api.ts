@@ -111,4 +111,55 @@ export async function verifyLoginOtp(
   return data.data;
 }
 
+// ── SIM Activation Order Status (Story 1.7) ──────────────────────────────────
+
+export interface OrderStatusResponse {
+  readonly data: {
+    readonly status: 'CREATED' | 'KYC_PENDING' | 'KYC_VERIFIED' | 'ACTIVATED';
+    readonly updated_at: string;
+    readonly msisdn: string | null;
+  };
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+export interface ActiveOrderResponse {
+  readonly data: {
+    readonly order_id: string;
+    readonly status: string;
+    readonly updated_at: string;
+  };
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/** GET /subscriber/orders/active — discover the subscriber's active NEW_ACTIVATION order. */
+export async function getActiveOrder(): Promise<ActiveOrderResponse['data']> {
+  const { data } = await apiClient.get<ActiveOrderResponse>('/subscriber/orders/active');
+  return data.data;
+}
+
+/** GET /subscriber/orders/{orderId}/status — poll fulfilment state. */
+export async function getOrderStatus(orderId: string): Promise<OrderStatusResponse['data']> {
+  const { data } = await apiClient.get<OrderStatusResponse>(`/subscriber/orders/${orderId}/status`);
+  return data.data;
+}
+
+// ── Simulator developer tool (Story 1.7) ─────────────────────────────────────
+
+export interface AdvanceOrderResponse {
+  readonly data: {
+    readonly order_id: string;
+    readonly previous_status: string;
+    readonly status: string;
+  };
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/** POST /simulator/orders/{orderId}/advance — advance the order state (dev tool). */
+export async function advanceOrderState(orderId: string): Promise<AdvanceOrderResponse['data']> {
+  const { data } = await apiClient.post<AdvanceOrderResponse>(
+    `/simulator/orders/${orderId}/advance`,
+  );
+  return data.data;
+}
+
 export { apiClient };

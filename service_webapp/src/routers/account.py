@@ -1,6 +1,9 @@
 """Subscriber account router (FR-1-7; architecture §1.12.1 line 1051).
 
 Story 1.6 adds ``POST /api/v1/subscriber/register``.
+Story 1.7 adds the SIM activation order status endpoints:
+  - ``GET /api/v1/subscriber/orders/{order_id}/status`` — poll order state
+  - ``GET /api/v1/subscriber/orders/active`` — discover the subscriber's active order
 Story 1.8 adds the passwordless login flow under ``/api/v1/auth``:
   - ``POST /api/v1/auth/login/initiate`` — start Cognito Custom Auth Flow
   - ``POST /api/v1/auth/login/verify`` — verify OTP, return JWT tokens
@@ -8,6 +11,7 @@ Story 1.8 adds the passwordless login flow under ``/api/v1/auth``:
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import UTC, date, datetime
 from typing import Literal
@@ -16,14 +20,18 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from core.errors import DomainError
+from core.auth import require_role
+from core.errors import DomainError, ForbiddenError, NotFoundError
 from core.responses import success_envelope
+from core.security import mask_msisdn
 from services.registration import (
     REGISTRATION_STATUS,
     RegistrationCommand,
     RegistrationService,
     generate_registration_id,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/subscriber", tags=["subscriber"])
 auth_router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
@@ -196,6 +204,108 @@ async def login_verify(payload: LoginVerifyRequest, request: Request) -> JSONRes
         status_code=200,
         content=success_envelope(
             tokens,
+            trace_id=getattr(request.state, "trace_id", "unknown"),
+        ),
+    )
+
+
+def _db(request: Request):
+    """Resolve the database adapter from app state."""
+    db = getattr(request.app.state, "db_adapter", None)
+    if db is None:
+        err = DomainError("Database adapter is not initialised — lifespan may not have run.")
+        err.code = "NOT_READY"
+        err.http_status = 503
+        raise err
+    return db
+
+
+# ── SIM Activation Order Status (Story 1.7) ──────────────────────────────────
+
+
+@router.get("/orders/active", status_code=200)
+async def get_active_order(
+    request: Request,
+    jwt_payload: dict = require_role("subscriber"),
+) -> JSONResponse:
+    """Return the subscriber's active NEW_ACTIVATION order (AC #1; discovery for the tracker UI).
+
+    Returns the most recent ``NEW_ACTIVATION`` order row so the tracker frontend
+    can obtain the ``order_id`` without it being embedded in the JWT or URL.
+    """
+    sub: str = jwt_payload["sub"]
+    db = _db(request)
+    async with db.transaction() as conn:
+        cur = await conn.execute(
+            """
+            SELECT id::text, fulfilment_status, modified_at
+            FROM ops_order_fulfilment
+            WHERE subscriber_id = %s::uuid
+              AND fulfilment_type = 'NEW_ACTIVATION'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (sub,),
+        )
+        row = await cur.fetchone()
+    if row is None:
+        raise NotFoundError("No active activation order found for this subscriber.")
+    order_id, status, updated_at = row
+    return JSONResponse(
+        status_code=200,
+        content=success_envelope(
+            {"order_id": order_id, "status": status, "updated_at": updated_at.isoformat()},
+            trace_id=getattr(request.state, "trace_id", "unknown"),
+        ),
+    )
+
+
+@router.get("/orders/{order_id}/status", status_code=200)
+async def get_order_status(
+    order_id: str,
+    request: Request,
+    jwt_payload: dict = require_role("subscriber"),
+) -> JSONResponse:
+    """Return the current fulfilment status for ``order_id`` (AC #2, #5).
+
+    Authorises that the JWT ``sub`` (subscriber UUID) matches the order's
+    ``subscriber_id``; mismatches yield HTTP 403 (own-order authorisation).
+    MSISDN is included in the response **only** when ``status = 'ACTIVATED'``
+    (PII hygiene: never log raw MSISDN; use ``msisdn[-4:]`` if needed).
+    """
+    sub: str = jwt_payload["sub"]
+    db = _db(request)
+    async with db.transaction() as conn:
+        cur = await conn.execute(
+            """
+            SELECT o.fulfilment_status,
+                   o.modified_at,
+                   o.subscriber_id::text,
+                   s.msisdn
+            FROM ops_order_fulfilment o
+            JOIN identity_subscribers s ON s.id = o.subscriber_id
+            WHERE o.id = %s::uuid
+            """,
+            (order_id,),
+        )
+        row = await cur.fetchone()
+    if row is None:
+        raise NotFoundError("Order not found.")
+    status, updated_at, subscriber_id, msisdn = row
+    if subscriber_id != sub:
+        logger.info("order-status 403: sub=%s order_id=%s", sub, order_id)
+        raise ForbiddenError("You are not authorised to view this order.")
+    msisdn_out = msisdn if status == "ACTIVATED" else None
+    if msisdn_out is not None:
+        logger.debug("order-status ACTIVATED sub=%s msisdn=%s", sub, mask_msisdn(msisdn_out))
+    return JSONResponse(
+        status_code=200,
+        content=success_envelope(
+            {
+                "status": status,
+                "updated_at": updated_at.isoformat(),
+                "msisdn": msisdn_out,
+            },
             trace_id=getattr(request.state, "trace_id", "unknown"),
         ),
     )

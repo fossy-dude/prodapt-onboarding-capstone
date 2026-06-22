@@ -32,6 +32,7 @@ from routers.account import (
     router as account_router,
 )
 from routers.health import router as health_router
+from routers.simulator import router as simulator_router
 from services.registration import (
     PostgresRegistrationRepository,
     RegistrationRepository,
@@ -114,6 +115,7 @@ def create_app(
     app.include_router(health_router)
     app.include_router(account_router)
     app.include_router(auth_router)
+    app.include_router(simulator_router)
     app.state.db_adapter = db_adapter
     app.state.cache_adapter = cache_adapter
     app.state.cognito_provider = cognito_provider

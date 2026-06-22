@@ -75,6 +75,14 @@ class OtpVerificationError(DomainError):
     message = "OTP verification failed — invalid or expired."
 
 
+class NotFoundError(DomainError):
+    """Requested resource does not exist (404)."""
+
+    code = "NOT_FOUND"
+    http_status = 404
+    message = "Resource not found."
+
+
 def _trace_id(request: Request) -> str:
     return getattr(request.state, "trace_id", "unknown")
 
@@ -112,6 +120,7 @@ __all__ = [
     "DomainError",
     "DuplicateMsisdnError",
     "ForbiddenError",
+    "NotFoundError",
     "OtpVerificationError",
     "UnauthenticatedError",
     "register_exception_handlers",

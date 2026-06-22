@@ -2,7 +2,9 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 
 import { RoleGuard } from './components/layout/RoleGuard';
 import { Login } from './portals/auth/Login';
+import { SimActivation as SimActivationSimulator } from './portals/simulator/SimActivation';
 import { Register } from './portals/subscriber/Register';
+import { SimActivation } from './portals/subscriber/SimActivation';
 
 /**
  * Placeholder dashboard rendered inside a role-gated subtree until the
@@ -40,11 +42,10 @@ function App() {
       {/* Role-gated subtrees */}
       <Route
         path="/subscriber/*"
-        element={
-          <RoleGuard allowedRoles={['subscriber']}>
-            <PortalPlaceholder role="Subscriber" />
-          </RoleGuard>
-        }
+        element={<RoleGuard allowedRoles={['subscriber']}><Routes>
+          <Route path="activate" element={<SimActivation />} />
+          <Route path="*" element={<PortalPlaceholder role="Subscriber" />} />
+        </Routes></RoleGuard>}
       />
       <Route
         path="/ops/*"
@@ -64,11 +65,10 @@ function App() {
       />
       <Route
         path="/simulator/*"
-        element={
-          <RoleGuard allowedRoles={['dev']}>
-            <PortalPlaceholder role="Simulator" />
-          </RoleGuard>
-        }
+        element={<RoleGuard allowedRoles={['dev']}><Routes>
+          <Route path="activate" element={<SimActivationSimulator />} />
+          <Route path="*" element={<PortalPlaceholder role="Simulator" />} />
+        </Routes></RoleGuard>}
       />
 
       {/* Default: redirect unauthenticated traffic to /login */}

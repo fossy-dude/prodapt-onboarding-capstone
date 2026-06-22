@@ -1,5 +1,12 @@
 # Deferred Work
 
+## Deferred from: code review of 1-8-login-otp-step-up-jwt-role-based-auth (2026-06-22)
+
+- **D1 — OTEL `trace_id` not asserted in auth tests** — `require_role` and `JWTValidator` run inside the OTEL middleware stack but no unit test asserts `request.state.trace_id` is preserved or that `X-Trace-Id` appears on `401`/`403` responses. Middleware ordering is correct structurally but untested; add an integration assertion in a later observability pass.
+- **D2 — `makeToken` helper duplicated in frontend test files** — verbatim copy in both `frontend/src/lib/auth.test.ts` and `frontend/src/components/layout/RoleGuard.test.tsx`; extract to a shared `testUtils.ts` fixture in a later cleanup pass.
+- **D3 — `require_role` not wired to any production route** — the guard primitive is built and tested in isolation; wiring it to role-specific endpoints is the responsibility of the stories that introduce those endpoints (subscriber portal, ops dashboard, etc.).
+- **D4 — Concurrent race on `_jwks_client` lazy init** — `JWTValidator._client` property initialises `PyJWKClient` lazily without locking; in asyncio (single-threaded GIL) with synchronous init this is safe, but worth revisiting if threading is introduced.
+
 ## Deferred from: code review of 1-6-subscriber-registration-trai-caf-pii-encryption (2026-06-20)
 
 - **No retry on `registration_id` uniqueness collision** — `generate_registration_id` uses 4 random bytes (2^32 per day); a collision surfaces as a raw psycopg `UniqueViolation` → 500. Low probability at MVP scale but should be wrapped in a retry loop (max 3 attempts) before production load.

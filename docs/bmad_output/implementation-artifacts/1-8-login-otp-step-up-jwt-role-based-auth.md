@@ -162,3 +162,31 @@ claude-sonnet-4-6
 - `frontend/src/App.test.tsx` (modified — updated for new route structure)
 - `frontend/src/lib/auth.test.ts` (new)
 - `frontend/src/components/layout/RoleGuard.test.tsx` (new)
+
+### Review Findings
+
+- [ ] [Review][Decision] DN1 — AC #2: MSISDN in JWT payload not verified — no code or test confirms MSISDN claim exists in access token; depends on Cognito pool attribute mapping; need decision: add assertion test, or document it as provisioning-script responsibility
+- [ ] [Review][Decision] DN2 — OtpVerificationError HTTP 400 on login flow should be 401 — authentication failure on `/auth/login/verify` should return 401; fix options: (a) change class to 401 globally, (b) catch/re-raise as UnauthenticatedError in login endpoint only, (c) add http_status override param
+- [ ] [Review][Patch] P1 — Missing `exp` claim accepted as non-expired [`frontend/src/lib/auth.ts:isExpired`]
+- [ ] [Review][Patch] P2 — Non-constant-time OTP comparison — timing side-channel [`service_webapp/src/core/step_up.py:verify`, `service_webapp/src/adapters/cognito.py:FakeCognitoProvider`]
+- [ ] [Review][Patch] P3 — `request.json()` double-read + no body validation in `require_step_up` [`service_webapp/src/core/step_up.py:_guard`]
+- [ ] [Review][Patch] P4 — `navigate()` called during render phase — must use `<Navigate>` [`frontend/src/portals/auth/Login.tsx`]
+- [ ] [Review][Patch] P5 — `_safe_phone` private helper exported in `__all__` [`service_webapp/src/adapters/cognito.py`]
+- [ ] [Review][Patch] P6 — `FakeCognitoProvider` ignores `session` param — session bugs invisible in tests [`service_webapp/src/adapters/cognito.py:FakeCognitoProvider`]
+- [ ] [Review][Patch] P7 — Axios 401 interceptor triggers redirect loop on `/login/initiate` + `/login/verify` endpoints [`frontend/src/lib/api.ts`]
+- [ ] [Review][Patch] P8 — `window.location.href` bypasses React Router — no cleanup of pending effects [`frontend/src/lib/api.ts`]
+- [ ] [Review][Patch] P9 — No input validation on `identifier`/`otp`/`session` fields — unbounded strings forwarded to Cognito [`service_webapp/src/routers/account.py`]
+- [ ] [Review][Patch] P10 — `verify_login_otp` silently returns empty strings when `AuthenticationResult` keys absent [`service_webapp/src/adapters/cognito.py:MinistackCognitoProvider`]
+- [ ] [Review][Patch] P11 — Empty `session` not guarded in `initiate_login` — propagated to client [`service_webapp/src/adapters/cognito.py:MinistackCognitoProvider`]
+- [ ] [Review][Patch] P12 — `ExpiredCodeException` not caught → surfaces as `502` instead of OTP error [`service_webapp/src/adapters/cognito.py:MinistackCognitoProvider`]
+- [ ] [Review][Patch] P13 — JWKS fetch network error → unhandled exception → `500` instead of `401` [`service_webapp/src/core/auth.py:JWTValidator.decode`]
+- [ ] [Review][Patch] P14 — `Bearer` header with no trailing token → empty string to validator, unguarded [`service_webapp/src/core/auth.py:require_role`]
+- [ ] [Review][Patch] P15 — Empty `msisdn` on `request.state` → step-up OTP key is `otp:` → cross-user key collision [`service_webapp/src/core/step_up.py:_guard`]
+- [ ] [Review][Patch] P16 — Cache delete failure after correct OTP → key survives → OTP replay within 5-min TTL [`service_webapp/src/core/step_up.py:verify`]
+- [ ] [Review][Patch] P17 — JWT payload decoded as non-object (array/string) → undefined property access downstream [`frontend/src/lib/auth.ts:decodeJwtPayload`]
+- [ ] [Review][Patch] P18 — Unknown `role` after login → `ROLE_ROUTE[role]` is `undefined` → navigates to `'/'` → wildcard redirect loop [`frontend/src/portals/auth/Login.tsx:handleVerify`]
+- [ ] [Review][Patch] P19 — `Login.tsx` uses `useState`/`fetch` — TanStack Query explicitly required by spec Task 4 and Dev Notes [`frontend/src/portals/auth/Login.tsx`]
+- [x] [Review][Defer] D1 — OTEL `trace_id` not asserted in auth tests [`service_webapp/tests/unit/test_auth.py`] — deferred, pre-existing integration concern; middleware ordering is correct but untested
+- [x] [Review][Defer] D2 — `makeToken` helper duplicated in two test files [`frontend/src/lib/auth.test.ts`, `frontend/src/components/layout/RoleGuard.test.tsx`] — deferred, pre-existing test hygiene
+- [x] [Review][Defer] D3 — `require_role` not wired to any production route — deferred, primitive built; wiring in scope of stories that introduce role-gated routes
+- [x] [Review][Defer] D4 — Concurrent race on `_jwks_client` lazy init [`service_webapp/src/core/auth.py`] — deferred, asyncio GIL + synchronous init = no real race in practice
