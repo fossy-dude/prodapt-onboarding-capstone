@@ -1,3 +1,6 @@
+---
+baseline_commit: cbffa4047e63bd4516a3e6431d66fc2821ffbeb1
+---
 # Story 2.4: Audit Log & Distributed Trace Propagation
 
 Status: ready-for-dev

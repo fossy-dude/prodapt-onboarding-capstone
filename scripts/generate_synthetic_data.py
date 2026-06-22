@@ -45,8 +45,14 @@ SUBSCRIBER_BATCH = int(os.getenv("SUBSCRIBER_BATCH", "50000"))
 CDR_BATCH = int(os.getenv("CDR_BATCH", "100000"))
 FRAUD_FRACTION = 0.005
 CDR_WINDOW_DAYS = 90
-FRAUD_REPORT_PATH = Path(os.getenv("FRAUD_REPORT_PATH", Path(__file__).parent / "fraud_report.json"))
-SEED_PLANS_SQL = Path(__file__).parent.parent / "service_webapp" / "db" / "seed" / "seed_plans.sql"
+FRAUD_REPORT_PATH = Path(
+    os.getenv(
+        "FRAUD_REPORT_PATH", Path(__file__).parent.parent / "temp" / "fraud_report.json"
+    )
+)
+SEED_PLANS_SQL = (
+    Path(__file__).parent.parent / "service_webapp" / "db" / "seed" / "seed_plans.sql"
+)
 
 # ── Seeding ───────────────────────────────────────────────────────────────────
 
@@ -63,16 +69,39 @@ log = logging.getLogger(__name__)
 # ── Reference data ────────────────────────────────────────────────────────────
 
 INDIAN_CIRCLES = [
-    "Andhra Pradesh", "Assam", "Bihar & Jharkhand", "Chennai",
-    "Delhi & NCR", "Gujarat", "Haryana", "Himachal Pradesh",
-    "Jammu & Kashmir", "Karnataka", "Kerala", "Kolkata",
-    "Madhya Pradesh & Chhattisgarh", "Maharashtra", "Mumbai",
-    "North East", "Orissa", "Punjab", "Rajasthan",
-    "Tamil Nadu", "Uttar Pradesh", "West Bengal",
+    "Andhra Pradesh",
+    "Assam",
+    "Bihar & Jharkhand",
+    "Chennai",
+    "Delhi & NCR",
+    "Gujarat",
+    "Haryana",
+    "Himachal Pradesh",
+    "Jammu & Kashmir",
+    "Karnataka",
+    "Kerala",
+    "Kolkata",
+    "Madhya Pradesh & Chhattisgarh",
+    "Maharashtra",
+    "Mumbai",
+    "North East",
+    "Orissa",
+    "Punjab",
+    "Rajasthan",
+    "Tamil Nadu",
+    "Uttar Pradesh",
+    "West Bengal",
 ]
 
 APNS = ["skylink.internet", "skylink.data", "skylink.mms", "skylink.wap", "internet"]
-OPERATORS = ["SkyLink-MH", "SkyLink-DL", "SkyLink-KA", "SkyLink-TN", "SkyLink-GJ", "SkyLink-UP"]
+OPERATORS = [
+    "SkyLink-MH",
+    "SkyLink-DL",
+    "SkyLink-KA",
+    "SkyLink-TN",
+    "SkyLink-GJ",
+    "SkyLink-UP",
+]
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -122,17 +151,19 @@ def _seed_plans(conn: psycopg.Connection) -> None:
 
 def _load_plans(conn: psycopg.Connection) -> pd.DataFrame:
     with conn.cursor() as cur:
-        cur.execute("SELECT id::text, price_paise FROM plans_plans WHERE is_active = TRUE")
+        cur.execute(
+            "SELECT id::text, price_paise FROM plans_plans WHERE is_active = TRUE"
+        )
         rows = cur.fetchall()
     return pd.DataFrame(rows, columns=["id", "price_paise"])
 
 
 def _truncate_generated(conn: psycopg.Connection) -> None:
+    # sboai_app has DELETE but not TRUNCATE; UUID PKs have no sequences to reset.
     with conn.cursor() as cur:
-        cur.execute(
-            "TRUNCATE billing_cdr_events, billing_wallet_balances, identity_subscribers "
-            "RESTART IDENTITY CASCADE"
-        )
+        cur.execute("DELETE FROM billing_cdr_events")
+        cur.execute("DELETE FROM billing_wallet_balances")
+        cur.execute("DELETE FROM identity_subscribers")
     conn.commit()
     log.info("Truncated generated tables")
 
@@ -148,7 +179,9 @@ SUB_COPY_SQL = (
 )
 
 
-def generate_subscribers(conn: psycopg.Connection, plans_df: pd.DataFrame) -> pd.DataFrame:
+def generate_subscribers(
+    conn: psycopg.Connection, plans_df: pd.DataFrame
+) -> pd.DataFrame:
     """Insert 300K subscribers; return DataFrame with (id, msisdn, plan_id)."""
     log.info("Generating %d subscribers ...", SUBSCRIBER_COUNT)
     now = datetime.now(timezone.utc)
@@ -180,8 +213,21 @@ def generate_subscribers(conn: psycopg.Connection, plans_df: pd.DataFrame) -> pd
         state = fake.state()[:100]
         pin = fake.postcode()[:10]
 
-        row = (sub_id, msisdn, name, email, "active", plan_id,
-               addr1, addr2, city, state, pin, now, now)
+        row = (
+            sub_id,
+            msisdn,
+            name,
+            email,
+            "active",
+            plan_id,
+            addr1,
+            addr2,
+            city,
+            state,
+            pin,
+            now,
+            now,
+        )
         pending.append(row)
         sub_meta.append({"id": sub_id, "msisdn": msisdn, "plan_id": plan_id})
 
@@ -203,7 +249,9 @@ WALLET_COPY_SQL = (
 )
 
 
-def generate_wallets(conn: psycopg.Connection, subs_df: pd.DataFrame, plans_df: pd.DataFrame) -> None:
+def generate_wallets(
+    conn: psycopg.Connection, subs_df: pd.DataFrame, plans_df: pd.DataFrame
+) -> None:
     log.info("Generating wallet balances ...")
     price_map = plans_df.set_index("id")["price_paise"].to_dict()
     now = datetime.now(timezone.utc)
@@ -219,7 +267,9 @@ def generate_wallets(conn: psycopg.Connection, subs_df: pd.DataFrame, plans_df: 
 
     for _, row in subs_df.iterrows():
         balance = price_map.get(row["plan_id"], 9900)
-        pending.append((str(uuid.uuid4()), row["id"], row["msisdn"], int(balance), now, now))
+        pending.append(
+            (str(uuid.uuid4()), row["id"], row["msisdn"], int(balance), now, now)
+        )
         if len(pending) == SUBSCRIBER_BATCH:
             _flush(pending)
             pending = []
@@ -240,7 +290,13 @@ CDR_COPY_SQL = (
     "FROM STDIN"
 )
 
-FRAUD_SIGNAL_NAMES = ["velocity_burst", "sim_swap", "roaming_abuse", "unique_destinations", "multi_tower"]
+FRAUD_SIGNAL_NAMES = [
+    "velocity_burst",
+    "sim_swap",
+    "roaming_abuse",
+    "unique_destinations",
+    "multi_tower",
+]
 
 
 def _build_fraud_plan(subscriber_ids: list[str]) -> tuple[dict, dict]:
@@ -272,7 +328,9 @@ def _build_fraud_plan(subscriber_ids: list[str]) -> tuple[dict, dict]:
             meta["imei_after"] = _rand_imei()
         elif signal == "roaming_abuse":
             # heavy roaming, random circle set
-            meta["roaming_circles"] = random.sample(INDIAN_CIRCLES, random.randint(5, 10))
+            meta["roaming_circles"] = random.sample(
+                INDIAN_CIRCLES, random.randint(5, 10)
+            )
         # unique_destinations and multi_tower: patterns applied inline per CDR row
         fraud_meta[sub_id] = meta
 
@@ -320,7 +378,11 @@ def _cdr_row(
         circles = fraud_meta.get("roaming_circles", INDIAN_CIRCLES)
         circle = random.choice(circles)
         roaming = True
-    elif signal == "multi_tower" and multi_tower_seq is not None and tower_idx_ref is not None:
+    elif (
+        signal == "multi_tower"
+        and multi_tower_seq is not None
+        and tower_idx_ref is not None
+    ):
         # Rapidly cycle through 5 distinct towers
         tower = multi_tower_seq[tower_idx_ref[0] % len(multi_tower_seq)]
         tower_idx_ref[0] += 1
@@ -369,16 +431,40 @@ def _cdr_row(
         swap_off = fraud_meta.get("swap_day_offset", 45)
         base = datetime.now(timezone.utc) - timedelta(days=CDR_WINDOW_DAYS)
         swap_point = base + timedelta(days=swap_off)
-        chosen_imei = fraud_meta["imei_after"] if start > swap_point else fraud_meta["imei_before"]
+        chosen_imei = (
+            fraud_meta["imei_after"]
+            if start > swap_point
+            else fraud_meta["imei_before"]
+        )
         if cdr_type == "data":
             imei = chosen_imei
 
     return (
-        session_id, sub_id, cdr_type, circle, tower, roaming,
-        cost, "pending", fraud_flag, start, end_time,
-        from_num, to_num, call_dir, duration, call_status,
-        msg_dir, sms_status,
-        net_type, dl_mb, ul_mb, vol_mb, apn, imei, op_id,
+        session_id,
+        sub_id,
+        cdr_type,
+        circle,
+        tower,
+        roaming,
+        cost,
+        "pending",
+        fraud_flag,
+        start,
+        end_time,
+        from_num,
+        to_num,
+        call_dir,
+        duration,
+        call_status,
+        msg_dir,
+        sms_status,
+        net_type,
+        dl_mb,
+        ul_mb,
+        vol_mb,
+        apn,
+        imei,
+        op_id,
     )
 
 
@@ -399,8 +485,12 @@ def generate_cdrs(
     # Pass-1 normal CDR count (reserve budget for velocity bursts)
     velocity_total = n_velocity * velocity_burst_per
     pass1_count = CDR_COUNT - velocity_total
-    log.info("CDR generation: pass-1=%d, velocity burst=%d, total=%d",
-             pass1_count, velocity_total, CDR_COUNT)
+    log.info(
+        "CDR generation: pass-1=%d, velocity burst=%d, total=%d",
+        pass1_count,
+        velocity_total,
+        CDR_COUNT,
+    )
 
     # Pre-build unique-dest pools and multi-tower sequences for relevant fraud subs
     unique_dest_pools: dict[str, list[str]] = {}
@@ -450,7 +540,10 @@ def generate_cdrs(
                 fraud_flag = True
 
         row = _cdr_row(
-            sub_id, start, fraud_flag, cdr_type,
+            sub_id,
+            start,
+            fraud_flag,
+            cdr_type,
             meta if is_fraud_sub else None,
             unique_dest_pools.get(sub_id),
             multi_tower_seqs.get(sub_id),
@@ -469,7 +562,9 @@ def generate_cdrs(
         _flush_cdr_batch(pending)
 
     # ── Pass 2: velocity burst CDRs ───────────────────────────────────────────
-    velocity_subs = [s for s, m in fraud_meta.items() if m["signal"] == "velocity_burst"]
+    velocity_subs = [
+        s for s, m in fraud_meta.items() if m["signal"] == "velocity_burst"
+    ]
     log.info("CDR pass-2: velocity bursts for %d subscribers", len(velocity_subs))
     pending = []
     for sub_id in velocity_subs:
@@ -515,18 +610,22 @@ def write_fraud_report(
     for sub_id, meta in fraud_meta.items():
         signal = meta["signal"]
         flagged = fraud_flagged_counts.get(sub_id, 0)
-        report.append({
-            "subscriber_id": sub_id,
-            "msisdn": msisdn_map.get(sub_id, "unknown"),
-            "fraud_types": [signal],
-            "flagged_cdr_count": flagged,
-            "description": _SIGNAL_DESC.get(signal, signal),
-        })
+        report.append(
+            {
+                "subscriber_id": sub_id,
+                "msisdn": msisdn_map.get(sub_id, "unknown"),
+                "fraud_types": [signal],
+                "flagged_cdr_count": flagged,
+                "description": _SIGNAL_DESC.get(signal, signal),
+            }
+        )
 
     FRAUD_REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(FRAUD_REPORT_PATH, "w") as f:
         json.dump(report, f, indent=2, default=str)
-    log.info("Fraud report written to %s (%d subscribers)", FRAUD_REPORT_PATH, len(report))
+    log.info(
+        "Fraud report written to %s (%d subscribers)", FRAUD_REPORT_PATH, len(report)
+    )
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -544,7 +643,9 @@ def main() -> None:
         log.info("Loading plans ...")
         plans_df = _load_plans(conn)
         if plans_df.empty:
-            log.error("No active plans found — check service_webapp/db/seed/seed_plans.sql")
+            log.error(
+                "No active plans found — check service_webapp/db/seed/seed_plans.sql"
+            )
             sys.exit(1)
         log.info("  loaded %d plans", len(plans_df))
 

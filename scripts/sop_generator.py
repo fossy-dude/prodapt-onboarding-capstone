@@ -562,7 +562,8 @@ def seed_sop(conn: psycopg.Connection) -> tuple[int, int]:
     now = datetime.now(timezone.utc)
 
     with conn.cursor() as cur:
-        cur.execute("TRUNCATE sop_knowledge_chunks, sop_rules RESTART IDENTITY CASCADE")
+        cur.execute("DELETE FROM sop_knowledge_chunks")
+        cur.execute("DELETE FROM sop_rules")
     conn.commit()
 
     with conn.cursor() as cur:

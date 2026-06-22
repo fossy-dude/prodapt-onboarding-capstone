@@ -80,19 +80,56 @@ restart svc:
 # ── Database ─────────────────────────────────────────────────────────────────────
 
 # Apply Flyway migrations against the local `sboai` database (Postgres must be up).
+# Runs flyway/flyway:10-alpine via podman (--network host reaches the published postgres port).
+# Credentials sourced from docker/.env (POSTGRES_FLYWAY_USERNAME / POSTGRES_FLYWAY_PASSWORD).
 migrate:
-    flyway -url=jdbc:postgresql://localhost:5432/sboai -locations=filesystem:{{ justfile_directory() }}/service_webapp/db/migrations migrate
+    #!/usr/bin/env bash
+    set -euo pipefail
+    FW_USER=$(grep '^POSTGRES_FLYWAY_USERNAME=' docker/.env | cut -d= -f2)
+    FW_PASS=$(grep '^POSTGRES_FLYWAY_PASSWORD=' docker/.env | cut -d= -f2)
+    podman run --rm \
+        --network host \
+        -e FLYWAY_URL=jdbc:postgresql://localhost:5432/sboai \
+        -e "FLYWAY_USER=${FW_USER}" \
+        -e "FLYWAY_PASSWORD=${FW_PASS}" \
+        -e FLYWAY_SCHEMAS=public \
+        -e FLYWAY_CONNECT_RETRIES=10 \
+        -e FLYWAY_LOCATIONS=filesystem:/flyway/sql \
+        -e FLYWAY_CLEAN_DISABLED=true \
+        -v "{{ justfile_directory() }}/service_webapp/db/migrations:/flyway/sql:ro" \
+        docker.io/flyway/flyway:10-alpine \
+        migrate
 
 # Seed synthetic data: 1K plans (service_webapp/db/seed/) + 300K subscribers + 5M CDRs + SOP knowledge base.
 # Plans seed SQL is executed by generate_synthetic_data.py (NOT Flyway).
 # Writes scripts/fraud_report.json listing fraudulent subscribers for demo.
 # Idempotent: safe to re-run (truncates generated tables, re-seeds plans via ON CONFLICT).
+# DB credentials sourced from docker/.env (sboai_app / POSTGRES_APP_PASSWORD).
 seed:
-    @echo "[seed] Seeding plans + subscribers + CDRs ..."
-    cd service_webapp && PYTHONPATH=src python ../scripts/generate_synthetic_data.py
-    @echo "[seed] Seeding SOP knowledge base ..."
-    cd service_webapp && PYTHONPATH=src python ../scripts/sop_generator.py
-    @echo "[seed] Done. Fraud demo report: scripts/fraud_report.json"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    APP_PASS=$(grep '^POSTGRES_APP_PASSWORD=' docker/.env | cut -d= -f2)
+    export DB__HOST=localhost
+    export DB__PORT=5432
+    export DB__NAME=sboai
+    export DB__USER=sboai_app
+    export DB__PASSWORD="${APP_PASS}"
+    export VALKEY_URL=redis://localhost:6379
+    export KAFKA_BROKERS=localhost:9092
+    SCRIPTS="{{ justfile_directory() }}/scripts"
+    export PYTHONPATH="{{ justfile_directory() }}/service_webapp/src"
+    # --no-project: skip editable install (project uses package=skip in tox; not a buildable package).
+    # project deps (psycopg, pydantic-settings) pulled via --with; seed-only deps (numpy/pandas/faker) also via --with.
+    echo "[seed] Seeding plans + subscribers + CDRs ..."
+    uv run --no-project \
+        --with "psycopg[binary]>=3.2" --with "pydantic-settings>=2.3" \
+        --with "numpy>=1.26" --with "pandas>=2.0" --with "faker>=26" \
+        python3 "${SCRIPTS}/generate_synthetic_data.py"
+    echo "[seed] Seeding SOP knowledge base ..."
+    uv run --no-project \
+        --with "psycopg[binary]>=3.2" --with "pydantic-settings>=2.3" \
+        python3 "${SCRIPTS}/sop_generator.py"
+    echo "[seed] Done. Fraud demo report: scripts/fraud_report.json"
 
 # Ingest FAQ/plan/SOP documents into Milvus Lite. Script lands in Epic 2.
 # (architecture §1.12.2 erroneously ran the .sh with python; corrected to bash.)
