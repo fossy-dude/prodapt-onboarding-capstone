@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
 from datetime import UTC, date, datetime
 from typing import Literal
 
@@ -21,7 +22,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from core.auth import require_role
-from core.errors import DomainError, ForbiddenError, NotFoundError
+from core.errors import DomainError, ForbiddenError, NotFoundError, UnauthenticatedError
 from core.responses import success_envelope
 from core.security import mask_msisdn
 from services.registration import (
@@ -224,6 +225,32 @@ def _db(request: Request):
     return db
 
 
+def _require_sub(jwt_payload: dict) -> str:
+    """Extract the subscriber UUID (JWT ``sub``); 401 if the claim is absent.
+
+    ``require_role`` validates ``cognito:groups`` but never asserts ``sub`` is
+    present, so a valid token lacking ``sub`` would otherwise raise a raw
+    ``KeyError`` → HTTP 500. Surface it as a clean 401 instead.
+    """
+    sub = jwt_payload.get("sub")
+    if not sub:
+        raise UnauthenticatedError("Access token is missing the 'sub' claim.")
+    return str(sub)
+
+
+def _validate_order_id(order_id: str) -> None:
+    """Reject non-UUID ``order_id`` path params as 404 before they reach SQL.
+
+    A malformed value would otherwise hit the ``%s::uuid`` cast and raise a
+    psycopg ``DataError`` → unhandled 500. Treating it as 404 keeps the
+    behaviour uniform with the unknown-order path (no existence oracle).
+    """
+    try:
+        uuid.UUID(order_id)
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise NotFoundError("Order not found.") from exc
+
+
 # ── SIM Activation Order Status (Story 1.7) ──────────────────────────────────
 
 
@@ -236,8 +263,11 @@ async def get_active_order(
 
     Returns the most recent ``NEW_ACTIVATION`` order row so the tracker frontend
     can obtain the ``order_id`` without it being embedded in the JWT or URL.
+    When the subscriber has no active order, returns HTTP 200 with
+    ``order_id: null`` so the tracker can render an empty state rather than an
+    error (a missing order is a legitimate state, not a failure).
     """
-    sub: str = jwt_payload["sub"]
+    sub = _require_sub(jwt_payload)
     db = _db(request)
     async with db.transaction() as conn:
         cur = await conn.execute(
@@ -253,7 +283,13 @@ async def get_active_order(
         )
         row = await cur.fetchone()
     if row is None:
-        raise NotFoundError("No active activation order found for this subscriber.")
+        return JSONResponse(
+            status_code=200,
+            content=success_envelope(
+                {"order_id": None, "status": None, "updated_at": None},
+                trace_id=getattr(request.state, "trace_id", "unknown"),
+            ),
+        )
     order_id, status, updated_at = row
     return JSONResponse(
         status_code=200,
@@ -277,7 +313,8 @@ async def get_order_status(
     MSISDN is included in the response **only** when ``status = 'ACTIVATED'``
     (PII hygiene: never log raw MSISDN; use ``msisdn[-4:]`` if needed).
     """
-    sub: str = jwt_payload["sub"]
+    _validate_order_id(order_id)
+    sub = _require_sub(jwt_payload)
     db = _db(request)
     async with db.transaction() as conn:
         cur = await conn.execute(

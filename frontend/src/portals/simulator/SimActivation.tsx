@@ -1,9 +1,16 @@
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
-import { advanceOrderState, toApiError } from '../../lib/api';
+import { Table, type TableColumn } from '../../components/ui/Table';
+import { advanceOrderState, getSimulatorOrders, toApiError } from '../../lib/api';
+
+interface OrderRow {
+  readonly order_id: string;
+  readonly current_status: string;
+  readonly created_at: string | null;
+}
 
 const STATE_LABELS: Record<string, string> = {
   CREATED: 'Created',
@@ -12,14 +19,12 @@ const STATE_LABELS: Record<string, string> = {
   ACTIVATED: 'Activated',
 };
 
-interface OrderRow {
-  readonly order_id: string;
-  readonly current_status: string;
-}
-
-interface SimActivationProps {
-  readonly orders?: readonly OrderRow[];
-}
+const COLUMNS: readonly TableColumn[] = [
+  { key: 'id', header: 'Order ID' },
+  { key: 'state', header: 'Current State' },
+  { key: 'action', header: 'Action' },
+  { key: 'result', header: 'Result' },
+];
 
 function OrderAdvanceRow({ order }: { readonly order: OrderRow }) {
   const queryClient = useQueryClient();
@@ -29,9 +34,12 @@ function OrderAdvanceRow({ order }: { readonly order: OrderRow }) {
   const mutation = useMutation({
     mutationFn: () => advanceOrderState(order.order_id),
     onSuccess: (data) => {
-      setResult(`${STATE_LABELS[data.previous_status] ?? data.previous_status} → ${STATE_LABELS[data.status] ?? data.status}`);
+      setResult(
+        `${STATE_LABELS[data.previous_status] ?? data.previous_status} → ${STATE_LABELS[data.status] ?? data.status}`,
+      );
       setError(null);
-      void queryClient.invalidateQueries({ queryKey: ['orderStatus'] });
+      // Refresh the order list so the row's new state reflects after an advance.
+      void queryClient.invalidateQueries({ queryKey: ['simulatorOrders'] });
     },
     onError: (err) => {
       const api = toApiError(err);
@@ -68,11 +76,18 @@ function OrderAdvanceRow({ order }: { readonly order: OrderRow }) {
 }
 
 /**
- * Simulator developer tool — advance ops_order_fulfilment through the state machine (Story 1.7 AC #6).
- * Route: /simulator/activate (behind /simulator/* RoleGuard — dev role only).
+ * Simulator developer tool — list orders and advance ops_order_fulfilment through
+ * the activation state machine (Story 1.7 AC #6). Fetches its own order list via
+ * GET /api/v1/simulator/orders (dev role). Route: /simulator/activate.
  * NOT subscriber-facing.
  */
-export function SimActivation({ orders = [] }: SimActivationProps) {
+export function SimActivation() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['simulatorOrders'],
+    queryFn: getSimulatorOrders,
+  });
+  const orders = data?.orders ?? [];
+
   return (
     <main className="px-4 py-10">
       <Card>
@@ -80,26 +95,21 @@ export function SimActivation({ orders = [] }: SimActivationProps) {
         <p className="mb-6 text-sm text-neutral-500">
           Advance order fulfilment state for testing. Forward transitions only.
         </p>
-        {orders.length === 0 ? (
-          <p className="text-sm text-neutral-500">No orders loaded. Provide order rows via props.</p>
+        {isLoading ? (
+          <p className="text-sm text-neutral-500" role="status">
+            Loading orders…
+          </p>
+        ) : isError ? (
+          <p className="text-sm text-danger-600" role="alert">
+            Failed to load orders. Please refresh.
+          </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-neutral-300 text-xs text-neutral-500">
-                  <th className="pb-2 pr-4">Order ID</th>
-                  <th className="pb-2 pr-4">Current State</th>
-                  <th className="pb-2 pr-4">Action</th>
-                  <th className="pb-2">Result</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((o) => (
-                  <OrderAdvanceRow key={o.order_id} order={o} />
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table
+            columns={COLUMNS}
+            rows={orders}
+            renderRow={(order) => <OrderAdvanceRow key={order.order_id} order={order} />}
+            emptyState="No orders found."
+          />
         )}
       </Card>
     </main>

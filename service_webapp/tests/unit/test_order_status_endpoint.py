@@ -139,3 +139,68 @@ async def test_order_status_404_for_unknown_order():
     r = await _get(f"/api/v1/subscriber/orders/{uuid.uuid4()}/status", app)
     assert r.status_code == 404
     assert r.json()["error"]["code"] == "NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_order_status_query_joins_identity_subscribers():
+    """Assert the status query JOINs identity_subscribers (P10).
+
+    A regression that drops the JOIN (MSISDN always None) must fail this test.
+    """
+    row = ("CREATED", UPDATED_AT, SUBSCRIBER_UUID, MSISDN)
+    app = _make_app(order_row=row)
+    r = await _get(f"/api/v1/subscriber/orders/{ORDER_UUID}/status", app)
+    assert r.status_code == 200
+    executed_sql = app.state.db_adapter.conn.executed[-1][0]
+    assert "identity_subscribers" in executed_sql
+
+
+@pytest.mark.asyncio
+async def test_order_status_401_when_sub_claim_missing():
+    """P1: a valid token lacking 'sub' yields 401, not a raw KeyError 500."""
+    from main import create_app
+
+    row = ("CREATED", UPDATED_AT, SUBSCRIBER_UUID, MSISDN)
+    db = FakeDB({ORDER_UUID: row})
+    jwt = FakeJWTValidator({"cognito:groups": ["subscriber"]})  # no sub claim
+    app = create_app(db_adapter=db, jwt_validator=jwt)
+    r = await _get(f"/api/v1/subscriber/orders/{ORDER_UUID}/status", app)
+    assert r.status_code == 401
+    assert r.json()["error"]["code"] == "UNAUTHENTICATED"
+
+
+@pytest.mark.asyncio
+async def test_order_status_404_for_malformed_order_id():
+    """P2: a non-UUID order_id is rejected as 404 before hitting the %s::uuid cast."""
+    app = _make_app(order_row=("CREATED", UPDATED_AT, SUBSCRIBER_UUID, MSISDN))
+    r = await _get("/api/v1/subscriber/orders/not-a-uuid/status", app)
+    assert r.status_code == 404
+    assert r.json()["error"]["code"] == "NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_active_order_returns_200_null_when_no_order():
+    """Return 200 + null fields when the subscriber has no active order (D7).
+
+    A 404 would force the UI into an error page; an empty state is correct.
+    """
+    app = _make_app()  # no active_row configured
+    r = await _get("/api/v1/subscriber/orders/active", app)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["data"]["order_id"] is None
+    assert body["data"]["status"] is None
+    assert body["data"]["updated_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_active_order_401_when_sub_claim_missing():
+    """P1: the active-order endpoint also guards a missing 'sub' with 401."""
+    from main import create_app
+
+    db = FakeDB({})
+    jwt = FakeJWTValidator({"cognito:groups": ["subscriber"]})  # no sub claim
+    app = create_app(db_adapter=db, jwt_validator=jwt)
+    r = await _get("/api/v1/subscriber/orders/active", app)
+    assert r.status_code == 401
+    assert r.json()["error"]["code"] == "UNAUTHENTICATED"

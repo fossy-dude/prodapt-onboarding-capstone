@@ -4,7 +4,7 @@
 baseline_commit: 3c40ce1ee0ec9a42c825a95fa5b6b6c87285e457
 ---
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -16,10 +16,10 @@ so that I know exactly where I am in the activation process and what to expect n
 
 ## Acceptance Criteria
 
-1. **Given** a logged-in subscriber has an `ops_order_fulfilment` record, **When** they navigate to `/activate`, **Then** a four-step indicator renders the states **Created → KYC Pending → KYC Verified → Activated**, with the current step highlighted and all completed steps showing a checkmark.
+1. **Given** a logged-in subscriber has an `ops_order_fulfilment` record, **When** they navigate to `/subscriber/activate`, **Then** a four-step indicator renders the states **Created → KYC Pending → KYC Verified → Activated**, with the current step highlighted and all completed steps showing a checkmark.
 2. The tracker polls `GET /api/v1/subscriber/orders/{order_id}/status` every **10 seconds** (polling, NOT WebSocket) and re-renders the step indicator when the returned status advances.
 3. **Given** the order `status = 'ACTIVATED'`, **When** the tracker renders, **Then** a success banner is shown displaying the subscriber's MSISDN, and polling stops.
-4. The subscriber-facing tracker lives at `frontend/src/portals/subscriber/SimActivation.tsx` (route `/activate`, behind the `/subscriber/*` role guard) and is **read-only** — it never mutates order state.
+4. The subscriber-facing tracker lives at `frontend/src/portals/subscriber/SimActivation.tsx` (route `/subscriber/activate`, behind the `/subscriber/*` role guard) and is **read-only** — it never mutates order state.
 5. The read endpoint `GET /api/v1/subscriber/orders/{order_id}/status` returns the standard envelope `{data: {...}, meta: {trace_id, timestamp}}` and authorises the caller so a subscriber may only read **their own** order (JWT `sub` claim must match the order's `subscriber_id`); a mismatch returns HTTP 403.
 6. A separate **simulator developer tool** at `frontend/src/portals/simulator/SimActivation.tsx` (under `/simulator/*`) lets a developer advance an order's fulfilment state forward through the state machine, by calling a simulator endpoint in `service_webapp/src/routers/simulator.py` that mutates `ops_order_fulfilment`. This is NOT subscriber-facing.
 
@@ -134,21 +134,78 @@ claude-sonnet-4-6
 - Task 4: Backend — 5 pytest tests in test_order_status_endpoint.py (envelope shape, MSISDN gating, 403 sub mismatch, 404 unknown order) + 6 pytest tests in test_simulator_endpoint.py (state transitions, terminal 400, 404, role guard). Frontend — 8 Vitest + RTL tests in SimActivation.test.tsx covering loading state, all four status states, MSISDN absent/present, error state, polling behaviour. All 80 backend + 41 frontend tests pass.
 - No new DB migrations created; ops_order_fulfilment and identity_subscribers already exist (V1 baseline + V3 extensions).
 
+### Scope note — adjacent login-flow changes bundled in this diff (documented post-review, D1)
+
+Three changes that touch the Story 1.8 login surface landed in this story's diff without being declared in the original File List/Tasks. Kept here (decision D1:a) and now documented for traceability:
+- `service_webapp/src/core/errors.py` — `OtpVerificationError.http_status` changed `400 → 401` (an invalid OTP is an auth failure for both login challenge and step-up); docstring updated to justify 401.
+- `frontend/src/lib/api.ts` — 401-response interceptor now skips the `/login` redirect for `/auth/login/initiate` and `/auth/login/verify` (prevents a redirect loop when a wrong OTP returns 401 while the user is on `/login`).
+- `service_webapp/src/routers/account.py` — `LoginInitiateRequest`/`LoginVerifyRequest` gained `min_length`/`max_length` guards on `identifier`/`session`/`otp` (bound inputs before they reach Cognito).
+
+### Post-review changes (code review 2026-06-22)
+
+Patches applied from the `## Review Findings` section below:
+- **Backend**: `sub`-presence guard (401 not 500) on both order endpoints; UUID validation on `order_id` (404 not 500); `SELECT … FOR UPDATE` + optimistic `WHERE fulfilment_status = %s` on the simulator advance; distinct `UNKNOWN_STATE`/409 for rows outside the state machine (was a misleading "terminal" 400); `getActiveOrder` now returns 200 `{order_id:null}` (empty state) instead of 404; new `GET /api/v1/simulator/orders` list endpoint (dev role, no MSISDN) so the dev tool can populate its table.
+- **Frontend**: polling stops on any query error (403/404/network); tracker guards unexpected status values; empty/CTA state for no active order; new `Table` UI primitive (`components/ui/Table.tsx`); simulator tool reworked to fetch orders via `getSimulatorOrders` and render through `Table` (was non-functional — took an `orders` prop `App.tsx` never supplied).
+- **Tests**: added JOIN assertion, `WHERE id` UPDATE assertion, missing-`sub` 401, malformed-UUID 404, unknown-state 409, list-endpoint + role cases, D7 empty-state, and a polling-recurrence test that advances fake timers.
+
 ### File List
 
-- `service_webapp/src/routers/account.py` — modified: added order status + active-order endpoints, _db helper, NotFoundError/ForbiddenError imports
-- `service_webapp/src/routers/simulator.py` — created: state-advance endpoint, simulator router
-- `service_webapp/src/core/errors.py` — modified: added NotFoundError class
+- `service_webapp/src/routers/account.py` — modified: added order status + active-order endpoints, `_db`/`_require_sub`/`_validate_order_id` helpers, NotFoundError/ForbiddenError/UnauthenticatedError imports; (scope-creep, D1) `LoginInitiateRequest`/`LoginVerifyRequest` length guards
+- `service_webapp/src/routers/simulator.py` — created: state-advance endpoint + simulator router; (post-review) `GET /orders` list endpoint, `_validate_order_id`, `FOR UPDATE` + optimistic guard, `UNKNOWN_STATE` handling
+- `service_webapp/src/core/errors.py` — modified: added NotFoundError class; (scope-creep, D1) `OtpVerificationError.http_status` 400→401
 - `service_webapp/src/main.py` — modified: imported and registered simulator_router
-- `service_webapp/tests/unit/test_order_status_endpoint.py` — created: 5 unit tests for order status endpoint
-- `service_webapp/tests/unit/test_simulator_endpoint.py` — created: 6 unit tests for simulator advance endpoint
-- `frontend/src/hooks/useOrderStatus.ts` — created: TanStack Query polling hook
-- `frontend/src/portals/subscriber/SimActivation.tsx` — created: four-step tracker component
-- `frontend/src/portals/simulator/SimActivation.tsx` — created: simulator dev tool component
-- `frontend/src/portals/subscriber/SimActivation.test.tsx` — created: 8 frontend component tests
-- `frontend/src/lib/api.ts` — modified: added getActiveOrder, getOrderStatus, advanceOrderState
+- `service_webapp/tests/unit/test_order_status_endpoint.py` — created: order-status unit tests; (post-review) JOIN assertion, missing-`sub` 401, malformed-UUID 404, empty-active-order 200
+- `service_webapp/tests/unit/test_simulator_endpoint.py` — created: simulator advance unit tests; (post-review) `WHERE id` UPDATE assertion, unknown-state 409, malformed-UUID 404, list-endpoint + role cases
+- `frontend/src/hooks/useOrderStatus.ts` — created: TanStack Query polling hook; (post-review) stops polling on error, exposes `hasActiveOrder`
+- `frontend/src/portals/subscriber/SimActivation.tsx` — created: four-step tracker component; (post-review) unexpected-status guard, no-order empty state
+- `frontend/src/portals/simulator/SimActivation.tsx` — created: simulator dev tool; (post-review) reworked to fetch orders via `getSimulatorOrders` and render through `Table`
+- `frontend/src/portals/subscriber/SimActivation.test.tsx` — created: subscriber tracker tests; (post-review) polling-recurrence + empty-state cases
+- `frontend/src/components/ui/Table.tsx` — created (post-review): reusable `Table` primitive (AC#6/#8 reuse requirement)
+- `frontend/src/components/ui/index.ts` — modified (post-review): barrel exports `Table`
+- `frontend/src/lib/api.ts` — modified: added getActiveOrder, getOrderStatus, advanceOrderState, getSimulatorOrders; (scope-creep, D1) login-route 401-interceptor bypass; (post-review) nullable `ActiveOrderResponse`
 - `frontend/src/App.tsx` — modified: wired /subscriber/activate and /simulator/activate routes
 
 ## Change Log
 
 - 2026-06-22: Story 1.7 implemented — subscriber read endpoint (order status + active order discovery), four-step React tracker with 10s polling, simulator state-advance tool, full test coverage (80 backend + 41 frontend passing)
+
+## Review Findings
+
+Reviewed against baseline `3c40ce1` (12-file isolated diff; parallel 1.8 / Epic-2 commits excluded). Three parallel layers: Blind Hunter, Edge Case Hunter, Acceptance Auditor. 7 decision-needed, 8 patch, 7 defer, 3 dismissed.
+
+### Decision-needed
+
+- [x] [Review][Decision] **Scope creep — three undocumented Story-1.8 changes bundled in this diff** — `OtpVerificationError.http_status` changed `400 → 401` (`core/errors.py:70-79`, docstring rewritten to justify 401 for step-up); `lib/api.ts` 401-interceptor login-route bypass (`_LOGIN_PATHS`, `api.ts`); `LoginInitiateRequest`/`LoginVerifyRequest` field `min_length`/`max_length` guards (`account.py`, tagged `P7`/`P8`/`P9`). None are declared in this story's File List, Tasks, or ACs. Keep here + document, or revert + move to 1.8?
+- [x] [Review][Decision] **Simulator dev tool is non-functional as wired** — `/simulator/activate` renders `SimActivation` with no props; `orders` defaults to `[]` → page always shows "No orders loaded" (`portals/simulator/SimActivation.tsx:271`). No orders-listing endpoint exists in `lib/api.ts`; `advanceOrderState` exists but there is no way to input/select an `order_id`. A developer cannot advance any order through the UI without code changes. How should the tool obtain orders (new list endpoint / manual `order_id` entry / fetch + reuse)?
+- [x] [Review][Decision] **Route path mismatch: `/activate` (spec AC#1, AC#4) vs `/subscriber/activate` (impl)** — spec says "navigate to `/activate`"; impl nests `<Route path="activate">` under `/subscriber/*` so the effective path is `/subscriber/activate` and bare `/activate` falls through to the `/login` catch-all (`App.tsx:44-49`). Reconcile spec wording to `/subscriber/activate`, or also mount route at bare `/activate`?
+- [x] [Review][Decision] **Existence oracle on status endpoint** — 403-vs-404 distinction leaks order existence to non-owners (Blind Hunter: any UUID is an oracle). BUT AC#5 explicitly mandates "a mismatch returns HTTP 403." Accept the spec-mandated leak, or harden to 404-for-both (diverges from AC#5)?
+- [x] [Review][Decision] **Simulator router registered unconditionally** — `main.py` `include_router(simulator_router)` with no env/feature-flag gate; the advance endpoint mutates `ops_order_fulfilment` (bypasses KYC), guarded only by `require_role("dev")`. Gate behind non-prod env / flag, or accept dev-role-only guard in prod?
+- [x] [Review][Decision] **`getActiveOrder` returns most-recent-by-`created_at`, including terminal `ACTIVATED` rows** — a subscriber with a prior `ACTIVATED` order plus a new in-flight activation permanently sees the terminal success banner, not the in-flight tracker (`account.py:245`). Should "active" exclude terminal statuses (`WHERE fulfilment_status != 'ACTIVATED'`)?
+- [x] [Review][Decision] **"No active order" (404) renders as a hard error page** — `getActiveOrder` raises `NotFoundError` when no row matches → React Query `isError` → `SimActivationContent` shows "Unable to load your activation order" instead of an empty / "no order in progress" state (`account.py:230`, `SimActivation.tsx`). Should discovery return 200 `{order_id: null}` (empty state) instead of 404?
+
+### Patch
+
+- [x] [Review][Patch] **Missing `sub` claim → `KeyError` → 500** — both `get_active_order` and `get_order_status` do `sub: str = jwt_payload["sub"]`; `require_role` validates `cognito:groups` only, never `sub` presence (`core/auth.py:152-173`). A valid token lacking `sub` raises an unhandled 500 instead of 401. Fix: `sub = jwt_payload.get("sub"); if not sub: raise UnauthenticatedError(...)` [`account.py:240`, `account.py:280`]
+- [x] [Review][Patch] **Non-UUID `order_id` → psycopg `DataError` → 500** — `WHERE o.id = %s::uuid` with the raw path string; a malformed UUID throws `DataError` (not a `DomainError`), unhandled → 500 with internal leak. Applies to both `account.py` status route and `simulator.py` advance route. Also: confirm `/orders/active` is declared before `/orders/{order_id}` to avoid route shadowing. Fix: Pydantic `UUID` path param or try/except → `NotFoundError` [`account.py:291`, `simulator.py:57`]
+- [x] [Review][Patch] **Polling never stops on 403/404/network error** — `refetchInterval` only inspects `query.state.data?.status`, not `error`; a 403 (sub mismatch) or 404 (order deleted mid-poll) keeps retrying every 10s forever (log spam, no UI recovery). Fix: `refetchInterval: (q) => q.state.error ? false : (...)` [`useOrderStatus.ts:24-27`]
+- [x] [Review][Patch] **No row lock / optimistic guard on simulator advance** — `SELECT fulfilment_status` then `UPDATE` with no `FOR UPDATE` and no `WHERE fulfilment_status = %s` guard on the UPDATE; two concurrent POSTs can both read `CREATED`, double-step, or fight with the real KYC writer. Fix: `SELECT ... FOR UPDATE` or `UPDATE ... WHERE id=%s AND fulfilment_status=%s` [`simulator.py:56-78`]
+- [x] [Review][Patch] **Simulator mishandles NULL / unknown `fulfilment_status`** — V1 baseline column defaults to `'pending'`; `_STATE_MACHINE` keys are `CREATED/KYC_PENDING/...`. A row with `pending` (or any unknown value) hits `ILLEGAL_TRANSITION` with the misleading "already in terminal state" message. Fix: distinct handling for unknown-state vs terminal, `current_status or ''` [`simulator.py:63`, `simulator.py:66`]
+- [x] [Review][Patch] **Tracker breaks on an unexpected status value** — `STATUS_INDEX[currentStatus]` is `undefined` for anything outside the four known values (e.g. `REJECTED`, `PENDING`) → `currentIndex` becomes `NaN` → no step highlighted, checkmark math wrong. Fix: validate against the known set, fall back to an error panel [`SimActivation.tsx:48-86`]
+- [x] [Review][Patch] **`Table` primitive never built; simulator hand-rolls `<table>`** — AC#6/AC#8 require reuse of `Table` from `components/ui/`, but the barrel only exports `Badge`/`Button`/`Card`/`CardSection`. The simulator tool uses raw `<table>/<tr>/<th>`. Build a `Table` primitive and use it. (Best handled as part of the simulator rework in Decision #2) [`components/ui/`, `portals/simulator/SimActivation.tsx:274-289`]
+- [x] [Review][Patch] **Tests don't lock in the behaviour their names claim** — (a) frontend "polling interval is configured" only asserts the initial fetch, not that `refetchInterval` recurs (a regression deleting `refetchInterval` still passes); (b) `test_simulator_endpoint` fake-conn doesn't verify the UPDATE carried `WHERE id` (a regression dropping the filter — UPDATE all rows — still passes); (c) `test_order_status_endpoint` fake-conn doesn't validate the `identity_subscribers` JOIN (a regression dropping it — MSISDN always None — still passes). Strengthen assertions [`SimActivation.test.tsx`, `test_simulator_endpoint.py:42-58`, `test_order_status_endpoint.py:88-94`]
+
+### Defer
+
+- [x] [Review][Defer] **401 hard redirect, no refresh-token retry** — `api.ts` interceptor redirects to `/login` on first 401 with no refresh-token retry despite a refresh token being stored; token-refresh flow is Story 1.8 auth territory [`api.ts:38-46`] — deferred: out of scope
+- [x] [Review][Defer] **UUID case-sensitivity in `sub` comparison** — `subscriber_id != sub` compares strings directly; canonical UUIDs are lowercase on both sides so real risk ≈ 0, but normalising both via `str().lower()` would be defensive [`account.py:299`] — deferred: negligible risk
+- [x] [Review][Defer] **`getOrderStatus(orderId!)` non-null assertion** — the `!` is safe only because `enabled: orderId !== null` guards the queryFn; refactor-fragile but guarded today [`useOrderStatus.ts:22`] — deferred: low-risk
+- [x] [Review][Defer] **`modified_at = NOW()` divergence from app clock** — simulator writes DB wall-clock time; dev-only tool, speculative ordering impact [`simulator.py`] — deferred: dev tool, speculative
+- [x] [Review][Defer] **Import naming collision `SimActivation as SimActivationSimulator`** — foot-gun alongside the subscriber `SimActivation` import [`App.tsx`] — deferred: cosmetic
+- [x] [Review][Defer] **`test_order_status_msisdn_absent_for_kyc_pending` is a loop, not parametrized** — a failure aborts the loop and masks partial regressions; no parametrized id [`test_order_status_endpoint.py`] — deferred: cosmetic test-quality
+- [x] [Review][Defer] **Checkmark-count test name vs assertion mismatch** — name says "three checkmarks" but asserts `toHaveLength(2)` [`SimActivation.test.tsx`] — deferred: cosmetic
+
+### Dismissed (3)
+
+- Blind #10 — `_db()` `DomainError` class-attr mutation "fragile": false positive. `DomainError.code`/`http_status` are class attrs but the handler reads `exc.code`/`exc.http_status` off the instance (`errors.py:107-108`), and `_db()` sets instance attrs that shadow the class attrs. Works correctly.
+- Blind #2 (standalone) — OTP 401 "re-introduces the redirect loop": speculative. The login-route interceptor bypass was added alongside for `/auth/login/initiate` and `/auth/login/verify`; the genuine concern (undocumented scope change) is captured in Decision #1.
+- Blind #3 (standalone) — `isLoading`/refreshing indicator: the cascading "transient refetch failure → error page" aspect is covered by Patch #3 and Decision #7.
