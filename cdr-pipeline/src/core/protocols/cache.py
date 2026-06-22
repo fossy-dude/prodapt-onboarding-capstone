@@ -56,3 +56,15 @@ class CacheProtocol(Protocol):
     async def incr(self, key: str) -> int:
         """``INCR key`` — atomically increment and return the new value."""
         ...
+
+    async def incr_by(self, key: str, amount: int) -> int:
+        """``INCRBY key amount`` — atomically increment by ``amount`` and return the new value."""
+        ...
+
+    async def set_many(self, mapping: dict[str, int]) -> None:
+        """Bulk SET multiple keys to integer values with no expiry (warm-up path).
+
+        Sets ``mapping`` items via a valkey pipeline for efficiency. Used by the
+        balance warm-up (Story 2.3) to seed ``balance:{msisdn}``` keys from Postgres.
+        """
+        ...

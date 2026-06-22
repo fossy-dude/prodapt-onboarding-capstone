@@ -25,6 +25,18 @@ class DatabaseSettings(BaseModel):
     password: SecretStr
 
 
+class BalanceFlushSettings(BaseModel):
+    """Balance flusher triggers (Story 2.3, AC #3).
+
+    Flush every ``interval_seconds`` OR when ``dirty_threshold`` msisdns are
+    dirty, whichever comes first. Defaults match the architecture: 2 seconds
+    or 5000 dirty keys.
+    """
+
+    interval_seconds: float = 2.0
+    dirty_threshold: int = 5000
+
+
 class KafkaConsumerGroups(BaseModel):
     """Named Kafka consumer-group ids, one per logical cdr-pipeline consumer.
 
@@ -60,6 +72,9 @@ class Settings(BaseSettings):
     # ── Optional: consumer identity / observability ──────────────────────────
     kafka_consumer_groups: KafkaConsumerGroups = Field(default_factory=KafkaConsumerGroups)
     otel_service_name: str = "cdr-pipeline"
+
+    # ── Balance flusher (Story 2.3) ─────────────────────────────────────────────
+    balance_flush: BalanceFlushSettings = Field(default_factory=BalanceFlushSettings)
 
     # ── Cognito / management API (Story 2.5) ─────────────────────────────────
     # Identical field names + defaults to service_webapp so the ported JWTValidator

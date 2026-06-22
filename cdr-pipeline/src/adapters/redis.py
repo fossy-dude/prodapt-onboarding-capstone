@@ -67,6 +67,27 @@ class ValkeyAdapter(CacheProtocol):
         """``INCR key`` → the value after incrementing."""
         return int(await self._client.incr(key))
 
+    async def incr_by(self, key: str, amount: int) -> int:
+        """``INCRBY key amount`` → the value after incrementing by ``amount``."""
+        return int(await self._client.incrby(key, amount))
+
+    async def set_many(self, mapping: dict[str, int]) -> None:
+        """Bulk SET multiple integer keys with no expiry (valkey pipeline).
+
+        Chunks into batches of 5000 to avoid oversized pipelines. For 300K rows,
+        this keeps memory usage bounded and completes in < 5s (Story 2.3 AC #5).
+        """
+        if not mapping:
+            return
+        chunk_size = 5000
+        items = list(mapping.items())
+        for i in range(0, len(items), chunk_size):
+            chunk = dict(items[i : i + chunk_size])
+            pipe = self._client.pipeline()
+            for k, v in chunk.items():
+                pipe.set(k, str(v))  # valkey stores as string
+            await pipe.execute()
+
     async def close(self) -> None:
         """Close the underlying client (best-effort)."""
         try:

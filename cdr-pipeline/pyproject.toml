@@ -17,6 +17,8 @@ dependencies = [
     # Story 2.2: Valkey dedup cache + W3C trace-context extraction on consume.
     "valkey[asyncio]>=6",
     "opentelemetry-sdk>=1.25",
+    # Story 2.3: Postgres async adapter (balance ledger flush).
+    "psycopg[async,pool]>=3.2",
     # Story 2.5: management API + admin JWT guard.
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
@@ -300,6 +302,8 @@ deps = [
     "uuid7>=0.1",
     "valkey[asyncio]>=6",
     "opentelemetry-sdk>=1.25",
+    # Story 2.3: Postgres async adapter.
+    "psycopg[async,pool]>=3.2",
     # Story 2.5: management API + admin JWT guard.
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
@@ -328,7 +332,8 @@ deps = [
     "valkey[asyncio]>=6",
     "opentelemetry-sdk>=1.25",
     "pytest-mock>=3",
-    "testcontainers[kafka,redis]>=4",
+    "testcontainers[kafka,redis,postgres]>=4",
+    "psycopg[binary]>=3.2",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "PyJWT[crypto]>=2.8",
