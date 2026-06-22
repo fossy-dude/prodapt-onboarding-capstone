@@ -1,3 +1,7 @@
+---
+baseline_commit: cf7ecad14fddcdaca6a98a9fc0a1780df68f8ba3
+---
+
 # Story 2.3: Balance Deduction Engine — Valkey Write Buffer & Postgres Flush
 
 Status: ready-for-dev

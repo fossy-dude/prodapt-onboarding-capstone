@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-22  # Story 2.2 → review (CDR ingestion consumer: Valkey dedup + DLQ + commit-after-batch loop; lint+72 unit+3 slow green)
+last_updated: 2026-06-22  # Story 2.3 → in-progress (balance deduction engine: Valkey INCRBY + warm-up + flush + ledger)
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -61,10 +61,10 @@ development_status:
   epic-2: in-progress
   2-1-redpanda-topic-provisioning-kafka-envelope-contract: done
   2-2-cdr-ingestion-consumer-dedup-dlq: review
-  2-3-balance-deduction-engine-valkey-write-buffer-postgres-flush: ready-for-dev
-  2-4-audit-log-distributed-trace-propagation: ready-for-dev
-  2-5-cdr-management-api-dlq-inspect-worker-control: ready-for-dev
-  2-6-synthetic-dataset-generation-plans-subscribers-cdrs: review
+  2-3-balance-deduction-engine-valkey-write-buffer-postgres-flush: in-progress
+  2-4-audit-log-distributed-trace-propagation: in-progress
+  2-5-cdr-management-api-dlq-inspect-worker-control: in-progress
+  2-6-synthetic-dataset-generation-plans-subscribers-cdrs: done
   2-7-milvus-lite-initialisation-vector-seeding: ready-for-dev
   2-8-cdr-simulator-ui-form-dispatch-websocket-trace-display: ready-for-dev
   2-9-sim-activation-simulator-notification-portal: ready-for-dev

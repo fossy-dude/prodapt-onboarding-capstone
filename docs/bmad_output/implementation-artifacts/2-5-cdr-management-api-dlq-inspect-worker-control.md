@@ -1,6 +1,10 @@
+---
+baseline_commit: cf7ecad14fddcdaca6a98a9fc0a1780df68f8ba3
+---
+
 # Story 2.5: CDR Management API — DLQ Inspect & Worker Control
 
-Status: ready-for-dev
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 

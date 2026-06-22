@@ -61,6 +61,17 @@ class Settings(BaseSettings):
     kafka_consumer_groups: KafkaConsumerGroups = Field(default_factory=KafkaConsumerGroups)
     otel_service_name: str = "cdr-pipeline"
 
+    # ── Cognito / management API (Story 2.5) ─────────────────────────────────
+    # Identical field names + defaults to service_webapp so the ported JWTValidator
+    # resolves the same JWKS URL. cognito_endpoint_url matches .env.example (LocalStack).
+    cognito_endpoint_url: str = "http://localhost:4566"
+    cognito_region: str = "ap-south-1"
+    cognito_user_pool_id: str = ""
+    cognito_client_id: str = ""
+    aws_access_key_id: str = "test"
+    aws_secret_access_key: str = "test"
+    management_api_port: int = 8001
+
 
 # Eager singleton: importing this module loads (and validates) all settings once.
 settings = Settings()

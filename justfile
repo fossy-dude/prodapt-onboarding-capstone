@@ -153,10 +153,16 @@ frontend:
     @[ -d frontend/node_modules ] || (cd frontend && npm ci && echo "Dependencies installed")
     cd frontend && npm run dev
 
-# Run the CDR pipeline consumer. Consumer lands in Epic 2.
+# Run the CDR pipeline consumer (Story 2.2). Consumer + management API on port 8001 (Story 2.5).
 cdr:
     @[ -f cdr-pipeline/src/__init__.py ] || (touch cdr-pipeline/src/__init__.py && echo "Created src/__init__.py")
-    cd cdr-pipeline && python -m src.main
+    cd cdr-pipeline && PYTHONPATH=src python -m main
+
+# Run the CDR management API standalone (Story 2.5). Admin endpoints on port 8001.
+# Requires COGNITO_USER_POOL_ID and COGNITO_CLIENT_ID set in environment or .env.
+cdr-admin:
+    @echo "→ CDR management API: http://localhost:8001/api/v1/admin/dlq"
+    cd cdr-pipeline && PYTHONPATH=src python -m main
 
 # ── Tests ────────────────────────────────────────────────────────────────────────
 

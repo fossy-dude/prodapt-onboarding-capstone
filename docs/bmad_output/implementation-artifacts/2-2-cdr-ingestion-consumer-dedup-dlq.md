@@ -174,3 +174,15 @@ GLM-5.2 (via bmad-dev-story workflow, caveman/independent mode).
 ## Change Log
 
 - 2026-06-22 — Story 2.2 developed: Valkey `SET NX` dedup, DLQ handler (base64 raw bytes), aiokafka batch consumer loop (commit-after-batch), consumer entrypoint, multi-group config, mandatory `cdr_id`. Added unit + slow integration tests. Lint + default (72) + slow (3) suites all green. Set 3 pre-existing Story 2.1 envelope/provisioning issues green along the way (documented above). Status → review.
+
+## Review Findings
+
+### Code Review (2026-06-22)
+
+**Patched:**
+- [x] [Review][Patch] Malformed traceparent logged at debug level [batch_processor.py:86] — Fixed: changed to warning level for better operational visibility
+
+**Deferred:**
+- [x] [Review][Defer] Valkey socket timeout potentially too aggressive [adapters/redis.py:18] — deferred, pre-existing (config choice for production tuning)
+- [x] [Review][Defer] No consumer failure recovery [main.py, batch_processor.py] — deferred, pre-existing (infra concern, out of scope for Story 2.2)
+- [x] [Review][Defer] DLQ publish failure loses records [batch_processor.py:173-211] — deferred, pre-existing (complex retry logic out of scope)

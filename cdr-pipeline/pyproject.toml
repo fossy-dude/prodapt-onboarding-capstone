@@ -17,6 +17,10 @@ dependencies = [
     # Story 2.2: Valkey dedup cache + W3C trace-context extraction on consume.
     "valkey[asyncio]>=6",
     "opentelemetry-sdk>=1.25",
+    # Story 2.5: management API + admin JWT guard.
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "PyJWT[crypto]>=2.8",
 ]
 
 [project.optional-dependencies]
@@ -238,6 +242,11 @@ env = [
     "DB__PASSWORD=change_me_app",
     "VALKEY_URL=redis://localhost:6379",
     "KAFKA_BROKERS=localhost:9092",
+    # Story 2.5: Cognito settings for management API (optional fields; tests mock JWTValidator).
+    "COGNITO_ENDPOINT_URL=http://localhost:4566",
+    "COGNITO_REGION=ap-south-1",
+    "COGNITO_USER_POOL_ID=test-pool",
+    "COGNITO_CLIENT_ID=test-client",
 ]
 # /run/secrets is a Podman-only mount; absent in dev/test. (Story 1.4.)
 filterwarnings = [
@@ -291,6 +300,10 @@ deps = [
     "uuid7>=0.1",
     "valkey[asyncio]>=6",
     "opentelemetry-sdk>=1.25",
+    # Story 2.5: management API + admin JWT guard.
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "PyJWT[crypto]>=2.8",
 ]
 commands = [
     ["ruff", "check", "."],
@@ -303,6 +316,7 @@ description = "Run pytest (skip slow tests)"
 # Story 1.4: config singleton tests need pydantic-settings + pytest-asyncio.
 # Story 2.2: valkey + opentelemetry for the new adapters/consumer; testcontainers
 # adds the redis extra for the slow Redpanda+Valkey integration test.
+# Story 2.5: httpx for AsyncClient; fastapi, uvicorn, PyJWT[crypto] for management API.
 deps = [
     "pytest>=8",
     "pytest-env>=1.1.0",
@@ -315,5 +329,9 @@ deps = [
     "opentelemetry-sdk>=1.25",
     "pytest-mock>=3",
     "testcontainers[kafka,redis]>=4",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "PyJWT[crypto]>=2.8",
+    "httpx>=0.27",
 ]
 commands = [["pytest", "-m", "not slow", "{posargs}"]]

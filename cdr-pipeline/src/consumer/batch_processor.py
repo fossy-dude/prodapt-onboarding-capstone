@@ -31,6 +31,7 @@ from models.cdr import CdrEvent
 from models.envelope import EventEnvelope
 
 if TYPE_CHECKING:
+    from consumer.control import WorkerController
     from core.protocols.broker import ConsumedRecord, MessageBrokerProtocol, MessageConsumerProtocol
     from core.protocols.cache import CacheProtocol
 
@@ -83,7 +84,7 @@ def _attach_trace_context(headers: Sequence[tuple[str, bytes]]):
     try:
         ctx = propagate.extract(header_map)
     except Exception:
-        logger.debug("ignoring malformed traceparent header")
+        logger.warning("ignoring malformed traceparent header")
         return None
     return otel_context.attach(ctx)
 
@@ -110,11 +111,13 @@ class BatchProcessor:
         cache: CacheProtocol,
         *,
         balance_hook: BalanceHook | None = None,
+        controller: WorkerController | None = None,
     ) -> None:
         self._consumer = consumer
         self._producer = producer
         self._cache = cache
         self._balance_hook: BalanceHook = balance_hook or _noop_balance_hook
+        self._controller = controller
         self._running = False
 
     async def run(self) -> None:
@@ -123,9 +126,15 @@ class BatchProcessor:
         Offsets are committed once per fully-processed batch; a crash mid-batch
         leaves the batch uncommitted → those records are re-delivered and the
         dedup guard absorbs the ones already applied (AC #6).
+
+        The pre-poll ``await controller.running.wait()`` is the Story 2.5 pause
+        seam — clearing the event parks the loop here within one poll cycle
+        (sub-second → satisfies the ≤2s stop guarantee, AC #3).
         """
         self._running = True
         while self._running:
+            if self._controller is not None:
+                await self._controller.running.wait()
             batch = await self._consumer.getmany(
                 max_records=BATCH_MAX_RECORDS,
                 timeout_ms=POLL_TIMEOUT_MS,
