@@ -1,6 +1,10 @@
+---
+baseline_commit: 31baee8c29ae510be0ded247e4fbd5f7b9abda13
+---
+
 # Story 2.2: CDR Ingestion Consumer — Dedup & DLQ
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -21,24 +25,24 @@ so that each CDR is processed exactly once and no event is silently lost.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Async adapters the consumer depends on** (AC: #1, #4)
-  - [ ] `cdr-pipeline/src/adapters/redis.py` — `ValkeyAdapter` implementing `CacheProtocol`, mirroring `service_webapp/src/adapters/redis.py` (`valkey.asyncio.from_url(settings.valkey_url)`). It MUST expose a `set_nx(key, value, ex)` (`SET ... NX EX`) returning bool, plus `incr(key)` for the deduplicated counter. Extend the existing `service_webapp` adapter's method set rather than inventing a different shape. [Source: service_webapp/src/adapters/redis.py:18-53]
-  - [ ] `cdr-pipeline/src/adapters/kafka.py` — extend the producer helper from Story 2.1 and add an `AIOKafkaConsumer` factory bound to `settings.kafka_brokers` + `group_id="cdr-balance-updater"`, `enable_auto_commit=False` (manual commit), `auto_offset_reset="earliest"`.
-  - [ ] Define `CacheProtocol`/`MessageBrokerProtocol` methods used here in `cdr-pipeline/src/core/protocols/`. Consumer code depends on protocols, not concrete adapters (DI convention). [Source: architecture.md#1.12.1 (ARCH-15, typed Protocols)]
-- [ ] **Task 2: Dedup module** (AC: #1, NFR-9)
-  - [ ] `cdr-pipeline/src/consumer/dedup.py` — `async is_duplicate(cache, cdr_id) -> bool`: performs `SET dedup:{cdr_id} 1 NX EX 86400`; returns `True` when the key already existed (NX failed → duplicate), `False` when freshly set (first sight). Key domain exactly `dedup:{cdr_id}`, 24h TTL (ARCH-5).
-  - [ ] On duplicate, increment an in-process `deduplicated` counter (and log at debug with `cdr_id` only — never MSISDN/PII). Expose the counter so Story 2.5/observability can read it.
-- [ ] **Task 3: DLQ handler** (AC: #3)
-  - [ ] `cdr-pipeline/src/dlq/handler.py` — `async to_dlq(producer, *, raw_value, raw_key, error_reason, original_topic)`: publishes the **original raw bytes** plus error metadata to `cdr.dlq` keyed by `cdr_id` (or the original key when `cdr_id` is unparseable). Metadata shape must match what Story 2.5's `GET /api/v1/admin/dlq` returns: `cdr_id`, `error_reason`, `original_topic`, `failed_at` (UTC ISO-8601), and the raw payload. Wrap the DLQ record itself in an `EventEnvelope` (event_type `cdr.dlq`) so trace continuity is preserved.
-- [ ] **Task 4: Batch consumer loop** (AC: #2, #4, #6)
-  - [ ] `cdr-pipeline/src/consumer/batch_processor.py` — async loop: `getmany(max_records=500, timeout_ms=...)` → for each record: parse `EventEnvelope`; extract `trace_id` and continue the OTEL trace via `opentelemetry.propagate.extract(headers)`; dedup check; on first-sight validate the CDR payload (`models/cdr.py`); on success forward enriched envelope to `cdr.enriched.filtered`; on validation/parse failure route raw to `cdr.dlq`. **Commit offsets only after the whole batch is handled** (`await consumer.commit()`), giving at-least-once + idempotent dedup. (AC #6)
-  - [ ] `cdr-pipeline/src/main.py` — replace the stub: build adapters, run `load_balances_from_postgres()` is **out of scope here** (Story 2.3); start the consumer pool and await it. Graceful shutdown stops the consumer and flushes the producer.
-  - [ ] Parallelism: a single `AIOKafkaConsumer` in a `cdr-balance-updater` group with 24 partitions can be scaled by running multiple consumer tasks/instances; for MVP single-process, document the chosen task count and that Kafka rebalancing assigns partitions. Do not exceed 24 active consumers. [Source: architecture.md#1.4.1 (batch=500, commit after batch); decision log §1.2.4 (getmany)]
-- [ ] **Task 5: Tests** (AC: #1, #2, #3, #6)
-  - [ ] Unit: `dedup.is_duplicate` returns `False` on first key, `True` on second (mock cache `set_nx` returning True then False); TTL/flags asserted (`NX`, `EX=86400`).
-  - [ ] Unit: a malformed/invalid CDR payload routes to DLQ with correct metadata (mock producer; assert topic `cdr.dlq`, `error_reason`, raw bytes preserved); a valid one forwards to `cdr.enriched.filtered` with `traceparent` header + body `trace_id` carried through.
-  - [ ] Unit: batch processing commits offsets **once after** the batch (assert `commit()` called after all records processed, not per-record).
-  - [ ] Integration (`@pytest.mark.slow`, testcontainers Redpanda + Valkey): publish a duplicate pair to `cdr.raw`; assert exactly one forwarded to `cdr.enriched.filtered` and the duplicate counted; restart consumer and confirm no committed re-processing. Rootless podman socket. [Source: 1-4 debug log]
+- [x] **Task 1: Async adapters the consumer depends on** (AC: #1, #4)
+  - [x] `cdr-pipeline/src/adapters/redis.py` — `ValkeyAdapter` implementing `CacheProtocol`, mirroring `service_webapp/src/adapters/redis.py` (`valkey.asyncio.from_url(settings.valkey_url)`). It MUST expose a `set_nx(key, value, ex)` (`SET ... NX EX`) returning bool, plus `incr(key)` for the deduplicated counter. Extend the existing `service_webapp` adapter's method set rather than inventing a different shape. [Source: service_webapp/src/adapters/redis.py:18-53]
+  - [x] `cdr-pipeline/src/adapters/kafka.py` — extend the producer helper from Story 2.1 and add an `AIOKafkaConsumer` factory bound to `settings.kafka_brokers` + `group_id="cdr-balance-updater"`, `enable_auto_commit=False` (manual commit), `auto_offset_reset="earliest"`.
+  - [x] Define `CacheProtocol`/`MessageBrokerProtocol` methods used here in `cdr-pipeline/src/core/protocols/`. Consumer code depends on protocols, not concrete adapters (DI convention). [Source: architecture.md#1.12.1 (ARCH-15, typed Protocols)]
+- [x] **Task 2: Dedup module** (AC: #1, NFR-9)
+  - [x] `cdr-pipeline/src/consumer/dedup.py` — `async is_duplicate(cache, cdr_id) -> bool`: performs `SET dedup:{cdr_id} 1 NX EX 86400`; returns `True` when the key already existed (NX failed → duplicate), `False` when freshly set (first sight). Key domain exactly `dedup:{cdr_id}`, 24h TTL (ARCH-5).
+  - [x] On duplicate, increment an in-process `deduplicated` counter (and log at debug with `cdr_id` only — never MSISDN/PII). Expose the counter so Story 2.5/observability can read it.
+- [x] **Task 3: DLQ handler** (AC: #3)
+  - [x] `cdr-pipeline/src/dlq/handler.py` — `async to_dlq(producer, *, raw_value, raw_key, error_reason, original_topic)`: publishes the **original raw bytes** plus error metadata to `cdr.dlq` keyed by `cdr_id` (or the original key when `cdr_id` is unparseable). Metadata shape must match what Story 2.5's `GET /api/v1/admin/dlq` returns: `cdr_id`, `error_reason`, `original_topic`, `failed_at` (UTC ISO-8601), and the raw payload. Wrap the DLQ record itself in an `EventEnvelope` (event_type `cdr.dlq`) so trace continuity is preserved.
+- [x] **Task 4: Batch consumer loop** (AC: #2, #4, #6)
+  - [x] `cdr-pipeline/src/consumer/batch_processor.py` — async loop: `getmany(max_records=500, timeout_ms=...)` → for each record: parse `EventEnvelope`; extract `trace_id` and continue the OTEL trace via `opentelemetry.propagate.extract(headers)`; dedup check; on first-sight validate the CDR payload (`models/cdr.py`); on success forward enriched envelope to `cdr.enriched.filtered`; on validation/parse failure route raw to `cdr.dlq`. **Commit offsets only after the whole batch is handled** (`await consumer.commit()`), giving at-least-once + idempotent dedup. (AC #6)
+  - [x] `cdr-pipeline/src/main.py` — replace the stub: build adapters, run `load_balances_from_postgres()` is **out of scope here** (Story 2.3); start the consumer pool and await it. Graceful shutdown stops the consumer and flushes the producer.
+  - [x] Parallelism: a single `AIOKafkaConsumer` in a `cdr-balance-updater` group with 24 partitions can be scaled by running multiple consumer tasks/instances; for MVP single-process, document the chosen task count and that Kafka rebalancing assigns partitions. Do not exceed 24 active consumers. [Source: architecture.md#1.4.1 (batch=500, commit after batch); decision log §1.2.4 (getmany)]
+- [x] **Task 5: Tests** (AC: #1, #2, #3, #6)
+  - [x] Unit: `dedup.is_duplicate` returns `False` on first key, `True` on second (mock cache `set_nx` returning True then False); TTL/flags asserted (`NX`, `EX=86400`).
+  - [x] Unit: a malformed/invalid CDR payload routes to DLQ with correct metadata (mock producer; assert topic `cdr.dlq`, `error_reason`, raw bytes preserved); a valid one forwards to `cdr.enriched.filtered` with `traceparent` header + body `trace_id` carried through.
+  - [x] Unit: batch processing commits offsets **once after** the batch (assert `commit()` called after all records processed, not per-record).
+  - [x] Integration (`@pytest.mark.slow`, testcontainers Redpanda + Valkey): publish a duplicate pair to `cdr.raw`; assert exactly one forwarded to `cdr.enriched.filtered` and the duplicate counted; restart consumer and confirm no committed re-processing. Rootless podman socket. [Source: 1-4 debug log]
 
 ## Dev Notes
 
@@ -105,8 +109,68 @@ so that each CDR is processed exactly once and no event is silently lost.
 
 ### Agent Model Used
 
+GLM-5.2 (via bmad-dev-story workflow, caveman/independent mode).
+
 ### Debug Log References
+
+- `cd cdr-pipeline && uvx --with tox-uv tox -e lint` → ruff check + ruff format --check + pyrefly: **all pass (0 errors)**.
+- `cd cdr-pipeline && uvx --with tox-uv tox -e test` → **72 passed, 3 deselected** (default gate, skips slow).
+- `DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock TESTCONTAINERS_RYUK_DISABLED=true .tox/test/bin/python -m pytest -m slow` → **3 passed** (1× cdr_ingestion end-to-end + 2× provision_topics). Note: under rootless Podman the `docker` SDK only sees the socket when `DOCKER_HOST` is exported into the venv subprocess directly (tox's wrapping dropped it); the venv pytest invocation is the working form.
+- Podman socket verified live: `systemctl --user is-active podman.socket` = active.
 
 ### Completion Notes List
 
+**Decisions taken up-front (user-approved):**
+1. **`cdr_id` source** — added a **mandatory** `cdr_id: UUID` field to `CdrBase` (`models/cdr.py`). The CDR now carries its own UUIDv7 (app-supplied, never DB-autogenerated). It is the dedup key (`dedup:{cdr_id}`) and the future `billing_cdr_events.id` PK. Updated `test_cdr.py` fixtures + added a mandatory-cdr_id test. **Follow-up logged in deferred-work:** drop `DEFAULT uuid_generate_v7()` on `billing_cdr_events.id` so the DB never autogenerates an id the app also supplies (V1 baseline is immutable; a future migration + the CDR-insert path — not in 2.2 — must handle this).
+2. **Consumer pool** — single `AIOKafkaConsumer` task per process (group `cdr-balance-updater`), `getmany(max_records=500)` loop, commit-after-batch. All 24 partitions assigned to the one consumer; scale out = more process instances (Kafka rebalances). Documented in `batch_processor.py` module docstring.
+3. **Multi-group config (user-requested)** — replaced the single `kafka_consumer_group` setting with a typed nested `KafkaConsumerGroups` model (`balance_updater`/`fraud_screener`/`notifications`), mirroring the `DatabaseSettings` convention so each future consumer (balance/fraud/notifications) references its group by name. Env-overridable via `KAFKA_CONSUMER_GROUPS__<NAME>`. This story's consumer uses `balance_updater`.
+4. **DLQ raw bytes** — base64-encoded (`raw_payload_b64`) for byte-exact preservation (survives non-UTF8 poison records); DLQ record wrapped in an `EventEnvelope` (`event_type cdr.dlq`), keyed by `cdr_id` (or decoded original key), trace continued from the incoming `trace_id` (fresh trace minted when the envelope was unparseable).
+
+**Implementation:**
+- `consumer/dedup.py`: `is_duplicate(cache, cdr_id)` → `SET dedup:{cdr_id} 1 NX EX 86400`; first-sight returns False, duplicate returns True + increments a module-level `DedupStats` counter (exposed for Story 2.5), debug-logs `cdr_id` only.
+- `dlq/handler.py`: `to_dlq(...)` publishes raw bytes base64 + `{cdr_id, error_reason, original_topic, failed_at}` in an envelope to `cdr.dlq`.
+- `consumer/batch_processor.py`: per-record pipeline parse→extract cdr_id→dedup→validate→(balance-hook seam)→forward enriched; `process_batch` commits **once after the batch** (AC #6). Trace continued via `opentelemetry.propagate.extract(headers)` (best-effort). Balance deduction is a no-op seam for Story 2.3.
+- `adapters/redis.py`: `ValkeyAdapter` mirrors the webapp adapter + `set_nx` (`SET ... NX EX`) + `incr`. `adapters/kafka.py`: `build_consumer()` factory (manual offsets, earliest reset, raw bytes). `core/protocols/cache.py` (new) + `MessageConsumerProtocol`/`ConsumedRecord` added to `broker.py`.
+- `main.py`: runnable entrypoint — wires adapters, starts the consumer, graceful SIGINT/SIGTERM shutdown (finishes the in-flight batch + commits, then stops).
+- Deps added (`pyproject.toml` runtime + both tox envs): `valkey[asyncio]>=6`, `opentelemetry-sdk>=1.25`; test env also `testcontainers[kafka,redis]>=4`.
+
+**Pre-existing Story 2.1 issues fixed (uncovered when the tox venvs were recreated by the new deps, which re-resolved pydantic→2.13.4 and ruff→latest):**
+- `models/envelope.py`: `_reject_non_json_types` raised `TypeError` (pydantic v2 only wraps `ValueError`/`AssertionError` into `ValidationError`) → changed to `ValueError`; the `trace_id` pattern `[0-9a-f]{32}` was unanchored so it matched any string *containing* 32 hex chars → anchored `^[0-9a-f]{32}$` (matches `build_traceparent`'s `fullmatch`).
+- `tests/unit/test_envelope.py`: dropped a brittle `match="32 lowercase hex"` assertion (that string is from `build_traceparent`, not the envelope's pattern error).
+- `scripts/provision_topics.py`: unused unpacked var `expected_rf` → `_expected_rf`; a format nit. Both `provision_topics` slow tests still pass.
+
+**Verification:** all ACs (#1–#6) satisfied; the slow integration test proves the duplicate-pair→one-forward + restart-no-reprocessing guarantee end-to-end against real Redpanda + Valkey.
+
 ### File List
+
+**New:**
+- `cdr-pipeline/src/core/protocols/cache.py` — `CacheProtocol` (+ `set_nx`/`incr`).
+- `cdr-pipeline/src/adapters/redis.py` — `ValkeyAdapter` (mirrors webapp + dedup primitives).
+- `cdr-pipeline/src/consumer/__init__.py`
+- `cdr-pipeline/src/consumer/dedup.py` — `is_duplicate` + `DedupStats`.
+- `cdr-pipeline/src/consumer/batch_processor.py` — `BatchProcessor` (loop + `process_batch` + routing + balance seam).
+- `cdr-pipeline/src/dlq/__init__.py`
+- `cdr-pipeline/src/dlq/handler.py` — `to_dlq`.
+- `cdr-pipeline/tests/unit/test_redis_adapter.py`
+- `cdr-pipeline/tests/unit/test_kafka_consumer.py`
+- `cdr-pipeline/tests/unit/test_dedup.py`
+- `cdr-pipeline/tests/unit/test_dlq_handler.py`
+- `cdr-pipeline/tests/unit/test_batch_processor.py`
+- `cdr-pipeline/tests/integration/test_cdr_ingestion.py` (`@pytest.mark.slow`).
+
+**Modified:**
+- `cdr-pipeline/src/core/config.py` — nested `KafkaConsumerGroups` (replaces `kafka_consumer_group`).
+- `cdr-pipeline/src/models/cdr.py` — mandatory `cdr_id: UUID` on `CdrBase`.
+- `cdr-pipeline/src/adapters/kafka.py` — `build_consumer()` factory + `AIOKafkaConsumer` import.
+- `cdr-pipeline/src/core/protocols/broker.py` — `MessageConsumerProtocol` + `ConsumedRecord`.
+- `cdr-pipeline/src/main.py` — consumer entrypoint (was a stub).
+- `cdr-pipeline/pyproject.toml` — runtime + tox deps (valkey, opentelemetry-sdk, testcontainers[redis]).
+- `cdr-pipeline/tests/unit/test_config.py` — nested-groups assertions + env-override test.
+- `cdr-pipeline/tests/unit/test_cdr.py` — `cdr_id` fixtures + mandatory-cdr_id test.
+- `cdr-pipeline/src/models/envelope.py` — pre-existing 2.1 fixes (TypeError→ValueError; anchored trace_id pattern).
+- `cdr-pipeline/tests/unit/test_envelope.py` — pre-existing 2.1 brittle-assertion fix.
+- `cdr-pipeline/scripts/provision_topics.py` — pre-existing 2.1 fixes (unused var, format).
+
+## Change Log
+
+- 2026-06-22 — Story 2.2 developed: Valkey `SET NX` dedup, DLQ handler (base64 raw bytes), aiokafka batch consumer loop (commit-after-batch), consumer entrypoint, multi-group config, mandatory `cdr_id`. Added unit + slow integration tests. Lint + default (72) + slow (3) suites all green. Set 3 pre-existing Story 2.1 envelope/provisioning issues green along the way (documented above). Status → review.

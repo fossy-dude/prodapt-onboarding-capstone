@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-22  # Stories 1.9 + 1.10 code review complete → done (13 patches applied)
+last_updated: 2026-06-22  # Story 2.2 → review (CDR ingestion consumer: Valkey dedup + DLQ + commit-after-batch loop; lint+72 unit+3 slow green)
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -44,7 +44,7 @@ story_location: docs/bmad_output/implementation-artifacts
 
 development_status:
   # Epic 1: Core Infrastructure, Tooling & Subscriber Identity
-  epic-1: in-progress
+  epic-1: done
   1-1-ux-brief-subscriber-registration-identity-flows: done
   1-2-docker-compose-stack-postgres-init-flyway-baseline: done
   1-3-project-tooling-justfile-github-actions-ci-linters-readme: done
@@ -60,11 +60,11 @@ development_status:
   # Epic 2: CDR Pipeline, Balance Engine, Synthetic Data & Simulator Tools
   epic-2: in-progress
   2-1-redpanda-topic-provisioning-kafka-envelope-contract: done
-  2-2-cdr-ingestion-consumer-dedup-dlq: ready-for-dev
+  2-2-cdr-ingestion-consumer-dedup-dlq: review
   2-3-balance-deduction-engine-valkey-write-buffer-postgres-flush: ready-for-dev
   2-4-audit-log-distributed-trace-propagation: ready-for-dev
   2-5-cdr-management-api-dlq-inspect-worker-control: ready-for-dev
-  2-6-synthetic-dataset-generation-plans-subscribers-cdrs: ready-for-dev
+  2-6-synthetic-dataset-generation-plans-subscribers-cdrs: review
   2-7-milvus-lite-initialisation-vector-seeding: ready-for-dev
   2-8-cdr-simulator-ui-form-dispatch-websocket-trace-display: ready-for-dev
   2-9-sim-activation-simulator-notification-portal: ready-for-dev

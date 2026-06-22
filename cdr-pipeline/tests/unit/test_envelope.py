@@ -68,10 +68,14 @@ def test_timestamp_serialised_as_iso8601_utc() -> None:
 
 
 def test_trace_id_must_be_32_hex_chars() -> None:
-    """EventEnvelope rejects non-32-hex trace_id."""
-    with pytest.raises(ValueError, match="32 lowercase hex"):
+    """EventEnvelope rejects non-32-hex trace_id (trace_id pattern constraint)."""
+    import pydantic
+
+    # Too short, and an invalid trailing char: both must be rejected by the
+    # ``[0-9a-f]{32}`` pattern constraint (pydantic raises ValidationError).
+    with pytest.raises(pydantic.ValidationError):
         EventEnvelope.new(event_type="test", payload={}, trace_id="abc123")
-    with pytest.raises(ValueError, match="32 lowercase hex"):
+    with pytest.raises(pydantic.ValidationError):
         EventEnvelope.new(event_type="test", payload={}, trace_id="0123456789abcdef0123456789abcdefg")
 
 

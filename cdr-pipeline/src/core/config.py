@@ -25,6 +25,22 @@ class DatabaseSettings(BaseModel):
     password: SecretStr
 
 
+class KafkaConsumerGroups(BaseModel):
+    """Named Kafka consumer-group ids, one per logical cdr-pipeline consumer.
+
+    Each consumer (balance updater, fraud pre-screener, notifications) tracks
+    its own offsets independently — so they need **distinct** group ids rather
+    than sharing one. Defaults match the architecture-mandated ids; override
+    per-environment via ``KAFKA_CONSUMER_GROUPS__<NAME>`` (the
+    ``env_nested_delimiter='__'`` maps the nested field). Story 2.2's
+    ``cdr.raw`` consumer reads :attr:`balance_updater`.
+    """
+
+    balance_updater: str = "cdr-balance-updater"
+    fraud_screener: str = "cdr-fraud-screener"
+    notifications: str = "cdr-notifications"
+
+
 class Settings(BaseSettings):
     """Top-level settings for the ``cdr-pipeline`` consumer."""
 
@@ -42,7 +58,7 @@ class Settings(BaseSettings):
     kafka_brokers: str = Field(..., min_length=1, description="Comma-separated Kafka broker list.")
 
     # ── Optional: consumer identity / observability ──────────────────────────
-    kafka_consumer_group: str = "cdr-pipeline"
+    kafka_consumer_groups: KafkaConsumerGroups = Field(default_factory=KafkaConsumerGroups)
     otel_service_name: str = "cdr-pipeline"
 
 

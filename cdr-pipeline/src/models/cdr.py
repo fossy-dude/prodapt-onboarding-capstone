@@ -35,10 +35,17 @@ class CdrBase(BaseModel):
     union can discriminate. ``extra="forbid"`` makes the contract strict: a
     payload carrying an unknown key is rejected here rather than silently
     flowing into Story 2.2's insert.
+
+    ``cdr_id`` is the CDR's own UUIDv7 — app-supplied (by the simulator /
+    upstream producer) and **mandatory**. It is the dedup key
+    (``dedup:{cdr_id}``, Story 2.2) and the future ``billing_cdr_events.id``
+    primary key, so the DB must NOT autogenerate it (see Deferred Work:
+    remove the ``DEFAULT uuid_generate_v7()`` on that column).
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    cdr_id: UUID
     session_id: UUID
     subscriber_id: UUID
     telecom_circle: str = Field(..., max_length=50)
@@ -93,7 +100,7 @@ class DataCdr(CdrBase):
     operator_id: str | None = Field(default=None, max_length=50)
 
     @model_validator(mode="after")
-    def _volume_consistency(self) -> "DataCdr":
+    def _volume_consistency(self) -> DataCdr:
         """Ensure volume_mb equals downloaded_mb + uploaded_mb when all are present."""
         if self.volume_mb is not None and self.downloaded_mb is not None and self.uploaded_mb is not None:
             expected_volume = self.downloaded_mb + self.uploaded_mb

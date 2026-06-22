@@ -16,7 +16,7 @@ import re
 import secrets
 from typing import TYPE_CHECKING
 
-from aiokafka import AIOKafkaProducer
+from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
 from core.config import settings
 from core.protocols.broker import MessageBrokerProtocol
@@ -117,3 +117,37 @@ class KafkaProducer(MessageBrokerProtocol):
             key=key.encode("utf-8") if key is not None else None,
             headers=[("traceparent", traceparent)],
         )
+
+
+def build_consumer(
+    *topics: str,
+    group_id: str,
+    bootstrap_servers: str | None = None,
+) -> AIOKafkaConsumer:
+    """Construct an ``AIOKafkaConsumer`` for the CDR pipeline (Story 2.2, AC #4).
+
+    Manual offset management (``enable_auto_commit=False``) with
+    ``auto_offset_reset="earliest"`` so a fresh group replays the backlog;
+    commits happen once per fully-processed batch (architecture §1.4.3 —
+    at-least-once delivery absorbed by the Valkey dedup guard). No value/key
+    deserialiser: records arrive as raw bytes so malformed/poison payloads reach
+    the DLQ byte-exact (AC #3) and the envelope is parsed explicitly in
+    :mod:`consumer.batch_processor`.
+
+    Parameters
+    ----------
+    *topics : str
+        Topics to subscribe to (e.g. ``"cdr.raw"``).
+    group_id : str
+        Consumer-group id (``settings.kafka_consumer_groups.balance_updater``
+        for the CDR consumer — distinct per logical consumer).
+    bootstrap_servers : str | None
+        Comma-separated broker list; defaults to ``settings.kafka_brokers``.
+    """
+    return AIOKafkaConsumer(
+        *topics,
+        bootstrap_servers=bootstrap_servers or settings.kafka_brokers,
+        group_id=group_id,
+        enable_auto_commit=False,
+        auto_offset_reset="earliest",
+    )

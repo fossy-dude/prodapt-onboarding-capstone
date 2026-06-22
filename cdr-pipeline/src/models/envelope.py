@@ -23,7 +23,9 @@ def _reject_non_json_types(v: Any) -> Any:
     if isinstance(v, list):
         return [_reject_non_json_types(item) for item in v]
     if isinstance(v, (bytes, set, frozenset, bytearray)):
-        raise TypeError(f"Non-JSON-serializable type {type(v).__name__} not allowed in payload")
+        # ValueError (not TypeError) so pydantic wraps it into a ValidationError,
+        # consistent with the rest of the field validators.
+        raise ValueError(f"Non-JSON-serializable type {type(v).__name__} not allowed in payload")
     return v
 
 
@@ -48,7 +50,13 @@ class EventEnvelope(BaseModel):
 
     event_type: str
     event_id: UUID
-    trace_id: str = Field(..., pattern=r"[0-9a-f]{32}", description="W3C trace-id (32 lowercase hex chars).")
+    trace_id: str = Field(
+        ...,
+        # Anchored (full-match): pydantic ``pattern`` matches partially by default,
+        # so without ``^...$`` a 33-char string containing 32 hex chars would pass.
+        pattern=r"^[0-9a-f]{32}$",
+        description="W3C trace-id (32 lowercase hex chars).",
+    )
     timestamp: datetime
     payload: dict[str, Any]
 

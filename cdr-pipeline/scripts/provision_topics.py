@@ -66,7 +66,7 @@ async def provision_topics(bootstrap_servers: str | None = None) -> dict[str, st
             spec_map = {name: (partitions, rf) for name, partitions, rf in TOPIC_SPEC}
             for info in metadata:
                 topic = info["topic"]
-                expected_partitions, expected_rf = spec_map[topic]
+                expected_partitions, _expected_rf = spec_map[topic]
                 actual_partitions = len(info["partitions"])
                 if actual_partitions != expected_partitions:
                     logger.error(
@@ -133,17 +133,13 @@ def main() -> None:
             asyncio.run(provision_topics()),
             timeout=60.0,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.error("provisioning timed out after 60s — broker may be unhealthy")
         raise SystemExit(1) from None
     for name, status in results.items():
         print(f"{name}: {status}")
     # MEDIUM FIX: Check against TOPIC_SPEC, not just results (catches partial failures)
-    missing = [
-        name
-        for name, _, _ in TOPIC_SPEC
-        if name not in results or results[name] not in {"created", "exists"}
-    ]
+    missing = [name for name, _, _ in TOPIC_SPEC if name not in results or results[name] not in {"created", "exists"}]
     if missing:
         logger.error("provisioning incomplete for: %s", missing)
         raise SystemExit(1)
