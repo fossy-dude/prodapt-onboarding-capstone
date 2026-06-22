@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-22  # Story 2.1 dev complete → review (topics provisioned, envelope + CDR schema, async producer, tests green)
+last_updated: 2026-06-22  # Epic 3 stories 3-1..3-7 created (ready-for-dev); epic-3 → in-progress
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -71,14 +71,14 @@ development_status:
   epic-2-retrospective: optional
 
   # Epic 3: Subscriber Self-Care Portal
-  epic-3: backlog
-  3-1-ux-brief-balance-usage-recharge-portal-flows: backlog
-  3-2-real-time-balance-display-usage-breakdown: backlog
-  3-3-transaction-history-ledger: backlog
-  3-4-plan-details-view-plan-catalogue: backlog
-  3-5-recharge-purchase-plan-selection-simulated-payment: backlog
-  3-6-pdf-receipt-generation: backlog
-  3-7-refund-view: backlog
+  epic-3: in-progress
+  3-1-ux-brief-balance-usage-recharge-portal-flows: ready-for-dev
+  3-2-real-time-balance-display-usage-breakdown: ready-for-dev
+  3-3-transaction-history-ledger: ready-for-dev
+  3-4-plan-details-view-plan-catalogue: ready-for-dev
+  3-5-recharge-purchase-plan-selection-simulated-payment: ready-for-dev
+  3-6-pdf-receipt-generation: ready-for-dev
+  3-7-refund-view: ready-for-dev
   epic-3-retrospective: optional
 
   # Epic 4: Notifications & USSD Interface
