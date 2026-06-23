@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-23  # Stories 3.3 & 3.4 → review (transaction history; plan details & catalogue)
+last_updated: 2026-06-23  # Epic 5 all stories → ready-for-dev
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -76,7 +76,7 @@ development_status:
   3-2-real-time-balance-display-usage-breakdown: review
   3-3-transaction-history-ledger: review
   3-4-plan-details-view-plan-catalogue: review
-  3-5-recharge-purchase-plan-selection-simulated-payment: ready-for-dev
+  3-5-recharge-purchase-plan-selection-simulated-payment: in-progress
   3-6-pdf-receipt-generation: ready-for-dev
   3-7-refund-view: ready-for-dev
   epic-3-retrospective: optional
@@ -90,17 +90,17 @@ development_status:
   epic-4-retrospective: optional
 
   # Epic 5: Self-Care Chatbot — Multi-Agent (TDD-first)
-  epic-5: backlog
-  5-1-ux-brief-chatbot-interface-ag-ui-stream-flows: backlog
-  5-2-eval-harness-llm-as-judge-deepeval-scaffolding: backlog
-  5-3-rag-pipeline-milvus-hybrid-search: backlog
-  5-4-copilotkit-runtime-support-agent-graph: backlog
-  5-5-input-validation-guardrails: backlog
-  5-6-recharge-via-chatbot-multi-agent-tool-calls: backlog
-  5-7-rating-agent-charge-breakdown-explanation: backlog
-  5-8-dispute-workflow-balance-management-agent: backlog
-  5-9-plan-recommendation-tool-feedback-loop: backlog
-  5-10-conclusion-agent-notification-agent-session-end: backlog
+  epic-5: in-progress
+  5-1-ux-brief-chatbot-interface-ag-ui-stream-flows: ready-for-dev
+  5-2-eval-harness-llm-as-judge-deepeval-scaffolding: ready-for-dev
+  5-3-rag-pipeline-milvus-hybrid-search: ready-for-dev
+  5-4-copilotkit-runtime-support-agent-graph: ready-for-dev
+  5-5-input-validation-guardrails: ready-for-dev
+  5-6-recharge-via-chatbot-multi-agent-tool-calls: ready-for-dev
+  5-7-rating-agent-charge-breakdown-explanation: ready-for-dev
+  5-8-dispute-workflow-balance-management-agent: ready-for-dev
+  5-9-plan-recommendation-tool-feedback-loop: ready-for-dev
+  5-10-conclusion-agent-notification-agent-session-end: ready-for-dev
   epic-5-retrospective: optional
 
   # Epic 6: Fraud Detection (TDD-first)
