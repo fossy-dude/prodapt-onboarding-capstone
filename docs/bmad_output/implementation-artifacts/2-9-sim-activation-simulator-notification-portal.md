@@ -1,3 +1,7 @@
+---
+baseline_commit: 31f5d58d1c0552dbc7b0989bdcf7731f4fdca0df
+---
+
 # Story 2.9: SIM Activation Simulator & Notification Portal
 
 Status: ready-for-dev

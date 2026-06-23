@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 import pytest
 
 from consumer.startup import load_balances_from_postgres
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 class FakeCursor:

@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from contextlib import AbstractAsyncContextManager
 
     from psycopg import AsyncConnection
 
@@ -34,7 +34,7 @@ class DatabaseProtocol(Protocol):
         """
         ...
 
-    def transaction(self) -> AsyncIterator[AsyncConnection]:
+    def transaction(self) -> AbstractAsyncContextManager[AsyncConnection]:
         """Return an async context manager yielding a pooled ``AsyncConnection``.
 
         Implementations use ``@asynccontextmanager`` so the method is called and

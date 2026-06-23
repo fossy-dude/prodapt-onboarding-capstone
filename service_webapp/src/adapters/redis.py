@@ -45,6 +45,14 @@ class ValkeyAdapter(CacheProtocol):
         """DEL key — called after a step-up OTP is consumed (§1.7.3)."""
         await self._client.delete(key)
 
+    async def set_balance(self, msisdn: str, paise: int) -> None:
+        """SET ``balance:{msisdn} = paise`` with no TTL (persistent counter — §1.7.3).
+
+        Stored as an integer so the cdr-pipeline consumer can ``INCRBY`` it directly.
+        Seeded at SIM activation to the plan's initial wallet credit.
+        """
+        await self._client.set(f"balance:{msisdn}", paise)
+
     async def close(self) -> None:
         """Close the underlying client (best-effort)."""
         try:

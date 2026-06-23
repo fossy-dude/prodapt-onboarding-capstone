@@ -14,6 +14,13 @@ flushes once more. Keys are never deleted (they remain the live buffer).
 Idempotency: the batch processor (Story 2.2) guarantees the hook is called only
 on first-sight events, so deduction is idempotent by construction. This engine
 does NOT add a second dedup guard (Dev Notes).
+
+Overdraft policy (resolved in code review 2026-06-23): **allow + signal**. The
+hot path never refunds or clamps — ``INCRBY`` is the single atomic step and stays
+O(1). When ``balance_after < 0`` the deduction still lands (prepaid credit /
+reconcile-out-of-band model), but a ``balance.overdraft`` span attribute and a
+counter are emitted so operators can see it. Blocking/clamping would require an
+atomic Lua script to avoid a race on the P95 path — out of scope for this story.
 """
 
 from __future__ import annotations
@@ -23,7 +30,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from opentelemetry import trace
+from opentelemetry import metrics, trace
 
 from consumer.startup import load_balances_from_postgres
 
@@ -35,17 +42,44 @@ if TYPE_CHECKING:
 logger = logging.getLogger("consumer.balance_writer")
 
 tracer = trace.get_tracer(__name__)
+_meter = metrics.get_meter(__name__)
+
+# Counters are no-ops until an exporter/MeterProvider is wired (Story 1.5 infra);
+# like the deduction span, emitting them now makes the behaviour observable later.
+_overdraft_counter = _meter.create_counter(
+    "balance.overdraft.count",
+    unit="1",
+    description="Deductions that drove the wallet balance below zero (overdraft; allow+signal policy).",
+)
+_backpressure_counter = _meter.create_counter(
+    "balance.backpressure.count",
+    unit="1",
+    description="Deductions delayed because the dirty/ledger buffer reached its cap (sustained flush failure).",
+)
+_flush_failure_counter = _meter.create_counter(
+    "balance.flush.failure.count",
+    unit="1",
+    description="Flush attempts that raised — rows are retried (loop) or at risk of loss (shutdown).",
+)
+
+# Backpressure caps: 20x the default dirty threshold. Under sustained DB failure the
+# flusher cannot drain, so these bound memory. When crossed, ``deduct`` blocks on an
+# Event until a successful flush frees capacity — that backpressure flows up to the
+# consumer (it stops polling), which is preferable to OOM.
+_LEDGER_CAP = 100_000
+_DIRTY_CAP = 100_000
 
 # Bulk upsert: ON CONFLICT (msisdn) keeps the wallet row in sync with the live
 # Valkey buffer. subscriber_id is supplied so a genuinely new msisdn inserts too.
-_BALLED_UPSERT_SQL = """\
+# psycopg3's default cursor uses ``%s`` pyformat placeholders (NOT ``$N``).
+_BALANCE_UPSERT_SQL = """\
 INSERT INTO billing_wallet_balances (
     id, subscriber_id, msisdn, balance_paise, last_deduction_at, created_at, modified_at
 ) VALUES (
     gen_random_uuid(),
-    $1,
-    $2,
-    $3,
+    %s,
+    %s,
+    %s,
     NOW(),
     NOW(),
     NOW()
@@ -65,14 +99,14 @@ INSERT INTO billing_transactions (
     description, balance_before_paise, balance_after_paise, created_at
 ) VALUES (
     uuid_generate_v7(),
-    $1,
+    %s,
     'cdr_deduction',
-    $2,
+    %s,
     'cdr',
-    $3,
-    $4,
-    $5,
-    $6,
+    %s,
+    %s,
+    %s,
+    %s,
     NOW()
 )
 """
@@ -127,6 +161,7 @@ class BalanceEngine:
         # Warm-up indices (built by load_balances_from_postgres)
         self._subscriber_to_msisdn: dict[str, str] = {}
         self._msisdn_to_subscriber: dict[str, str] = {}
+        self._warmup_count: int = 0
 
         # In-process dirty set and ledger queue (shared between hot path and flusher)
         self._dirty_msisdns: set[str] = set()
@@ -135,6 +170,24 @@ class BalanceEngine:
         # Flusher loop control
         self._flusher_running: bool = False
         self._flusher_task: asyncio.Task[None] | None = None
+
+        # Serialise _flush across the flusher loop and stop()'s final drain so the
+        # two can never overlap (esp. on the 5s-timeout cancel path).
+        self._flush_lock: asyncio.Lock = asyncio.Lock()
+
+        # Backpressure gate: set when there is buffer capacity. ``deduct`` awaits it
+        # before doing work, so once a cap is hit the consumer pauses until a flush
+        # succeeds (which re-sets it). Starts set (capacity available).
+        self._drained: asyncio.Event = asyncio.Event()
+        self._drained.set()
+
+        self._ledger_cap: int = _LEDGER_CAP
+        self._dirty_cap: int = _DIRTY_CAP
+
+    @property
+    def warmup_count(self) -> int:
+        """Number of balance keys seeded by the last warm-up (0 before warm-up)."""
+        return self._warmup_count
 
     async def warmup(self) -> None:
         """Run Postgres → Valkey warm-up and build indices (Task 3, AC #5).
@@ -147,6 +200,7 @@ class BalanceEngine:
         state = await load_balances_from_postgres(self._db, self._cache)
         self._subscriber_to_msisdn = dict(state.subscriber_to_msisdn)
         self._msisdn_to_subscriber = dict(state.msisdn_to_subscriber)
+        self._warmup_count = state.count
 
     async def deduct(self, cdr: CdrEvent) -> None:
         """Hot-path balance deduction (BalanceHook called by BatchProcessor).
@@ -164,6 +218,12 @@ class BalanceEngine:
             Validated CDR payload (voice/sms/data). Carries ``subscriber_id``,
             ``cdr_id``, ``cost_paise``, ``cdr_type``, and for voice: ``duration_seconds``.
         """
+        # Backpressure: if the flusher is behind and the buffer is at capacity,
+        # wait here rather than letting the dirty set / ledger queue grow unbounded.
+        # This blocks the consumer's record processing, which is the intended
+        # backpressure signal (better than OOM under sustained DB failure).
+        await self._drained.wait()
+
         sub_id_str = str(cdr.subscriber_id)
         msisdn = self._subscriber_to_msisdn.get(sub_id_str)
 
@@ -193,6 +253,12 @@ class BalanceEngine:
             span.set_attribute("balance.balance_after", balance_after)
             span.set_attribute("balance.msisdn_last4", msisdn[-4:])  # PII-safe
 
+            # Overdraft signal (allow + signal policy): the deduction is NOT undone,
+            # but a negative result is made visible so it can be reconciled.
+            if balance_after < 0:
+                span.set_attribute("balance.overdraft", True)
+                _overdraft_counter.add(1, {"cdr.cdr_type": cdr.cdr_type})
+
             # Mark msisdn dirty for flusher
             self._dirty_msisdns.add(msisdn)
 
@@ -208,6 +274,12 @@ class BalanceEngine:
                 )
             )
 
+            # If this deduction pushed the buffer to its cap, close the gate so the
+            # next ``deduct`` blocks until a flush frees capacity.
+            if len(self._ledger_queue) >= self._ledger_cap or len(self._dirty_msisdns) >= self._dirty_cap:
+                self._drained.clear()
+                _backpressure_counter.add(1, {"buffer": "cap"})
+
             logger.debug(
                 "deduct: cdr_id=%s, msisdn[-4:]=%s, cost=%d, balance_before=%d, balance_after=%d",
                 cdr_id_str,
@@ -220,63 +292,89 @@ class BalanceEngine:
     async def _flush(self) -> None:
         """Flush dirty balances to Postgres and insert ledger rows (Task 4, AC #3).
 
-        Reads current ``balance:{msisdn}`` for all dirty msisdns, bulk-upserts
-        ``billing_wallet_balances`` (ON CONFLICT DO UPDATE), batch-inserts the
-        queued ledger rows, and clears the dirty set + queue. Keys are NOT
-        deleted (they remain the live buffer).
+        Snapshots the current dirty set + ledger queue, reads current
+        ``balance:{msisdn}`` for the dirty msisdns, bulk-upserts
+        ``billing_wallet_balances`` (ON CONFLICT DO UPDATE) and batch-inserts the
+        queued ledger rows inside one transaction, then — only on a successful
+        commit — drops the flushed items. On failure nothing is cleared, so the
+        next flush retries the same rows (the upsert is idempotent and the
+        transaction rolled back, so no double-count). Keys are NOT deleted.
+
+        Serialised by ``_flush_lock`` so the flusher loop and ``stop()``'s final
+        drain never overlap.
         """
-        if not self._dirty_msisdns:
-            return
+        async with self._flush_lock:
+            if not self._dirty_msisdns and not self._ledger_queue:
+                return
 
-        dirty = list(self._dirty_msisdns)
-        self._dirty_msisdns.clear()
+            dirty_snapshot = list(self._dirty_msisdns)
+            ledger_snapshot = list(self._ledger_queue)
 
-        ledger_rows = list(self._ledger_queue)
-        self._ledger_queue.clear()
-
-        # Read current balances from Valkey for dirty msisdns
-        balance_reads: dict[str, int] = {}
-        for msisdn in dirty:
-            key = f"balance:{msisdn}"
-            val_str = await self._cache.get_str(key)
-            if val_str is not None:
-                balance_reads[msisdn] = int(val_str)
-            else:
-                logger.warning("flush: balance key missing for msisdn[-4:]=%s", msisdn[-4:])
-
-        # Upsert billing_wallet_balances + insert ledger rows via one transaction
-        async with self._db.transaction() as conn:
-            for msisdn, balance_paise in balance_reads.items():
+            upsert_params: list[tuple[str, str, int]] = []
+            missing_subscriber: list[str] = []
+            for msisdn in dirty_snapshot:
                 subscriber_id = self._msisdn_to_subscriber.get(msisdn)
                 if subscriber_id is None:
-                    logger.warning("flush: subscriber_id missing for msisdn[-4:]=%s", msisdn[-4:])
+                    # Reverse-index miss (shouldn't happen — both indices are built
+                    # together). Defer this wallet: it's re-marked dirty below so
+                    # the next flush retries it rather than being silently dropped.
+                    missing_subscriber.append(msisdn)
+                    logger.warning("flush: subscriber_id missing for msisdn[-4:]=%s; deferring", msisdn[-4:])
                     continue
-                await conn.execute(_BALLED_UPSERT_SQL, (subscriber_id, msisdn, balance_paise))
+                val_str = await self._cache.get_str(f"balance:{msisdn}")
+                if val_str is None:
+                    logger.warning("flush: balance key missing for msisdn[-4:]=%s", msisdn[-4:])
+                    continue
+                upsert_params.append((subscriber_id, msisdn, int(val_str)))
 
-            for row in ledger_rows:
-                await conn.execute(
-                    _LEDGER_INSERT_SQL,
-                    (
-                        row.subscriber_id,
-                        row.amount_paise,
-                        row.cdr_id,
-                        row.description,
-                        row.balance_before,
-                        row.balance_after,
-                    ),
+            ledger_params = [
+                (
+                    row.subscriber_id,
+                    row.amount_paise,
+                    row.cdr_id,
+                    row.description,
+                    row.balance_before,
+                    row.balance_after,
                 )
+                for row in ledger_snapshot
+            ]
 
-        logger.info(
-            "flush: upserted %d wallets, inserted %d ledger rows",
-            len(balance_reads),
-            len(ledger_rows),
-        )
+            # One round-trip per statement (executemany), not one per row.
+            # psycopg3's executemany lives on the cursor, not the connection.
+            async with self._db.transaction() as conn:
+                if upsert_params:
+                    async with conn.cursor() as cur:
+                        await cur.executemany(_BALANCE_UPSERT_SQL, upsert_params)
+                if ledger_params:
+                    async with conn.cursor() as cur:
+                        await cur.executemany(_LEDGER_INSERT_SQL, ledger_params)
+
+            # Commit succeeded — clear ONLY the flushed items. Anything appended by
+            # a concurrent deduct during the awaits above is preserved (set
+            # difference for dirty; drop-the-flushed-prefix for the ledger queue).
+            # NB: a msisdn deducted again mid-flush is removed from the dirty set
+            # by difference_update and self-heals on its next deduct — same
+            # granularity as the prior implementation, but no longer lost on failure.
+            self._dirty_msisdns.difference_update(dirty_snapshot)
+            del self._ledger_queue[: len(ledger_snapshot)]
+            # Re-mark deferred wallets so the next flush retries them.
+            self._dirty_msisdns.update(missing_subscriber)
+            # A successful flush made room — release backpressure.
+            self._drained.set()
+
+            logger.info(
+                "flush: upserted %d wallets, inserted %d ledger rows",
+                len(upsert_params),
+                len(ledger_params),
+            )
 
     async def _flusher_loop(self) -> None:
         """Background flusher loop: triggers on 2s or 5000 dirty keys (Task 4).
 
         Exits when ``_flusher_running`` is cleared (checked each inner tick) so
         ``stop`` can shut it down deterministically without cancelling the task.
+        ``_flusher_running`` is also set here so direct callers (tests) work even
+        without going through ``run``.
         """
         self._flusher_running = True
         loop = asyncio.get_running_loop()
@@ -293,8 +391,9 @@ class BalanceEngine:
                 if self._flusher_running:
                     await self._flush()
             except Exception:
+                _flush_failure_counter.add(1, {"phase": "loop"})
                 logger.exception("flusher: exception in flush loop")
-                await asyncio.sleep(1)  # back off on error
+                await asyncio.sleep(1)  # back off on error; rows remain for retry
 
     async def run(self) -> None:
         """Start the flusher background task (call after warmup)."""
@@ -302,6 +401,10 @@ class BalanceEngine:
             logger.warning("run: flusher already running")
             return
 
+        # Set the flag BEFORE create_task so an immediate stop() (before the loop
+        # has been scheduled) still observes _flusher_running=True and shuts down
+        # cleanly instead of leaving a stray cycle.
+        self._flusher_running = True
         self._flusher_task = asyncio.create_task(self._flusher_loop())
         logger.info(
             "flusher: started (interval=%s, threshold=%s)",
@@ -314,7 +417,9 @@ class BalanceEngine:
 
         Clears ``_flusher_running`` so the loop exits on its next tick (no
         cancellation needed), awaits its completion with a timeout backstop,
-        then performs a final drain flush.
+        then performs a final drain flush. A failure of that final flush is
+        surfaced at CRITICAL (+ counter) rather than swallowed, because it means
+        dirty balances / ledger rows were NOT persisted at shutdown.
         """
         self._flusher_running = False
 
@@ -330,11 +435,16 @@ class BalanceEngine:
 
         # Final flush to drain any dirty keys / ledger rows that landed after the
         # loop stopped (the loop skips its own final flush once _flusher_running
-        # is False).
+        # is False). A failure here is shutdown-time data loss — make it loud.
         try:
             await self._flush()
         except Exception:
-            logger.exception("stop: exception during final flush")
+            _flush_failure_counter.add(1, {"phase": "shutdown"})
+            logger.critical(
+                "stop: final flush FAILED — dirty/ledger NOT drained; operator must "
+                "reconcile billing_wallet_balances/billing_transactions against Valkey",
+                exc_info=True,
+            )
 
         logger.info("flusher: stopped")
 

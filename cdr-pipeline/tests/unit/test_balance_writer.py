@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 import pytest
 
 from consumer.balance_writer import BalanceEngine, LedgerRow
 from models.cdr import SmsCdr
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 class FakeCursor:
@@ -32,6 +35,12 @@ class FakeConn:
 
     async def execute(self, sql: str, *params: object) -> FakeCursor:
         self._executed.append((sql, params))
+        return FakeCursor(self._fetch_rows)
+
+    async def executemany(self, sql: str, params_seq: object) -> FakeCursor:
+        # psycopg3 executemany shape: an iterable of param tuples. Recorded as a
+        # list so tests can assert on the flushed batch.
+        self._executed.append((sql, list(params_seq)))  # type: ignore[arg-type]
         return FakeCursor(self._fetch_rows)
 
 
@@ -108,7 +117,9 @@ def _sms(cost: int, cdr_id: str = "0192a4d0-0001-7000-8000-000000000001", sub: s
     )
 
 
-def _engine(*, flush_interval: float = 2.0, flush_dirty_threshold: int = 5000) -> tuple[BalanceEngine, FakeCache, FakeDB]:
+def _engine(
+    *, flush_interval: float = 2.0, flush_dirty_threshold: int = 5000
+) -> tuple[BalanceEngine, FakeCache, FakeDB]:
     """Build an engine with warm-up indices seeded for one subscriber/msisdn."""
     cache = FakeCache()
     db = FakeDB()
@@ -184,31 +195,33 @@ def test_flush_inserts_queued_ledger_rows():
     engine, cache, db = _engine()
     cache.store["balance:9876543210"] = "9750"
     engine._dirty_msisdns.add(_MSISDN)
-    engine._ledger_queue.append(
-        LedgerRow(_SUB, -250, "0192a4d0-0001-7000-8000-000000000001", "sms", 10000, 9750)
-    )
+    engine._ledger_queue.append(LedgerRow(_SUB, -250, "0192a4d0-0001-7000-8000-000000000001", "sms", 10000, 9750))
 
     asyncio.run(engine._flush())
 
-    # One upsert (wallet) + one insert (ledger)
+    # One executemany (wallet upsert) + one executemany (ledger insert)
     assert len(db.executed) == 2
     ledger_sql = db.executed[1][0]
     assert "billing_transactions" in ledger_sql
-    ledger_params = db.executed[1][1]
-    assert ledger_params[0] == _SUB  # subscriber_id
-    assert ledger_params[1] == -250  # amount_paise
-    assert ledger_params[4] == 10000  # balance_before
-    assert ledger_params[5] == 9750  # balance_after
+    # executemany records the batch (list of param tuples); assert the first row.
+    ledger_rows = db.executed[1][1]
+    assert ledger_rows[0][0] == _SUB  # subscriber_id
+    assert ledger_rows[0][1] == -250  # amount_paise
+    assert ledger_rows[0][4] == 10000  # balance_before
+    assert ledger_rows[0][5] == 9750  # balance_after
 
 
 def test_flusher_triggers_on_dirty_threshold():
-    """Flusher flushes immediately when dirty count reaches the threshold (AC #3)."""
+    """Flusher flushes immediately when dirty count reaches the threshold mid-loop (AC #3)."""
     engine, cache, db = _engine(flush_interval=10.0, flush_dirty_threshold=1)
     cache.store["balance:9876543210"] = "9750"
-    engine._dirty_msisdns.add(_MSISDN)  # at/above threshold → immediate flush
 
     async def run():
         task = asyncio.create_task(engine._flusher_loop())
+        # Let the loop enter its wait, THEN cross the threshold so the 0.3s flush
+        # is provably triggered by the threshold — not pre-satisfied at t=0.
+        await asyncio.sleep(0.05)
+        engine._dirty_msisdns.add(_MSISDN)
         await asyncio.sleep(0.3)  # far below the 10s interval
         engine._flusher_running = False
         await task
@@ -247,3 +260,52 @@ def test_stop_drains_dirty_set():
 
     assert _MSISDN not in engine._dirty_msisdns
     assert any("ON CONFLICT (msisdn)" in sql for sql, _ in db.executed)
+
+
+def test_deduct_overdraft_allows_negative_and_signals():
+    """Overdraft policy = allow + signal: balance goes negative, no refund/clamp.
+
+    The OTEL span attribute + counter are emitted but are no-ops without a
+    MeterProvider/exporter (Story 1.5 infra); this test locks the *allow* half of
+    the policy — the balance and ledger row persist the negative value.
+    """
+    engine, cache, _ = _engine()
+    cache.store["balance:9876543210"] = "100"  # tiny balance
+
+    asyncio.run(engine.deduct(_sms(cost=250)))  # 100 - 250 = -150 (overdraft)
+
+    # Balance went negative — NOT clamped to 0 or refunded.
+    assert cache.store["balance:9876543210"] == "-150"
+    assert cache.incr_by_calls == [("balance:9876543210", -250)]
+    row = engine._ledger_queue[0]
+    assert row.balance_before == 100
+    assert row.balance_after == -150
+    assert row.amount_paise == -250
+
+
+def test_deduct_blocks_at_ledger_cap_until_flush():
+    """Over-cap ledger queue blocks deduct until a successful flush frees capacity."""
+    engine, cache, _ = _engine()
+    engine._ledger_cap = 2  # tiny cap for the test
+    cache.store["balance:9876543210"] = "10000"
+    # Pre-fill the ledger to the cap and close the gate (simulate a cap hit).
+    engine._ledger_queue.append(LedgerRow(_SUB, -1, "x", "sms", 0, 0))
+    engine._ledger_queue.append(LedgerRow(_SUB, -1, "y", "sms", 0, 0))
+    engine._drained.clear()
+
+    async def run():
+        task = asyncio.create_task(engine.deduct(_sms(cost=250)))
+        await asyncio.sleep(0.05)
+        # deduct is blocked on the drained gate (queue at cap).
+        assert not task.done()
+        # A successful flush drains the queue and re-opens the gate.
+        await engine._flush()
+        await asyncio.wait_for(task, timeout=1.0)
+        assert task.done()
+
+    asyncio.run(run())
+
+    # The blocked deduction landed after the flush (queue was drained to 0, then
+    # this row appended); it's below the cap so the gate stays open.
+    assert len(engine._ledger_queue) == 1
+    assert engine._ledger_queue[0].amount_paise == -250

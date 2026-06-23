@@ -8,11 +8,14 @@ port 8000 — ``curl http://localhost:8000/health`` (architecture §1.15.1).
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
 import uvicorn
+from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from fastapi import FastAPI
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
@@ -35,7 +38,13 @@ from routers.account import (
     router as subscriber_router,
 )
 from routers.health import router as health_router
-from routers.simulator import router as simulator_router
+from routers.simulator import (
+    connection_manager as _trace_connection_manager,
+    notification_connection_manager as _notification_connection_manager,
+    router as simulator_router,
+    to_notification_broadcast,
+    ws_router as simulator_ws_router,
+)
 from services.registration import (
     PostgresRegistrationRepository,
     RegistrationRepository,
@@ -98,9 +107,99 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.jwt_validator = JWTValidator(_cognito_jwks_url(settings))
     if getattr(app.state, "step_up_service", None) is None:
         app.state.step_up_service = StepUpOtpService(app.state.cache_adapter, settings.otp_step_up_ttl_seconds)
+    if getattr(app.state, "kafka_producer", None) is None:
+        brokers = [b.strip() for b in settings.kafka_brokers.split(",")]
+        _producer = AIOKafkaProducer(
+            bootstrap_servers=brokers,
+            value_serializer=lambda v: v if isinstance(v, bytes) else json.dumps(v).encode(),
+        )
+        await _producer.start()
+        app.state.kafka_producer = _producer
+        owned.append("kafka_producer")
+
+    trace_consumer_task: asyncio.Task | None = None
+    if getattr(app.state, "trace_consumer", None) is None:
+        brokers = [b.strip() for b in settings.kafka_brokers.split(",")]
+        _consumer = AIOKafkaConsumer(
+            "simulator.trace",
+            bootstrap_servers=brokers,
+            group_id="simulator-trace-broadcaster",
+            auto_offset_reset="latest",
+            value_deserializer=lambda v: json.loads(v.decode()),
+        )
+        app.state.trace_consumer = _consumer
+        owned.append("trace_consumer")
+
+        async def _broadcast_trace_events() -> None:
+            try:
+                await _consumer.start()
+                async for msg in _consumer:
+                    try:
+                        await _trace_connection_manager.broadcast(msg.value)
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("trace broadcast error: %s", exc)
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                logging.getLogger(__name__).warning("trace consumer error: %s", exc)
+            finally:
+                try:
+                    await _consumer.stop()
+                except Exception:
+                    pass
+
+        trace_consumer_task = asyncio.create_task(_broadcast_trace_events())
+
+    notification_consumer_task: asyncio.Task | None = None
+    if getattr(app.state, "notification_consumer", None) is None:
+        brokers = [b.strip() for b in settings.kafka_brokers.split(",")]
+        _nconsumer = AIOKafkaConsumer(
+            "notification.events",
+            bootstrap_servers=brokers,
+            group_id="notification-portal-broadcaster",
+            auto_offset_reset="latest",
+            value_deserializer=lambda v: json.loads(v.decode()),
+        )
+        app.state.notification_consumer = _nconsumer
+        owned.append("notification_consumer")
+
+        async def _broadcast_notification_events() -> None:
+            try:
+                await _nconsumer.start()
+                async for msg in _nconsumer:
+                    try:
+                        await _notification_connection_manager.broadcast(to_notification_broadcast(msg.value))
+                    except Exception as exc:
+                        logging.getLogger(__name__).debug("notification broadcast error: %s", exc)
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                logging.getLogger(__name__).warning("notification consumer error: %s", exc)
+            finally:
+                try:
+                    await _nconsumer.stop()
+                except Exception:
+                    pass
+
+        notification_consumer_task = asyncio.create_task(_broadcast_notification_events())
+
     try:
         yield
     finally:
+        if notification_consumer_task is not None:
+            notification_consumer_task.cancel()
+            try:
+                await notification_consumer_task
+            except asyncio.CancelledError:
+                pass
+        if trace_consumer_task is not None:
+            trace_consumer_task.cancel()
+            try:
+                await trace_consumer_task
+            except asyncio.CancelledError:
+                pass
+        if "kafka_producer" in owned:
+            await app.state.kafka_producer.stop()
         if "db_adapter" in owned:
             await app.state.db_adapter.close()
         if "cache_adapter" in owned:
@@ -118,6 +217,9 @@ def create_app(
     registration_service: RegistrationService | RegistrationRepository | None = None,
     jwt_validator: JWTValidator | None = None,
     step_up_service: StepUpOtpService | None = None,
+    kafka_producer: object | None = None,
+    trace_consumer: object | None = None,
+    notification_consumer: object | None = None,
 ) -> FastAPI:
     """Construct the FastAPI app.
 
@@ -133,6 +235,7 @@ def create_app(
     app.include_router(auth_router)
     app.include_router(account_router)
     app.include_router(simulator_router)
+    app.include_router(simulator_ws_router)
     app.state.db_adapter = db_adapter
     app.state.cache_adapter = cache_adapter
     app.state.milvus_adapter = milvus_adapter
@@ -140,6 +243,9 @@ def create_app(
     app.state.registration_service = registration_service
     app.state.jwt_validator = jwt_validator
     app.state.step_up_service = step_up_service
+    app.state.kafka_producer = kafka_producer
+    app.state.trace_consumer = trace_consumer
+    app.state.notification_consumer = notification_consumer
     return app
 
 

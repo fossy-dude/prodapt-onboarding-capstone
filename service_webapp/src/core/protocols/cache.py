@@ -28,3 +28,14 @@ class CacheProtocol(Protocol):
     async def delete(self, key: str) -> None:
         """Delete ``key`` (no-op if absent)."""
         ...
+
+    async def set_balance(self, msisdn: str, paise: int) -> None:
+        """Seed the persistent no-TTL balance counter ``balance:{msisdn}`` to ``paise``.
+
+        No expiry — the cdr-pipeline consumer ``INCRBY``s this counter and flushes it
+        back to ``billing_wallet_balances`` (architecture §1.7.3). Seeding it at SIM
+        activation (initial credit = the plan's price in paise) is what makes a
+        freshly-activated subscriber billable; the Valkey key and the Postgres wallet
+        row must start in sync.
+        """
+        ...

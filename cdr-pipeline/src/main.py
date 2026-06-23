@@ -103,7 +103,15 @@ async def _run() -> None:
     # MUST complete before consumer starts (ARCH-6)
     logger.info("warmup: loading balances from Postgres...")
     await engine.warmup()
-    logger.info("warmup: complete, starting consumer + flusher")
+    if engine.warmup_count == 0:
+        # An empty wallet table means EVERY deduct would silently skip (warning
+        # per CDR, no hard error) — a total billing outage. Fail fast rather than
+        # start a pipeline that silently bills nobody.
+        raise RuntimeError(
+            "balance warm-up seeded 0 rows from billing_wallet_balances; refusing to "
+            "start a billing pipeline that would silently skip every deduction"
+        )
+    logger.info("warmup: complete (%d balances), starting consumer + flusher", engine.warmup_count)
 
     # Batch processor with balance deduction hook (Story 2.3)
     processor = BatchProcessor(
@@ -124,6 +132,20 @@ async def _run() -> None:
         processor.stop()
         stop_event.set()
 
+    def _crash_handler(task: asyncio.Task[object]) -> None:
+        """Initiate shutdown if a long-lived task crashes.
+
+        Without this, a crash in ``processor.run()`` leaves ``stop_event`` unset
+        and ``await stop_event.wait()`` blocks forever (only SIGKILL recovers,
+        skipping the final flush and losing in-flight balances/ledger rows).
+        """
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.critical("task %s crashed: %r — initiating shutdown", task.get_name(), exc)
+            stop_event.set()
+
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, _signal_handler)
 
@@ -143,21 +165,35 @@ async def _run() -> None:
     mgmt_server = uvicorn.Server(mgmt_config)
 
     try:
-        consumer_task = asyncio.create_task(processor.run())
-        mgmt_task = asyncio.create_task(mgmt_server.serve())
+        consumer_task = asyncio.create_task(processor.run(), name="cdr-consumer")
+        mgmt_task = asyncio.create_task(mgmt_server.serve(), name="cdr-mgmt")
+        consumer_task.add_done_callback(_crash_handler)
+        mgmt_task.add_done_callback(_crash_handler)
         await stop_event.wait()
         mgmt_server.should_exit = True
-        await consumer_task
-        await mgmt_task
+        # Drain both tasks. A crashed task's exception was already logged by its
+        # done-callback; gathering with return_exceptions stops it re-raising here
+        # and tearing down the finally block before the final flush can run.
+        outcomes = await asyncio.gather(consumer_task, mgmt_task, return_exceptions=True)
+        for outcome in outcomes:
+            if isinstance(outcome, Exception):
+                logger.error("startup task ended with exception: %r", outcome)
     finally:
-        # Shutdown order: consumer → flusher (final flush) → producer → db → cache
-        logger.info("shutdown: stopping consumer")
-        await consumer.stop()
-        logger.info("shutdown: stopping flusher (final flush)")
-        await engine.stop()
-        await producer.stop()
-        await db.close()
-        await cache.close()
+        # Shutdown order: consumer → flusher (final flush) → producer → db → cache.
+        # Each close is isolated so a failure in one (e.g. consumer.stop) cannot
+        # skip engine.stop() (the final flush) or the remaining closes.
+        for label, close in (
+            ("consumer", consumer.stop),
+            ("flusher (final flush)", engine.stop),
+            ("producer", producer.stop),
+            ("db", db.close),
+            ("cache", cache.close),
+        ):
+            try:
+                logger.info("shutdown: stopping %s", label)
+                await close()
+            except Exception:
+                logger.exception("shutdown: error stopping %s", label)
         logger.info("shutdown: complete")
 
 

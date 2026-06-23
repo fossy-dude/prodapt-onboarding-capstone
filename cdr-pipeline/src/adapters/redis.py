@@ -10,12 +10,20 @@ service is referred to as the cache/redis throughout the architecture.
 
 from __future__ import annotations
 
+import logging
+
 import valkey.asyncio as avalkey
 
 from core.protocols.cache import CacheProtocol
 
+logger = logging.getLogger("adapters.redis")
+
 # Bound so a hung/blackholed host can never stall a hot-path dedup check.
 _SOCKET_TIMEOUT_SECONDS = 2
+
+# How many times set_many retries a chunk whose keys failed (transient connection
+# drop mid-pipeline). After this, a partial seed raises so warm-up fails fast.
+_SET_MANY_MAX_ATTEMPTS = 3
 
 
 class ValkeyAdapter(CacheProtocol):
@@ -76,17 +84,63 @@ class ValkeyAdapter(CacheProtocol):
 
         Chunks into batches of 5000 to avoid oversized pipelines. For 300K rows,
         this keeps memory usage bounded and completes in < 5s (Story 2.3 AC #5).
+
+        A dropped connection mid-pipeline must NOT leave a partially seeded cache
+        (those subscribers would then ``INCRBY`` from 0 → silently wrong/negative
+        balances). Each command's result is checked; failed chunks are retried, and
+        if any keys remain unset after the retries the whole call raises so warm-up
+        fails fast instead of corrupting balances.
         """
         if not mapping:
             return
+
         chunk_size = 5000
-        items = list(mapping.items())
-        for i in range(0, len(items), chunk_size):
-            chunk = dict(items[i : i + chunk_size])
-            pipe = self._client.pipeline()
-            for k, v in chunk.items():
-                pipe.set(k, str(v))  # valkey stores as string
-            await pipe.execute()
+        remaining: dict[str, int] = dict(mapping)
+
+        for attempt in range(1, _SET_MANY_MAX_ATTEMPTS + 1):
+            if not remaining:
+                break
+            items = list(remaining.items())
+            still_failed: dict[str, int] = {}
+            for i in range(0, len(items), chunk_size):
+                chunk = items[i : i + chunk_size]
+                pipe = self._client.pipeline()
+                for k, v in chunk:
+                    pipe.set(k, str(v))  # valkey stores as string
+                try:
+                    results = await pipe.execute()
+                except Exception:
+                    # Whole pipeline failed — retry every key in this chunk.
+                    logger.exception("set_many: pipeline execute failed (attempt %d)", attempt)
+                    still_failed.update(chunk)
+                    continue
+                # Per-command: a successful SET is truthy (True / "OK"); anything
+                # else (None, False, or an exception object) is a failed key.
+                for (k, v), res in zip(chunk, results, strict=True):
+                    if isinstance(res, Exception) or not res:
+                        still_failed[k] = v
+            remaining = still_failed
+            if remaining:
+                logger.warning(
+                    "set_many: %d keys failed on attempt %d/%d; retrying",
+                    len(remaining),
+                    attempt,
+                    _SET_MANY_MAX_ATTEMPTS,
+                )
+
+        if remaining:
+            sample = list(remaining)[:3]
+            logger.error(
+                "set_many: %d keys failed to seed after %d attempts (sample=%s)",
+                len(remaining),
+                _SET_MANY_MAX_ATTEMPTS,
+                sample,
+            )
+            raise RuntimeError(
+                f"set_many: {len(remaining)} of {len(mapping)} balance keys failed to seed "
+                f"after {_SET_MANY_MAX_ATTEMPTS} attempts — aborting warm-up to avoid "
+                "partially seeded balances (sample keys logged above)"
+            )
 
     async def close(self) -> None:
         """Close the underlying client (best-effort)."""

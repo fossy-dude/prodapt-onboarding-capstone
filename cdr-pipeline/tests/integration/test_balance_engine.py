@@ -38,7 +38,7 @@ _MSISDN2 = "9876543211"
 @pytest.fixture
 async def postgres():
     """PostgresContainer with V1+V2 schema applied."""
-    import psycopg  # noqa: F401 (imported only by slow tests)
+    import psycopg
 
     with PostgresContainer(_IMAGE) as pg:
         conninfo = (
@@ -72,13 +72,13 @@ async def test_warmup_seeds_balances_and_builds_indices(postgres: str, valkey: s
             # Insert subscriber records
             await conn.execute(
                 "INSERT INTO identity_subscribers (id, msisdn, subscriber_name) VALUES "
-                "($1, $2, 'Test One'), ($3, $4, 'Test Two')",
+                "(%s, %s, 'Test One'), (%s, %s, 'Test Two')",
                 (_SUBSCRIBER, _MSISDN, _SUBSCRIBER2, _MSISDN2),
             )
             # Insert wallet balances
             await conn.execute(
                 "INSERT INTO billing_wallet_balances (subscriber_id, msisdn, balance_paise) VALUES "
-                "($1, $2, 100000), ($3, $4, 50000)",
+                "(%s, %s, 100000), (%s, %s, 50000)",
                 (_SUBSCRIBER, _MSISDN, _SUBSCRIBER2, _MSISDN2),
             )
 
@@ -111,11 +111,11 @@ async def test_deduct_flush_updates_postgres_balance_and_ledger(postgres: str, v
         # Seed subscriber + wallet
         async with db.transaction() as conn:
             await conn.execute(
-                "INSERT INTO identity_subscribers (id, msisdn, subscriber_name) VALUES ($1, $2, 'Test')",
+                "INSERT INTO identity_subscribers (id, msisdn, subscriber_name) VALUES (%s, %s, 'Test')",
                 (_SUBSCRIBER, _MSISDN),
             )
             await conn.execute(
-                "INSERT INTO billing_wallet_balances (subscriber_id, msisdn, balance_paise) VALUES ($1, $2, 100000)",
+                "INSERT INTO billing_wallet_balances (subscriber_id, msisdn, balance_paise) VALUES (%s, %s, 100000)",
                 (_SUBSCRIBER, _MSISDN),
             )
 
@@ -148,7 +148,7 @@ async def test_deduct_flush_updates_postgres_balance_and_ledger(postgres: str, v
         # Assert Postgres wallet balance updated
         async with db.transaction() as conn:
             cur = await conn.execute(
-                "SELECT balance_paise FROM billing_wallet_balances WHERE msisdn = $1",
+                "SELECT balance_paise FROM billing_wallet_balances WHERE msisdn = %s",
                 (_MSISDN,),
             )
             row = await cur.fetchone()
@@ -159,7 +159,7 @@ async def test_deduct_flush_updates_postgres_balance_and_ledger(postgres: str, v
         async with db.transaction() as conn:
             cur = await conn.execute(
                 "SELECT amount_paise, balance_before_paise, balance_after_paise, reference_id "
-                "FROM billing_transactions WHERE reference_id = $1",
+                "FROM billing_transactions WHERE reference_id = %s",
                 (cdr.cdr_id,),
             )
             row = await cur.fetchone()

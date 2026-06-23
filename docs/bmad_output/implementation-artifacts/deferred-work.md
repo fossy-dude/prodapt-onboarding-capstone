@@ -83,3 +83,12 @@
 - **Valkey socket timeout potentially too aggressive** — `adapters/redis.py:18` pins `_SOCKET_TIMEOUT_SECONDS = 2`. Fine for the hot-path dedup check under MVP load; revisit/tune (and surface as a setting) when batch=500 dedup throughput is measured under production load.
 - **No consumer connection-failure recovery / supervisor** — `main.py` has no reconnect/retry around the broker; a dropped Kafka connection crashes the process. Recovery is the operator's restart policy (k8s/systemd). Wire a supervised reconnect loop only if self-healing without restart is required.
 - **DLQ publish failure loses the record** — `dlq/handler.to_dlq` and the per-record DLQ routes in `batch_processor._process` publish-and-wait with no retry/backoff; if the DLQ publish itself fails the original record is lost (and per the poison-pill item above, also blocks the batch). A retry/backoff or secondary spool is out of scope for this story.
+
+## Deferred from: code review of 2-3-balance-deduction-engine-valkey-write-buffer-postgres-flush (2026-06-23)
+
+- **AC#1 topic mismatch (doc only)** — AC#1 says deductions arrive from `cdr.enriched.filtered`, but the code (correctly) consumes `cdr.raw` via the Story 2.2 `BatchProcessor` seam the spec directs. Fix the AC text, not the code. [main.py:88-91]
+- **`CacheProtocol.incr` has no caller** — the Story 2.2 in-process dedup metric it was added for is not wired anywhere in this diff; dead Protocol method. [redis.py:66-68]
+- **No OTEL exporter dependency** — `balance.deduction` spans are emitted (`balance_writer.py:183`) but `opentelemetry-sdk` has no exporter, so spans go to a no-op processor and P95 is unverifiable in prod. Wire an exporter (Story 1.5 infra) before treating P95 telemetry as live.
+- **Flusher inner loop busy-polls at 10 Hz** — `asyncio.sleep(0.1)` inside `_flusher_loop`; works under MVP load, minor CPU. Replace with an `asyncio.Event` signalled by `deduct` when the dirty threshold is approached.
+- **Unlimited-bundle `cost=0` still performs an `INCRBY 0` round-trip** — every free/unlimited CDR still hits Valkey on the hot path. Chose consistency (key always exists) over micro-optimisation; revisit only if free-call volume dominates measured P95.
+- **`_management_lifespan` dead `finally: pass`** — never closes `JWTValidator` (JWKS HTTP client leak). Story 2.5 management-API scope. [main.py:56-64]

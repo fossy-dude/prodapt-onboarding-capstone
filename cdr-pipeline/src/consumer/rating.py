@@ -64,11 +64,16 @@ def rate_cdr(cdr: CdrEvent, tariff: PlanTariff) -> int:
     if cdr.cdr_type == "sms":
         return 0 if tariff.sms_unlimited else tariff.sms_paise_per_message
 
-    # cdr_type == "data"
-    if tariff.data_unlimited:
-        return 0
-    volume_mb = cdr.volume_mb or 0
-    return round(tariff.data_paise_per_mb * volume_mb)
+    if cdr.cdr_type == "data":
+        if tariff.data_unlimited:
+            return 0
+        volume_mb = cdr.volume_mb or 0
+        return round(tariff.data_paise_per_mb * volume_mb)
+
+    # Defense-in-depth: the CdrEvent discriminated union already restricts
+    # cdr_type to voice/sms/data, but a future variant must fail loud, not
+    # silently bill at the data rate.
+    raise ValueError(f"rate_cdr: unsupported cdr_type {cdr.cdr_type!r}")
 
 
 __all__ = ["PlanTariff", "rate_cdr"]

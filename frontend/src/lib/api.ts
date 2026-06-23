@@ -279,4 +279,63 @@ export async function deletePaymentMethod(id: string): Promise<void> {
   await apiClient.delete(`/account/payment-methods/${id}`);
 }
 
+// ── CDR Simulator (Story 2.8) ──────────────────────────────────────────────────
+
+export interface CdrDispatchPayload {
+  readonly cdr_type: 'voice' | 'data' | 'sms';
+  readonly subscriber_msisdn: string;
+  readonly duration_seconds?: number;
+  readonly volume_mb?: number;
+  readonly message_direction?: 'MO' | 'MT';
+  readonly timestamp?: string;
+}
+
+interface CdrDispatchResponse {
+  readonly data: {
+    readonly trace_id: string;
+    readonly cdr_type: string;
+    readonly subscriber_msisdn: string;
+  };
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/** POST /simulator/cdr — dispatch a synthetic CDR event (Story 2.8, AC #1). */
+export async function dispatchCdr(
+  payload: CdrDispatchPayload,
+): Promise<{ trace_id: string; cdr_type: string; subscriber_msisdn: string }> {
+  const { data } = await apiClient.post<CdrDispatchResponse>('/simulator/cdr', payload);
+  return data.data;
+}
+
+// ── SIM Activation Simulator (Story 2.9) ────────────────────────────────────────
+
+export type SimLookupType = 'msisdn' | 'registration_id';
+
+export interface SimActivatePayload {
+  readonly lookup_type: SimLookupType;
+  readonly lookup_value: string;
+}
+
+export interface SimActivateResult {
+  readonly order_id: string;
+  readonly status: string;
+  readonly msisdn: string;
+  readonly balance_paise: number;
+}
+
+interface SimActivateResponse {
+  readonly data: SimActivateResult;
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/**
+ * POST /simulator/activate — drive a subscriber's NEW_ACTIVATION order to ACTIVATED
+ * (resolves by MSISDN or Registration ID), seed the wallet + Valkey balance, and
+ * publish a notification event (Story 2.9, AC #1, #2).
+ */
+export async function activateSim(payload: SimActivatePayload): Promise<SimActivateResult> {
+  const { data } = await apiClient.post<SimActivateResponse>('/simulator/activate', payload);
+  return data.data;
+}
+
 export { apiClient };
