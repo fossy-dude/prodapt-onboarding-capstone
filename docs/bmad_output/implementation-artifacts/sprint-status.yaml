@@ -58,16 +58,16 @@ development_status:
   epic-1-retrospective: optional
 
   # Epic 2: CDR Pipeline, Balance Engine, Synthetic Data & Simulator Tools
-  epic-2: in-progress
+  epic-2: done
   2-1-redpanda-topic-provisioning-kafka-envelope-contract: done
   2-2-cdr-ingestion-consumer-dedup-dlq: done
-  2-3-balance-deduction-engine-valkey-write-buffer-postgres-flush: in-progress
-  2-4-audit-log-distributed-trace-propagation: in-progress
-  2-5-cdr-management-api-dlq-inspect-worker-control: review
+  2-3-balance-deduction-engine-valkey-write-buffer-postgres-flush: done
+  2-4-audit-log-distributed-trace-propagation: done
+  2-5-cdr-management-api-dlq-inspect-worker-control: done
   2-6-synthetic-dataset-generation-plans-subscribers-cdrs: done
-  2-7-milvus-lite-initialisation-vector-seeding: review
-  2-8-cdr-simulator-ui-form-dispatch-websocket-trace-display: review
-  2-9-sim-activation-simulator-notification-portal: review
+  2-7-milvus-lite-initialisation-vector-seeding: done
+  2-8-cdr-simulator-ui-form-dispatch-websocket-trace-display: done
+  2-9-sim-activation-simulator-notification-portal: done
   epic-2-retrospective: optional
 
   # Epic 3: Subscriber Self-Care Portal
