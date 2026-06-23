@@ -167,13 +167,11 @@ cdr-admin:
 
 # ── Tests ────────────────────────────────────────────────────────────────────────
 
-# Run backend tests (service_webapp).
+# Run all tests
 test:
-    cd service_webapp && {{uv_tox}} -e test
-
-# Run CDR pipeline tests.
-test-cdr:
-    cd cdr-pipeline && {{uv_tox}} -e test
+    just -d service_webapp -f service_webapp/justfile test
+    just -d cdr-pipeline -f cdr-pipeline/justfile test
+    just -d frontend -f frontend/justfile test
 
 # Run backend integration tests (opt-in; integration/slow are skipped by default).
 test-integration:
@@ -185,7 +183,7 @@ test-cdr-integration:
 
 # Run frontend unit tests (Vitest).
 test-fe:
-    cd frontend && npm run test
+    
 
 # ── Quality gate ─────────────────────────────────────────────────────────────────
 

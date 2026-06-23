@@ -141,7 +141,6 @@ function EditProfileForm({ initial }: { readonly initial: ProfileData }) {
       pin_code: initial.address.pin_code ?? "",
     });
     setError("");
-    setSaved(false);
   }, [initial]);
 
   const setField = (key: keyof EditFormState, value: string): void => {
