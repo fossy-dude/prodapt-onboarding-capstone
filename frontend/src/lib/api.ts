@@ -436,4 +436,105 @@ export async function activateSim(
   return data.data;
 }
 
+// ── Transactions ledger (Story 3.3) ────────────────────────────────────────────
+
+/** One row of the subscriber transaction ledger (CHARGE | RECHARGE | REFUND).
+ * `transaction_type` is the raw stored writer value (e.g. `cdr_deduction`);
+ * `cdr_reference` is non-null only for CDR-linked charge rows. */
+export interface TransactionItem {
+  readonly id: string;
+  readonly transaction_type: string;
+  readonly amount_paise: number;
+  readonly balance_after_paise: number;
+  readonly cdr_reference: string | null;
+  readonly description: string | null;
+  readonly created_at: string;
+}
+
+interface TransactionsResponse {
+  readonly data: readonly TransactionItem[];
+  readonly meta: {
+    readonly trace_id: string;
+    readonly timestamp: string;
+    readonly next_cursor: string | null;
+  };
+}
+
+/** One page of the cursor-paginated ledger. */
+export interface TransactionsPage {
+  readonly items: readonly TransactionItem[];
+  readonly nextCursor: string | null;
+}
+
+/** Cursor-pagination query params for the transactions endpoint. */
+export interface TransactionsQuery {
+  readonly cursor?: string;
+  readonly page_size?: number;
+}
+
+/** GET /subscriber/transactions — paginated, immutable transaction ledger. */
+export async function getTransactions(
+  query: TransactionsQuery = {},
+): Promise<TransactionsPage> {
+  const { data } = await apiClient.get<TransactionsResponse>(
+    "/subscriber/transactions",
+    { params: { cursor: query.cursor, page_size: query.page_size } },
+  );
+  return { items: data.data, nextCursor: data.meta.next_cursor };
+}
+
+// ── Plan details & catalogue (Story 3.4) ───────────────────────────────────────
+
+/** Bundled plan quotas (null means unlimited). */
+export interface PlanQuotas {
+  readonly data_gb: number | null;
+  readonly voice_minutes: number | null;
+  readonly sms_count: number | null;
+}
+
+/** Active plan details returned by GET /subscriber/plan. */
+export interface ActivePlanData {
+  readonly plan_id: string;
+  readonly plan_name: string;
+  readonly validity_expiry: string | null;
+  readonly validity_days: number;
+  readonly days_remaining: number | null;
+  readonly quotas: PlanQuotas;
+  readonly roaming_enabled: boolean;
+}
+
+interface ActivePlanResponse {
+  readonly data: ActivePlanData;
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/** GET /subscriber/plan — active plan name, validity expiry, and quotas. */
+export async function getActivePlan(): Promise<ActivePlanData> {
+  const { data } = await apiClient.get<ActivePlanResponse>("/subscriber/plan");
+  return data.data;
+}
+
+/** One browsable plan in the catalogue (GET /plans). */
+export interface PlanCatalogueItem {
+  readonly id: string;
+  readonly name: string;
+  readonly data_gb: number | null;
+  readonly voice_minutes: number | null;
+  readonly sms_count: number | null;
+  readonly validity_days: number;
+  readonly price_paise: number;
+  readonly plan_type: string | null;
+}
+
+interface PlansCatalogueResponse {
+  readonly data: readonly PlanCatalogueItem[];
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/** GET /plans — browse all active plans (catalogue). */
+export async function listPlans(): Promise<readonly PlanCatalogueItem[]> {
+  const { data } = await apiClient.get<PlansCatalogueResponse>("/plans");
+  return data.data;
+}
+
 export { apiClient };

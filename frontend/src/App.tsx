@@ -4,7 +4,9 @@ import { RoleGuard } from "./components/layout/RoleGuard";
 import { Login } from "./portals/auth/Login";
 import { Dashboard } from "./portals/subscriber/Dashboard";
 import { PaymentMethods } from "./portals/subscriber/PaymentMethods";
+import { Plans } from "./portals/subscriber/Plans";
 import { Profile } from "./portals/subscriber/Profile";
+import { Transactions } from "./portals/subscriber/Transactions";
 import { CdrSimulator } from "./portals/simulator/CdrSimulator";
 import { NotificationPortal } from "./portals/simulator/NotificationPortal";
 import { SimActivation as SimActivationOrderTool } from "./portals/simulator/SimActivation";
@@ -53,6 +55,8 @@ function App() {
             <Routes>
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="activate" element={<SimActivation />} />
+              <Route path="history" element={<Transactions />} />
+              <Route path="plans" element={<Plans />} />
               <Route path="profile" element={<Profile />} />
               <Route
                 path="profile/payment-methods"

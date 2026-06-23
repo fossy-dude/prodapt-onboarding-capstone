@@ -11,9 +11,10 @@ MSISDN is always masked to last-4 in responses and logs (PII hygiene §1.11.6).
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from core.auth import require_role
@@ -21,11 +22,15 @@ from core.errors import DomainError, NotFoundError, UnauthenticatedError
 from core.responses import success_envelope
 from core.security import mask_msisdn
 from db.billing.queries import (
+    get_active_plan,
     get_active_subscription,
+    get_transactions_page,
     get_usage_for_period,
     get_wallet_balance_from_db,
 )
 from models.balance import UsageAllowance, UsagePeriod, UsageResponse, WalletBalanceResponse
+from models.plan import ActivePlanResponse, PlanQuotas
+from models.transaction import TransactionItem
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +159,110 @@ async def get_usage(
         data=_allowance(data_mb, sub["data_limit_mb_allowance"]),
         sms=_allowance(float(usage["sms_count_used"]), sub["sms_count_allowance"]),
         roaming_mb=_allowance(usage["roaming_mb_used"], None),
+    )
+    return JSONResponse(
+        status_code=200,
+        content=success_envelope(resp.model_dump(mode="json"), trace_id=_trace_id(request)),
+    )
+
+
+@router.get("/transactions", status_code=200)
+async def get_transactions(
+    request: Request,
+    cursor: UUID | None = Query(default=None, description="Keyset cursor (last id of the prior page)."),
+    page_size: int = Query(default=20, ge=1, le=100),
+    jwt_payload: dict = require_role("subscriber"),
+) -> JSONResponse:
+    """Return a paginated, immutable ledger of the subscriber's transactions (AC #1-#5).
+
+    Rows come from the append-only ``billing_transactions`` table, newest first,
+    keyset-paginated by ``id`` (UUIDv7 time-monotonic). ``cdr_reference`` is
+    derived from ``reference_id`` where ``reference_type = 'cdr'`` (no such
+    column exists). ``transaction_type`` is the raw stored writer value.
+
+    Owner assertion: ``subscriber_id`` is always the JWT ``sub`` (``_require_sub``),
+    so a subscriber can only ever read their own ledger.
+    """
+    sub_id = _require_sub(jwt_payload)
+    db = _db(request)
+
+    async with db.transaction() as conn:
+        rows = await get_transactions_page(conn, UUID(sub_id), cursor, page_size)
+
+    has_more = len(rows) > page_size
+    page = rows[:page_size]
+
+    def _cdr_ref(row: dict) -> str | None:
+        if row["reference_type"] == "cdr" and row["reference_id"] is not None:
+            return str(row["reference_id"])
+        return None
+
+    items = [
+        TransactionItem(
+            id=row["id"],
+            transaction_type=row["transaction_type"],
+            amount_paise=row["amount_paise"],
+            balance_after_paise=row["balance_after_paise"],
+            cdr_reference=_cdr_ref(row),
+            description=row["description"],
+            created_at=row["created_at"],
+        )
+        for row in page
+    ]
+
+    next_cursor = str(page[-1]["id"]) if (has_more and page) else None
+
+    return JSONResponse(
+        status_code=200,
+        content=success_envelope(
+            [item.model_dump(mode="json") for item in items],
+            trace_id=_trace_id(request),
+            next_cursor=next_cursor,
+        ),
+    )
+
+
+@router.get("/plan", status_code=200)
+async def get_plan(
+    request: Request,
+    jwt_payload: dict = require_role("subscriber"),
+) -> JSONResponse:
+    """Return the subscriber's active plan details (AC #1, #2).
+
+    Returns the plan's name, validity expiry (``end_date``), nominal validity
+    days, and bundled quotas (allowances). ``days_remaining`` is the countdown to
+    ``end_date``. Used-vs-allowance is NOT aggregated here — the frontend composes
+    it from GET /usage (Story 3.2).
+
+    Owner assertion: ``subscriber_id`` is the JWT ``sub`` (``_require_sub``).
+    """
+    sub_id = _require_sub(jwt_payload)
+    db = _db(request)
+
+    async with db.transaction() as conn:
+        plan = await get_active_plan(conn, UUID(sub_id))
+
+    if plan is None:
+        raise NotFoundError("No active plan subscription found.")
+
+    end_date = plan["end_date"]
+    days_remaining = (end_date - datetime.now(UTC)).days if end_date is not None else None
+
+    data_limit_mb = plan["data_limit_mb"]
+    data_gb = round(data_limit_mb / 1024, 2) if data_limit_mb is not None else None
+
+    resp = ActivePlanResponse(
+        plan_id=plan["plan_id"],
+        plan_name=plan["plan_name"],
+        validity_expiry=end_date,
+        validity_days=plan["validity_days"],
+        days_remaining=days_remaining,
+        quotas=PlanQuotas(
+            data_gb=data_gb,
+            voice_minutes=plan["voice_minutes"],
+            sms_count=plan["sms_count"],
+        ),
+        roaming_enabled=False,
     )
     return JSONResponse(
         status_code=200,

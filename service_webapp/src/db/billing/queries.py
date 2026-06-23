@@ -60,6 +60,64 @@ async def get_msisdn_for_subscriber(
     return row[0] if row else None
 
 
+async def get_transactions_page(
+    conn: AsyncConnection,
+    subscriber_id: UUID,
+    cursor: UUID | None = None,
+    page_size: int = 20,
+) -> list[dict]:
+    """Return one page of ``billing_transactions`` (newest first), keyset-paginated.
+
+    Fetches ``page_size + 1`` rows so the caller can detect whether a next page
+    exists. UUIDv7 ids are time-monotonic, so keyset paging on ``id`` mirrors
+    ``ORDER BY created_at DESC, id DESC`` (Story 3.3 cursor contract).
+
+    Raw ``reference_type`` / ``reference_id`` are returned; the endpoint derives
+    ``cdr_reference`` (``reference_id`` where ``reference_type = 'cdr'``) — there is
+    no ``cdr_reference`` column (V1:218-230).
+    """
+    limit = page_size + 1
+    if cursor is None:
+        cur = await conn.execute(
+            """
+            SELECT id, transaction_type, amount_paise, balance_after_paise,
+                   reference_type, reference_id, description, created_at
+              FROM billing_transactions
+             WHERE subscriber_id = %s::uuid
+             ORDER BY created_at DESC, id DESC
+             LIMIT %s
+            """,
+            (str(subscriber_id), limit),
+        )
+    else:
+        cur = await conn.execute(
+            """
+            SELECT id, transaction_type, amount_paise, balance_after_paise,
+                   reference_type, reference_id, description, created_at
+              FROM billing_transactions
+             WHERE subscriber_id = %s::uuid
+               AND id < %s::uuid
+             ORDER BY created_at DESC, id DESC
+             LIMIT %s
+            """,
+            (str(subscriber_id), str(cursor), limit),
+        )
+    rows = await cur.fetchall()
+    return [
+        {
+            "id": row[0],
+            "transaction_type": row[1],
+            "amount_paise": row[2],
+            "balance_after_paise": row[3],
+            "reference_type": row[4],
+            "reference_id": row[5],
+            "description": row[6],
+            "created_at": row[7],
+        }
+        for row in rows
+    ]
+
+
 async def get_active_subscription(
     conn: AsyncConnection,
     subscriber_id: UUID,
@@ -95,6 +153,48 @@ async def get_active_subscription(
         "voice_minutes_allowance": row[4],
         "data_limit_mb_allowance": row[5],
         "sms_count_allowance": row[6],
+    }
+
+
+async def get_active_plan(
+    conn: AsyncConnection,
+    subscriber_id: UUID,
+) -> dict | None:
+    """Return the active plan's name, validity and quotas, or ``None`` (Story 3.4).
+
+    Joins the latest active ``plans_subscriptions`` to its ``plans_plans`` row.
+    ``days_remaining`` is computed by the caller from ``end_date`` (now-relative).
+    """
+    cur = await conn.execute(
+        """
+        SELECT
+            ps.plan_id,
+            pp.plan_name,
+            ps.end_date,
+            pp.validity_days,
+            pp.data_limit_mb,
+            pp.voice_minutes,
+            pp.sms_count
+          FROM plans_subscriptions ps
+          JOIN plans_plans pp ON pp.id = ps.plan_id
+         WHERE ps.subscriber_id = %s::uuid
+           AND ps.status = 'active'
+         ORDER BY ps.start_date DESC
+         LIMIT 1
+        """,
+        (str(subscriber_id),),
+    )
+    row = await cur.fetchone()
+    if row is None:
+        return None
+    return {
+        "plan_id": row[0],
+        "plan_name": row[1],
+        "end_date": row[2],
+        "validity_days": row[3],
+        "data_limit_mb": row[4],
+        "voice_minutes": row[5],
+        "sms_count": row[6],
     }
 
 
@@ -156,8 +256,10 @@ async def get_usage_for_period(
 
 
 __all__ = [
+    "get_active_plan",
     "get_active_subscription",
     "get_msisdn_for_subscriber",
+    "get_transactions_page",
     "get_usage_for_period",
     "get_wallet_balance_from_db",
 ]
