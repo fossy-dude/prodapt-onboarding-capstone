@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import Self, TYPE_CHECKING
 from uuid import UUID
 
 import pytest
@@ -18,8 +18,26 @@ if TYPE_CHECKING:
 
 
 class FakeCursor:
-    def __init__(self, rows: list[tuple]) -> None:
+    """Mimics a psycopg cursor: async context manager with execute/executemany/fetch."""
+
+    def __init__(self, rows: list[tuple], executed: list[tuple]) -> None:
         self._rows = rows
+        self._executed = executed
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *exc: object) -> bool:
+        return False
+
+    async def execute(self, sql: str, *params: object) -> FakeCursor:
+        self._executed.append((sql, params))
+        return self
+
+    async def executemany(self, sql: str, params_seq: object) -> None:
+        # psycopg3 executemany shape: an iterable of param tuples. Recorded as a
+        # list so tests can assert on the flushed batch.
+        self._executed.append((sql, list(params_seq)))  # type: ignore[arg-type]
 
     async def fetchall(self) -> list[tuple]:
         return self._rows
@@ -33,15 +51,14 @@ class FakeConn:
         self._fetch_rows = fetch_rows
         self._executed = executed
 
+    def cursor(self) -> FakeCursor:
+        # psycopg3 cursors are async context managers; _flush uses
+        # ``async with conn.cursor() as cur: await cur.executemany(...)``.
+        return FakeCursor(self._fetch_rows, self._executed)
+
     async def execute(self, sql: str, *params: object) -> FakeCursor:
         self._executed.append((sql, params))
-        return FakeCursor(self._fetch_rows)
-
-    async def executemany(self, sql: str, params_seq: object) -> FakeCursor:
-        # psycopg3 executemany shape: an iterable of param tuples. Recorded as a
-        # list so tests can assert on the flushed batch.
-        self._executed.append((sql, list(params_seq)))  # type: ignore[arg-type]
-        return FakeCursor(self._fetch_rows)
+        return FakeCursor(self._fetch_rows, self._executed)
 
 
 class FakeDB:

@@ -248,14 +248,14 @@ async def test_activate_wrong_role_returns_403():
 
 @pytest.mark.asyncio
 async def test_activate_no_match_returns_404():
-    app, db, _c, _p = _make_app(select_rows=[None])  # lookup finds nothing
+    app, _db, _c, _p = _make_app(select_rows=[None])  # lookup finds nothing
     r = await _post("/api/v1/simulator/activate", app, _ACTIVATE_BODY)
     assert r.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_activate_already_activated_returns_400():
-    app, db, _c, _p = _make_app(select_rows=[_LOOKUP_ROW, ("ACTIVATED",)])
+    app, _db, _c, _p = _make_app(select_rows=[_LOOKUP_ROW, ("ACTIVATED",)])
     r = await _post("/api/v1/simulator/activate", app, _ACTIVATE_BODY)
     assert r.status_code == 400
     assert r.json()["error"]["code"] == "ILLEGAL_TRANSITION"

@@ -167,6 +167,11 @@ async def test_pause_blocks_batch_loop_until_resume() -> None:
     getmany_calls = []
 
     async def _fake_getmany(**_kwargs):
+        # Yield to the event loop each poll. The real aiokafka getmany awaits I/O
+        # (it blocks up to timeout_ms), so it always suspends; an instant mock that
+        # never yields would turn run()'s loop into a tight, non-cooperative spin
+        # that monopolises the loop and grows getmany_calls without bound (OOM).
+        await asyncio.sleep(0.01)
         getmany_calls.append(1)
         return {}
 
@@ -186,6 +191,10 @@ async def test_pause_blocks_batch_loop_until_resume() -> None:
         loop_task = asyncio.create_task(processor.run())
         await asyncio.sleep(0.05)
         controller.pause()
+        # A poll already in flight when pause() lands completes and appends once,
+        # then the loop parks at ``controller.running.wait()``. Let that in-flight
+        # poll drain before sampling, so ``before`` is taken with the loop parked.
+        await asyncio.sleep(0.05)
         before = len(getmany_calls)
         await asyncio.sleep(0.1)
         after = len(getmany_calls)
