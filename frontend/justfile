@@ -1,0 +1,42 @@
+# Frontend task runner
+
+# Lint TypeScript and React code (ESLint).
+lint:
+    npm run lint
+
+# Auto-fix linting issues.
+lint-fix:
+    npm run lint:fix
+
+# Format code with Prettier.
+format:
+    @just lint-fix
+    npx prettier --write .
+
+# Type-check TypeScript.
+typecheck:
+    npm run typecheck
+
+# Run unit tests (Vitest).
+test:
+    npm run test
+
+# Run tests in watch mode.
+test-watch:
+    npm run test:watch
+
+# Run tests with coverage report.
+test-coverage:
+    npm run test:coverage
+
+# Build for production (type-check + Vite build).
+build:
+    npm run build
+
+# Preview production build.
+preview:
+    npm run preview
+
+# Start development server.
+dev:
+    npm run dev

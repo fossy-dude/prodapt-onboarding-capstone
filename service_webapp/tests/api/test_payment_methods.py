@@ -20,6 +20,7 @@ from httpx import ASGITransport, AsyncClient
 
 class PaymentMethodTestContext:
     """Holds test fixtures for payment methods tests."""
+
     client: AsyncClient
     mock_conn: AsyncMock
     test_sub: str
@@ -55,8 +56,8 @@ class PaymentMethodTestContext:
 @pytest.fixture
 async def authenticated_client() -> AsyncIterator[PaymentMethodTestContext]:
     """App with async HTTP client + JWT middleware mocked."""
-    from main import create_app
     from core.auth import FakeJWTValidator
+    from main import create_app
 
     test_sub = str(uuid.uuid4())
     mock_jwt_payload = {"sub": test_sub, "cognito:groups": ["subscriber"]}

@@ -189,23 +189,21 @@ test-fe:
 
 # ── Quality gate ─────────────────────────────────────────────────────────────────
 
-# Lint both Python codebases (ruff lint + ruff format check + pyrefly type check).
+# Lint both Python codebases + frontend (ruff lint + ruff format check + pyrefly type check + ESLint).
 lint:
-    cd service_webapp && {{uv_tox}} -e lint && cd ../cdr-pipeline && {{uv_tox}} -e lint
-
-# Lint the frontend (ESLint).
-lint-fe:
-    cd frontend && npm run lint
+    just -d service_webapp -f service_webapp/justfile lint
+    just -d cdr-pipeline -f cdr-pipeline/justfile lint
+    just -d frontend -f frontend/justfile lint
 
 # Full quality gate (lint + test) for both Python codebases.
 tox:
     cd service_webapp && {{uv_tox}} && cd ../cdr-pipeline && {{uv_tox}}
 
-# Auto-format both Python codebases (ruff format).
+# Auto-format all codebases (ruff format + Prettier).
 format:
-    @command -v uvx > /dev/null || { echo "ERROR: uv not installed. See README prerequisites."; exit 1; }
-    @mkdir -p service_webapp/src cdr-pipeline/src
-    cd service_webapp && uvx ruff format src/ && cd ../cdr-pipeline && uvx ruff format src/
+    just -d service_webapp -f service_webapp/justfile format
+    just -d cdr-pipeline -f cdr-pipeline/justfile format
+    just -d frontend -f frontend/justfile format
 
 
 # Monitoring
