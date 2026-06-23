@@ -3,201 +3,247 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 
 from consumer.balance_writer import BalanceEngine, LedgerRow
-from models.cdr import SmsCdr, VoiceCdr
+from models.cdr import SmsCdr
 
 
-@pytest.fixture
-def mock_cache():
-    """Mock CacheProtocol."""
-    cache = AsyncMock()
-    cache.incr_by.return_value = 9750  # balance_after
-    return cache
+class FakeCursor:
+    def __init__(self, rows: list[tuple]) -> None:
+        self._rows = rows
+
+    async def fetchall(self) -> list[tuple]:
+        return self._rows
+
+    async def fetchone(self) -> tuple | None:
+        return self._rows[0] if self._rows else None
 
 
-@pytest.fixture
-def mock_db():
-    """Mock DatabaseProtocol."""
-    db = AsyncMock()
-    db.transaction = AsyncMock()
-    return db
+class FakeConn:
+    def __init__(self, fetch_rows: list[tuple], executed: list[tuple]) -> None:
+        self._fetch_rows = fetch_rows
+        self._executed = executed
+
+    async def execute(self, sql: str, *params: object) -> FakeCursor:
+        self._executed.append((sql, params))
+        return FakeCursor(self._fetch_rows)
 
 
-@pytest.fixture
-def engine(mock_cache, mock_db):
-    """BalanceEngine with mocks."""
-    engine = BalanceEngine(mock_cache, mock_db, flush_interval=2.0, flush_dirty_threshold=5000)
-    # Warm-up indices (subscriber_id → msisdn)
-    engine._subscriber_to_msisdn = {"0192a4d0-1234-7000-8000-000000000abc": "9876543210"}
-    engine._msisdn_to_subscriber = {"9876543210": "0192a4d0-1234-7000-8000-000000000abc"}
-    return engine
+class FakeDB:
+    def __init__(self, fetch_rows: list[tuple] | None = None) -> None:
+        self._fetch_rows = fetch_rows or []
+        self.executed: list[tuple] = []  # (sql, params)
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[FakeConn]:
+        yield FakeConn(self._fetch_rows, self.executed)
+
+    async def ping(self) -> bool:
+        return True
 
 
-def test_deduct_issues_incrby_and_marks_dirty(engine, mock_cache):
-    """Deduct issues INCRBY balance:{msisdn} -cost and marks msisdn dirty."""
-    cdr = SmsCdr(
-        cdr_id="0192a4d0-0001-7000-8000-000000000001",
-        session_id="0192a4d0-abcd-7000-8000-000000000001",
-        subscriber_id="0192a4d0-1234-7000-8000-000000000abc",
+class FakeCache:
+    def __init__(self) -> None:
+        self.store: dict[str, str] = {}
+        self.incr_by_calls: list[tuple[str, int]] = []
+        self.set_many_calls: list[dict[str, int]] = []
+        self.deleted: list[str] = []
+
+    async def ping(self) -> bool:
+        return True
+
+    async def set_str(self, key: str, value: str, ex: int) -> None:
+        self.store[key] = value
+
+    async def get_str(self, key: str) -> str | None:
+        return self.store.get(key)
+
+    async def delete(self, key: str) -> None:
+        self.deleted.append(key)
+        self.store.pop(key, None)
+
+    async def set_nx(self, key: str, value: str, ex: int) -> bool:
+        if key in self.store:
+            return False
+        self.store[key] = value
+        return True
+
+    async def incr(self, key: str) -> int:
+        v = int(self.store.get(key, "0")) + 1
+        self.store[key] = str(v)
+        return v
+
+    async def incr_by(self, key: str, amount: int) -> int:
+        self.incr_by_calls.append((key, amount))
+        v = int(self.store.get(key, "0")) + amount
+        self.store[key] = str(v)
+        return v
+
+    async def set_many(self, mapping: dict[str, int]) -> None:
+        self.set_many_calls.append(dict(mapping))
+        for k, v in mapping.items():
+            self.store[k] = str(v)
+
+
+_SUB = "0192a4d0-1234-7000-8000-000000000abc"
+_MSISDN = "9876543210"
+
+
+def _sms(cost: int, cdr_id: str = "0192a4d0-0001-7000-8000-000000000001", sub: str = _SUB) -> SmsCdr:
+    return SmsCdr(
+        cdr_id=UUID(cdr_id),
+        session_id=UUID("0192a4d0-abcd-7000-8000-000000000001"),
+        subscriber_id=UUID(sub),
         telecom_circle="KA",
-        cost_paise=250,
-        start_time="2026-01-01T12:00:00Z",
+        cost_paise=cost,
+        start_time=datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC),
         message_direction="MT",
         sms_status="delivered",
     )
 
-    asyncio.run(engine.deduct(cdr))
 
-    # Assert INCRBY was called with negative cost
-    mock_cache.incr_by.assert_called_once_with("balance:9876543210", -250)
+def _engine(*, flush_interval: float = 2.0, flush_dirty_threshold: int = 5000) -> tuple[BalanceEngine, FakeCache, FakeDB]:
+    """Build an engine with warm-up indices seeded for one subscriber/msisdn."""
+    cache = FakeCache()
+    db = FakeDB()
+    engine = BalanceEngine(cache, db, flush_interval=flush_interval, flush_dirty_threshold=flush_dirty_threshold)
+    engine._subscriber_to_msisdn = {_SUB: _MSISDN}
+    engine._msisdn_to_subscriber = {_MSISDN: _SUB}
+    return engine, cache, db
 
-    # Assert msisdn is marked dirty
-    assert "9876543210" in engine._dirty_msisdns
 
-    # Assert ledger row enqueued
+def test_deduct_issues_incrby_and_marks_dirty():
+    """Deduct issues INCRBY balance:{msisdn} -cost, marks dirty, enqueues ledger."""
+    engine, cache, _ = _engine()
+    cache.store["balance:9876543210"] = "10000"
+
+    asyncio.run(engine.deduct(_sms(cost=250)))
+
+    assert cache.incr_by_calls == [("balance:9876543210", -250)]
+    assert _MSISDN in engine._dirty_msisdns
     assert len(engine._ledger_queue) == 1
-    ledger = engine._ledger_queue[0]
-    assert ledger.subscriber_id == "0192a4d0-1234-7000-8000-000000000abc"
-    assert ledger.amount_paise == -250
-    assert ledger.cdr_id == "0192a4d0-0001-7000-8000-000000000001"
-    assert ledger.balance_before == 10000  # 9750 + 250
-    assert ledger.balance_after == 9750
+    row = engine._ledger_queue[0]
+    assert row.subscriber_id == _SUB
+    assert row.amount_paise == -250
+    assert row.balance_before == 10000  # 9750 + 250
+    assert row.balance_after == 9750
+    assert cache.store["balance:9876543210"] == "9750"
 
 
-def test_deduct_unknown_subscriber_skips(engine, mock_cache):
-    """Subscriber not in warm-up index → log warning and skip deduction."""
-    cdr = SmsCdr(
-        cdr_id="0192a4d0-0001-7000-8000-000000000002",
-        session_id="0192a4d0-abcd-7000-8000-000000000001",
-        subscriber_id="0192a4d0-9999-7000-8000-000000000def",  # unknown
-        telecom_circle="KA",
-        cost_paise=250,
-        start_time="2026-01-01T12:00:00Z",
-        message_direction="MT",
-        sms_status="delivered",
-    )
+def test_deduct_zero_cost_unlimited_still_logged():
+    """Zero-charge deduction still enqueues a ledger row (AC #7 unlimited bundle)."""
+    engine, cache, _ = _engine()
+    cache.store["balance:9876543210"] = "10000"
 
-    asyncio.run(engine.deduct(cdr))
+    asyncio.run(engine.deduct(_sms(cost=0)))
 
-    # Assert NO INCRBY (skip deduction)
-    mock_cache.incr_by.assert_not_called()
+    assert cache.incr_by_calls == [("balance:9876543210", 0)]
+    assert len(engine._ledger_queue) == 1
+    row = engine._ledger_queue[0]
+    assert row.amount_paise == 0
+    assert row.balance_before == 10000
+    assert row.balance_after == 10000
 
-    # Assert no dirty marking or ledger enqueue
+
+def test_deduct_unknown_subscriber_skips():
+    """Subscriber not in warm-up index → log + skip deduction (no INCRBY)."""
+    engine, cache, _ = _engine()
+
+    asyncio.run(engine.deduct(_sms(cost=250, sub="0192a4d0-9999-7000-8000-000000000def")))
+
+    assert cache.incr_by_calls == []
     assert len(engine._dirty_msisdns) == 0
     assert len(engine._ledger_queue) == 0
 
 
-def test_flusher_triggers_on_dirty_threshold(engine, mock_cache, mock_db):
-    """Flusher triggers when 5K dirty keys reached (Task 7)."""
-    # Mark 5000 msisdns dirty
-    for i in range(5000):
-        engine._dirty_msisdns.add(f"msisdn-{i}")
-
-    # Mock DB transaction context manager
-    async def mock_transaction():
-        async def noop():
-            yield MagicMock()
-
-        return noop()
-
-    mock_db.transaction.return_value = mock_transaction()
-    mock_cache.get_str.return_value = "10000"  # mock current balance
+def test_flush_upsert_uses_on_conflict_and_keeps_key():
+    """Flusher upserts with ON CONFLICT (msisdn) and does NOT delete the key."""
+    engine, cache, db = _engine()
+    cache.store["balance:9876543210"] = "9750"
+    engine._dirty_msisdns.add(_MSISDN)
 
     asyncio.run(engine._flush())
 
-    # Assert flush cleared dirty set
-    assert len(engine._dirty_msisdns) == 0
+    # The upsert SQL carries the ON CONFLICT clause
+    assert any("ON CONFLICT (msisdn)" in sql for sql, _ in db.executed)
+    # Dirty set cleared
+    assert _MSISDN not in engine._dirty_msisdns
+    # Key NOT deleted — still the live buffer
+    assert cache.store.get("balance:9876543210") == "9750"
+    assert cache.deleted == []
 
 
-def test_flusher_triggers_on_interval(engine, mock_db):
-    """Flusher triggers on 2s interval (Task 7)."""
-    # Mark 1 msisdn dirty (below threshold)
-    engine._dirty_msisdns.add("9876543210")
+def test_flush_inserts_queued_ledger_rows():
+    """Flusher batch-inserts queued ledger rows with before/after balances."""
+    engine, cache, db = _engine()
+    cache.store["balance:9876543210"] = "9750"
+    engine._dirty_msisdns.add(_MSISDN)
     engine._ledger_queue.append(
-        LedgerRow(
-            subscriber_id="0192a4d0-1234-7000-8000-000000000abc",
-            amount_paise=-250,
-            cdr_id="cdr-1",
-            description="sms",
-            balance_before=10000,
-            balance_after=9750,
-        )
+        LedgerRow(_SUB, -250, "0192a4d0-0001-7000-8000-000000000001", "sms", 10000, 9750)
     )
 
-    # Mock DB transaction
-    async def mock_transaction():
-        async def noop():
-            conn = AsyncMock()
-            conn.execute = AsyncMock()
-            yield conn
+    asyncio.run(engine._flush())
 
-        return noop()
+    # One upsert (wallet) + one insert (ledger)
+    assert len(db.executed) == 2
+    ledger_sql = db.executed[1][0]
+    assert "billing_transactions" in ledger_sql
+    ledger_params = db.executed[1][1]
+    assert ledger_params[0] == _SUB  # subscriber_id
+    assert ledger_params[1] == -250  # amount_paise
+    assert ledger_params[4] == 10000  # balance_before
+    assert ledger_params[5] == 9750  # balance_after
 
-    mock_db.transaction.return_value = mock_transaction()
 
-    # Start flusher, wait for interval, stop
-    async def run_flusher_once():
-        flush_task = asyncio.create_task(engine._flusher_loop())
-        await asyncio.sleep(2.2)  # wait past interval
+def test_flusher_triggers_on_dirty_threshold():
+    """Flusher flushes immediately when dirty count reaches the threshold (AC #3)."""
+    engine, cache, db = _engine(flush_interval=10.0, flush_dirty_threshold=1)
+    cache.store["balance:9876543210"] = "9750"
+    engine._dirty_msisdns.add(_MSISDN)  # at/above threshold → immediate flush
+
+    async def run():
+        task = asyncio.create_task(engine._flusher_loop())
+        await asyncio.sleep(0.3)  # far below the 10s interval
         engine._flusher_running = False
-        await flush_task
+        await task
 
-    asyncio.run(run_flusher_once())
+    asyncio.run(run())
 
-    # Assert flush cleared dirty set
-    assert len(engine._dirty_msisdns) == 0
-
-
-def test_flush_upsert_sql_on_conflict_msidsdn(engine, mock_db):
-    """Flusher uses ON CONFLICT (msisdn) for upsert (Task 7)."""
-    engine._dirty_msisdns.add("9876543210")
-    engine._msisdn_to_subscriber = {"9876543210": "0192a4d0-1234-7000-8000-000000000abc"}
-    engine._ledger_queue.clear()
-
-    async def mock_transaction():
-        async def yield_conn():
-            conn = AsyncMock()
-            conn.execute = AsyncMock()
-            yield conn
-
-        return yield_conn()
-
-    mock_db.transaction.return_value = mock_transaction()
-
-    asyncio.run(engine._flush())
-
-    # Get the transaction context and verify execute was called
-    transaction_fn = mock_db.transaction.call_args[0][0]
-    conn = asyncio.run(transaction_fn()).__aenter__.return_value
-
-    # Verify execute was called (the exact SQL string contains ON CONFLICT)
-    assert conn.execute.called
-    call_args = conn.execute.call_args
-    sql = call_args[0][0] if call_args[0] else call_args.kwargs.get("sql", "")
-    assert "ON CONFLICT (msisdn)" in sql
+    # Flush happened quickly → proves the threshold (not the 10s timer) fired
+    assert len(db.executed) >= 1
 
 
-def test_flush_keys_not_deleted(engine, mock_cache, mock_db):
-    """Flush does NOT delete balance keys after upsert (Task 7)."""
-    engine._dirty_msisdns.add("9876543210")
+def test_flusher_triggers_on_interval():
+    """Flusher flushes on the timed interval when below the dirty threshold (AC #3)."""
+    engine, cache, db = _engine(flush_interval=0.1, flush_dirty_threshold=9999)
+    cache.store["balance:9876543210"] = "9750"
+    engine._dirty_msisdns.add(_MSISDN)  # 1 dirty, below threshold → waits for timer
 
-    async def mock_transaction():
-        async def noop():
-            yield MagicMock()
+    async def run():
+        task = asyncio.create_task(engine._flusher_loop())
+        await asyncio.sleep(0.5)  # well past the 0.1s interval
+        engine._flusher_running = False
+        await task
 
-        return noop()
+    asyncio.run(run())
 
-    mock_db.transaction.return_value = mock_transaction()
-    mock_cache.get_str.return_value = "9750"
+    # Flush happened on the timer (threshold never reached)
+    assert len(db.executed) >= 1
 
-    asyncio.run(engine._flush())
 
-    # Assert NO delete calls on cache
-    mock_cache.delete.assert_not_called()
+def test_stop_drains_dirty_set():
+    """stop() performs a final flush draining any remaining dirty keys."""
+    engine, cache, db = _engine()
+    cache.store["balance:9876543210"] = "9750"
+    engine._dirty_msisdns.add(_MSISDN)
 
-    # Key still exists (not deleted)
-    assert "9876543210" not in engine._dirty_msisdns  # cleared dirty, but key remains in cache
+    asyncio.run(engine.stop())
+
+    assert _MSISDN not in engine._dirty_msisdns
+    assert any("ON CONFLICT (msisdn)" in sql for sql, _ in db.executed)

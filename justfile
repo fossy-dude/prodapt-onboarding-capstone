@@ -175,6 +175,14 @@ test:
 test-cdr:
     cd cdr-pipeline && {{uv_tox}} -e test
 
+# Run backend integration tests (opt-in; integration/slow are skipped by default).
+test-integration:
+    cd service_webapp && {{uv_tox}} -e test -- --run-integration
+
+# Run CDR pipeline integration tests (opt-in).
+test-cdr-integration:
+    cd cdr-pipeline && {{uv_tox}} -e test -- --run-integration
+
 # Run frontend unit tests (Vitest).
 test-fe:
     cd frontend && npm run test

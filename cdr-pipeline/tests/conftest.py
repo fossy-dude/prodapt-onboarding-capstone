@@ -1,14 +1,14 @@
-"""Shared pytest fixtures for the service_webapp test suite (Story 1.4)."""
+"""Shared pytest config for the cdr-pipeline test suite.
+
+Integration and slow tests skip by default; opt in with ``--run-integration`` /
+``--run-slow``. The hook is intentionally duplicated from
+service_webapp/tests/conftest.py because the two projects run pytest
+independently (each has its own rootdir/pythonpath) and share no conftest root.
+"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import pytest
-from httpx import ASGITransport, AsyncClient
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
 
 
 def pytest_addoption(parser):
@@ -33,7 +33,7 @@ def pytest_collection_modifyitems(config, items):
     Plain ``pytest`` runs unit tests only. Pass ``--run-integration`` and/or
     ``--run-slow`` to opt in. An item runs if ANY of its gate marks has its flag
     set, so tests marked both ``slow`` + ``integration`` (the integration suite)
-    run under either flag. Mirrored in cdr-pipeline/tests/conftest.py.
+    run under either flag. Mirrored in service_webapp/tests/conftest.py.
     """
     run_integration = config.getoption("--run-integration")
     run_slow = config.getoption("--run-slow")
@@ -49,18 +49,3 @@ def pytest_collection_modifyitems(config, items):
             (has_slow and run_slow) or (has_integration and run_integration)
         ):
             item.add_marker(skip_gate)
-
-
-@pytest.fixture
-async def client() -> AsyncIterator[AsyncClient]:
-    """Default app + async HTTP client.
-
-    No adapters are injected and the ASGI lifespan is not exercised — use this for
-    endpoints that touch no dependencies (``/health`` and the trace contract).
-    """
-    from main import create_app
-
-    application = create_app()
-    transport = ASGITransport(app=application)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac

@@ -327,7 +327,7 @@ commands = [
 ]
 
 [tool.tox.env.test]
-description = "Run pytest (skip slow tests)"
+description = "Run pytest (unit tests only; integration/slow skip by default via conftest)"
 # Story 1.4: test stack now exercises the FastAPI app + psycopg/valkey adapters +
 # testcontainers (Postgres/Valkey) for the /ready integration test. psycopg uses
 # the binary wheel (no libpq-dev needed). Heavy runtime deps (weasyprint etc.) are
@@ -356,4 +356,4 @@ deps = [
     "uuid7>=0.1",
     "numpy>=1.26",
 ]
-commands = [["pytest", "-m", "not slow", "{posargs}"]]
+commands = [["pytest", "{posargs}"]]

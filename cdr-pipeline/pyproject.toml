@@ -18,7 +18,7 @@ dependencies = [
     "valkey[asyncio]>=6",
     "opentelemetry-sdk>=1.25",
     # Story 2.3: Postgres async adapter (balance ledger flush).
-    "psycopg[async,pool]>=3.2",
+    "psycopg[binary,pool]>=3.2",
     # Story 2.5: management API + admin JWT guard.
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
@@ -303,7 +303,7 @@ deps = [
     "valkey[asyncio]>=6",
     "opentelemetry-sdk>=1.25",
     # Story 2.3: Postgres async adapter.
-    "psycopg[async,pool]>=3.2",
+    "psycopg[binary,pool]>=3.2",
     # Story 2.5: management API + admin JWT guard.
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
@@ -316,7 +316,7 @@ commands = [
 ]
 
 [tool.tox.env.test]
-description = "Run pytest (skip slow tests)"
+description = "Run pytest (unit tests only; integration/slow skip by default via conftest)"
 # Story 1.4: config singleton tests need pydantic-settings + pytest-asyncio.
 # Story 2.2: valkey + opentelemetry for the new adapters/consumer; testcontainers
 # adds the redis extra for the slow Redpanda+Valkey integration test.
@@ -333,10 +333,10 @@ deps = [
     "opentelemetry-sdk>=1.25",
     "pytest-mock>=3",
     "testcontainers[kafka,redis,postgres]>=4",
-    "psycopg[binary]>=3.2",
+    "psycopg[binary,pool]>=3.2",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
     "PyJWT[crypto]>=2.8",
     "httpx>=0.27",
 ]
-commands = [["pytest", "-m", "not slow", "{posargs}"]]
+commands = [["pytest", "{posargs}"]]
