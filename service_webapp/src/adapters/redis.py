@@ -53,6 +53,11 @@ class ValkeyAdapter(CacheProtocol):
         """
         await self._client.set(f"balance:{msisdn}", paise)
 
+    async def get_balance(self, msisdn: str) -> int | None:
+        """GET ``balance:{msisdn}`` as integer paise; ``None`` if key absent (cold cache)."""
+        raw = await self._client.get(f"balance:{msisdn}")
+        return int(raw) if raw is not None else None
+
     async def close(self) -> None:
         """Close the underlying client (best-effort)."""
         try:

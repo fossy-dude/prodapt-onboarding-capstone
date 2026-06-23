@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { RoleGuard } from "./components/layout/RoleGuard";
 import { Login } from "./portals/auth/Login";
+import { Dashboard } from "./portals/subscriber/Dashboard";
 import { PaymentMethods } from "./portals/subscriber/PaymentMethods";
 import { Profile } from "./portals/subscriber/Profile";
 import { CdrSimulator } from "./portals/simulator/CdrSimulator";
@@ -50,6 +51,7 @@ function App() {
         element={
           <RoleGuard allowedRoles={["subscriber"]}>
             <Routes>
+              <Route path="dashboard" element={<Dashboard />} />
               <Route path="activate" element={<SimActivation />} />
               <Route path="profile" element={<Profile />} />
               <Route

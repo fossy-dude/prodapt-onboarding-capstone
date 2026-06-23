@@ -318,6 +318,57 @@ export async function deletePaymentMethod(id: string): Promise<void> {
   await apiClient.delete(`/account/payment-methods/${id}`);
 }
 
+// ── Balance & Usage (Story 3.2) ───────────────────────────────────────────────
+
+export interface WalletBalanceData {
+  readonly subscriber_id: string;
+  readonly msisdn_masked: string;
+  readonly balance_paise: number;
+  readonly balance_inr: string;
+  readonly last_updated_at: string | null;
+}
+
+interface WalletBalanceResponse {
+  readonly data: WalletBalanceData;
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+export interface UsageAllowance {
+  readonly used: number;
+  readonly allowance: number | null;
+  readonly unlimited: boolean;
+}
+
+export interface UsageData {
+  readonly subscriber_id: string;
+  readonly plan_period: { readonly start: string; readonly end: string | null };
+  readonly voice_minutes: UsageAllowance;
+  readonly data_mb: number;
+  readonly data_gb: number;
+  readonly data: UsageAllowance;
+  readonly sms: UsageAllowance;
+  readonly roaming_mb: UsageAllowance;
+}
+
+interface UsageResponse {
+  readonly data: UsageData;
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/** GET /subscriber/balance — current wallet balance (Valkey-authoritative). */
+export async function getBalance(): Promise<WalletBalanceData> {
+  const { data } = await apiClient.get<WalletBalanceResponse>(
+    "/subscriber/balance",
+  );
+  return data.data;
+}
+
+/** GET /subscriber/usage — per-type CDR usage vs plan allowances. */
+export async function getUsage(): Promise<UsageData> {
+  const { data } = await apiClient.get<UsageResponse>("/subscriber/usage");
+  return data.data;
+}
+
 // ── CDR Simulator (Story 2.8) ──────────────────────────────────────────────────
 
 export interface CdrDispatchPayload {

@@ -37,6 +37,7 @@ from routers.account import (
     auth_router,
     router as subscriber_router,
 )
+from routers.balance import router as balance_router
 from routers.health import router as health_router
 from routers.simulator import (
     connection_manager as _trace_connection_manager,
@@ -236,6 +237,7 @@ def create_app(
     app.include_router(subscriber_router)
     app.include_router(auth_router)
     app.include_router(account_router)
+    app.include_router(balance_router)
     app.include_router(simulator_router)
     app.include_router(simulator_ws_router)
     app.state.db_adapter = db_adapter

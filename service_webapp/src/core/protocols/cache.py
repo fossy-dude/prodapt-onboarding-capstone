@@ -39,3 +39,11 @@ class CacheProtocol(Protocol):
         row must start in sync.
         """
         ...
+
+    async def get_balance(self, msisdn: str) -> int | None:
+        """GET ``balance:{msisdn}`` and return as integer paise, or ``None`` if key absent.
+
+        Returns ``None`` on a cold cache (key not yet seeded) — callers fall back to
+        ``billing_wallet_balances.balance_paise`` in that case (architecture §1.7.3).
+        """
+        ...
