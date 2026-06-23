@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-23  # Epic 4 all stories → ready-for-dev
+last_updated: 2026-06-23  # Story 3.3 → review (transaction history ledger)
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -74,7 +74,7 @@ development_status:
   epic-3: in-progress
   3-1-ux-brief-balance-usage-recharge-portal-flows: review
   3-2-real-time-balance-display-usage-breakdown: review
-  3-3-transaction-history-ledger: ready-for-dev
+  3-3-transaction-history-ledger: review
   3-4-plan-details-view-plan-catalogue: ready-for-dev
   3-5-recharge-purchase-plan-selection-simulated-payment: ready-for-dev
   3-6-pdf-receipt-generation: ready-for-dev
