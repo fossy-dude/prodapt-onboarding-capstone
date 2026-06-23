@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-23  # Story 3.2 → review (real-time balance display & usage breakdown)
+last_updated: 2026-06-23  # Epic 4 all stories → ready-for-dev
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -82,11 +82,11 @@ development_status:
   epic-3-retrospective: optional
 
   # Epic 4: Notifications & USSD Interface
-  epic-4: backlog
-  4-1-notification-service-low-balance-depletion-plan-expiry-alerts: backlog
-  4-2-notification-preferences-delivery-simulation: backlog
-  4-3-rate-limiting-per-subscriber-100-rpm: backlog
-  4-4-ussd-session-handler-menu-router: backlog
+  epic-4: in-progress
+  4-1-notification-service-low-balance-depletion-plan-expiry-alerts: ready-for-dev
+  4-2-notification-preferences-delivery-simulation: ready-for-dev
+  4-3-rate-limiting-per-subscriber-100-rpm: ready-for-dev
+  4-4-ussd-session-handler-menu-router: ready-for-dev
   epic-4-retrospective: optional
 
   # Epic 5: Self-Care Chatbot — Multi-Agent (TDD-first)
