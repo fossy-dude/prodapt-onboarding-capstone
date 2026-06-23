@@ -67,7 +67,7 @@ development_status:
   2-6-synthetic-dataset-generation-plans-subscribers-cdrs: done
   2-7-milvus-lite-initialisation-vector-seeding: review
   2-8-cdr-simulator-ui-form-dispatch-websocket-trace-display: review
-  2-9-sim-activation-simulator-notification-portal: in-progress
+  2-9-sim-activation-simulator-notification-portal: review
   epic-2-retrospective: optional
 
   # Epic 3: Subscriber Self-Care Portal

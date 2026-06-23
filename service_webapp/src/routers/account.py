@@ -26,7 +26,7 @@ from datetime import UTC, date, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from psycopg.types.json import Json
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -806,7 +806,7 @@ async def delete_payment_method(
         )
 
     logger.info("payment-method deleted: sub=%s id=%s", sub, method_id)
-    return JSONResponse(status_code=204, content=None)
+    return Response(status_code=204)
 
 
 __all__ = [

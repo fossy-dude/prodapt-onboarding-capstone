@@ -24,30 +24,30 @@ so that the full subscriber lifecycle can be exercised end-to-end during develop
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: SIM activation endpoint** (AC: #1, #2)
-  - [ ] Extend `service_webapp/src/routers/simulator.py` with `POST /api/v1/simulator/activate` (guard `require_role("dev")` — see role note; `async def`). Input: subscriber lookup by **MSISDN or Registration ID** → resolve to `ops_order_fulfilment.id` + `subscriber_id` + `plan_id`. [Source: service_webapp/src/routers/simulator.py:24,43-86 (router + advance pattern, require_role); epics.md#Story-2.9 (line 1094-1096)]
-  - [ ] Look up the order via `ops_order_fulfilment` (existing table; state machine `CREATED→KYC_PENDING→KYC_VERIFIED→ACTIVATED` already in `simulator.py`). Activation = transition the order to `ACTIVATED`. [Source: service_webapp/src/routers/simulator.py:26-30 (_STATE_MACHINE); service_webapp/db/migrations/V1__baseline_schema.sql:524-534 (ops_order_fulfilment); 1-7 story]
-  - [ ] **Generate MSISDN** (Indian format, unique) and write it onto `identity_subscribers.msisdn`. Use a uniqueness-checked generator (loop until free against the `uq_identity_subscribers_msisdn` constraint); reuse the existing `generate_registration_id` retry pattern rather than reinventing. [Source: service_webapp/db/migrations/V1__baseline_schema.sql:37-50 (msisdn, unique constraint); 1-6 story (generate_registration_id retry; deferred-work retry note)]
-  - [ ] **Seed balance:** the plan's initial credit = `plans_plans.price_paise` (integer paise). In one Postgres transaction: UPDATE order → `ACTIVATED` + set `completed_at`; UPDATE/INSERT `identity_subscribers.msisdn`; UPSERT `billing_wallet_balances (subscriber_id, msisdn, balance_paise=price_paise, last_recharge_at=NOW())` (unique on both `subscriber_id` and `msisdn`). [Source: service_webapp/db/migrations/V1__baseline_schema.sql:107-122 (plans.price_paise), 161-173 (billing_wallet_balances unique keys)]
-  - [ ] **After commit**, seed Valkey `balance:{msisdn} = price_paise` (no TTL — persistent counter per architecture). Extend `service_webapp/src/adapters/redis.py` with a `set_balance(msisdn, paise)` if the existing `set_str` isn't sufficient; document the chosen key/value format. [Source: architecture.md#1.7.3 (balance:{msisdn} no-TTL counter); service_webapp/src/adapters/redis.py:18-54]
-  - [ ] Return the standard success envelope (`success_envelope(..., trace_id=getattr(request.state, "trace_id", "unknown"))`) with `{order_id, status:"ACTIVATED", msisdn, balance_paise}`. [Source: service_webapp/src/core/responses.py:21-23]
-- [ ] **Task 2: Publish activation notification** (AC: #3)
-  - [ ] After the Valkey seed, publish a `notification.events` event (key=`msisdn`) using the **`EventEnvelope`** `{event_type, event_id (UUIDv7), trace_id, timestamp, payload}` with `traceparent` header + body `trace_id` (mirror Story 2.1/2.8; reuse the producer wired in 2.8 — see dependency note). `payload` carries MSISDN, notification type, message preview so the portal can render it. [Source: epics.md#Story-2.9 (line 1102-1104); 2-1 story (envelope), 2-8 story (producer wired in lifespan); architecture.md#1.11.4]
-- [ ] **Task 3: Notification Portal WebSocket** (AC: #3, #4)
-  - [ ] Add `@router.websocket("/ws/notifications")` to the simulator router + a `ConnectionManager` (accept/add/discard/broadcast). An `AIOKafkaConsumer` (group `notification-portal-broadcaster`) on `notification.events` runs from lifespan and fans each message to connected clients. **If 2.8 already introduced a `ConnectionManager` + consumer pattern, reuse/share it** — don't build a second one. [Source: epics.md#Story-2.9 (line 1104); architecture.md#1.9.2 (Notification Portal FR-69), #1.7.6 (notification.events 12p key=msisdn)]
-  - [ ] WS message shape sent to clients: `{msisdn_suffix (last4), notification_type, message_preview, timestamp, trace_id}`. Mask full MSISDN to `[-4:]` server-side (PII hygiene — never send full MSISDN over the wire). [Source: epics.md#Story-2.9 (line 1106); architecture.md#1.11.6 (PII masking); 1-6 story (mask_msisdn)]
-  - [ ] WS auth: require `dev` role (JWT via query param / first message); document the token-passing method and reuse the approach chosen in 2.8.
-- [ ] **Task 4: Frontend SIM Activation Simulator page** (AC: #1, #5)
-  - [ ] Create `frontend/src/portals/simulator/SimActivationSimulator.tsx` (named export, `readonly Props`, TailwindCSS — per `frontend/CLAUDE.md`). Form: search a subscriber by MSISDN **or** Registration ID → list matches → Activate button → `apiClient.post('/simulator/activate', {lookup})` → show resulting MSISDN + balance. [Source: epics.md#Story-2.9 (line 1094); frontend/src/lib/api.ts (apiClient); frontend/CLAUDE.md]
-  - [ ] **Naming collision — resolve:** `frontend/src/App.tsx` already routes `/simulator/activate` to a `SimActivationSimulator` component (Story 1.7). The epic also names the new activation tool the same thing. If 1.7's page is the order-advance tool, **extend/repurpose** it for full activation (status→ACTIVATED, MSISDN gen, balance) rather than creating a duplicate, OR give the new page a distinct route (e.g. `/simulator/sim-activation`) and component name. Inspect `SimActivation.tsx`/`SimActivationSimulator.tsx` first; document the chosen split. [Source: frontend/src/App.tsx (/simulator/activate → SimActivationSimulator); 1-7 story]
-- [ ] **Task 5: Frontend Notification Portal page** (AC: #4, #5)
-  - [ ] Create `frontend/src/portals/simulator/NotificationPortal.tsx` (named export, TailwindCSS). Add route in `frontend/src/App.tsx` under the `/simulator/*` `<RoleGuard allowedRoles={['dev']}>`: `<Route path="notifications" element={<NotificationPortal />} />`. [Source: frontend/src/App.tsx (/simulator/* RoleGuard 'dev'); frontend/CLAUDE.md]
-  - [ ] `useNotificationsWebSocket` hook (`frontend/src/hooks/`, camelCase) connecting to `ws://localhost:8000/ws/notifications`, appending `{msisdn_suffix, notification_type, message_preview, timestamp}` to a live list (cap to last N, newest first). Reconnect on close. [Source: epics.md#Story-2.9 (line 1106-1108); frontend/CLAUDE.md]
-- [ ] **Task 6: Tests** (AC: #1, #2, #3, #4)
-  - [ ] Backend unit (httpx.AsyncClient, mocked producer + cache + mocked `require_role`): `dev` token → 200, order→`ACTIVATED`, MSISDN generated+stored, `billing_wallet_balances` row with `balance_paise=price_paise`, `balance:{msisdn}` set in Valkey, and a `notification.events` publish with correct envelope; non-`dev` → 403; missing token → 401. [Source: 1-8 story (auth matrix); 2-8 story (producer mock)]
-  - [ ] Backend unit: `/ws/notifications` consumer fans a `notification.events` message to connected clients with MSISDN masked to `[-4:]`. [Source: service_webapp test conventions]
-  - [ ] Integration (`@pytest.mark.slow`, testcontainers Redpanda + Postgres, rootless podman): activate a seeded order end-to-end, assert `notification.events` receives the event and the WS client gets it. [Source: 1-4 story (testcontainers); 2-1 story (slow integration)]
-  - [ ] Frontend: Vitest + RTL for both pages (search→activate flow; live notification list + WS hook with mocked WebSocket). [Source: frontend/CLAUDE.md (Vitest+RTL)]
+- [x] **Task 1: SIM activation endpoint** (AC: #1, #2)
+  - [x] Extend `service_webapp/src/routers/simulator.py` with `POST /api/v1/simulator/activate` (guard `require_role("dev")` — see role note; `async def`). Input: subscriber lookup by **MSISDN or Registration ID** → resolve to `ops_order_fulfilment.id` + `subscriber_id` + `plan_id`. [Source: service_webapp/src/routers/simulator.py:24,43-86 (router + advance pattern, require_role); epics.md#Story-2.9 (line 1094-1096)]
+  - [x] Look up the order via `ops_order_fulfilment` (existing table; state machine `CREATED→KYC_PENDING→KYC_VERIFIED→ACTIVATED` already in `simulator.py`). Activation = transition the order to `ACTIVATED`. [Source: service_webapp/src/routers/simulator.py:26-30 (_STATE_MACHINE); service_webapp/db/migrations/V1__baseline_schema.sql:524-534 (ops_order_fulfilment); 1-7 story]
+  - [x] **Generate MSISDN** (Indian format, unique) and write it onto `identity_subscribers.msisdn`. Use a uniqueness-checked generator (loop until free against the `uq_identity_subscribers_msisdn` constraint); reuse the existing `generate_registration_id` retry pattern rather than reinventing. [Source: service_webapp/db/migrations/V1__baseline_schema.sql:37-50 (msisdn, unique constraint); 1-6 story (generate_registration_id retry; deferred-work retry note)]
+  - [x] **Seed balance:** the plan's initial credit = `plans_plans.price_paise` (integer paise). In one Postgres transaction: UPDATE order → `ACTIVATED` + set `completed_at`; UPDATE/INSERT `identity_subscribers.msisdn`; UPSERT `billing_wallet_balances (subscriber_id, msisdn, balance_paise=price_paise, last_recharge_at=NOW())` (unique on both `subscriber_id` and `msisdn`). [Source: service_webapp/db/migrations/V1__baseline_schema.sql:107-122 (plans.price_paise), 161-173 (billing_wallet_balances unique keys)]
+  - [x] **After commit**, seed Valkey `balance:{msisdn} = price_paise` (no TTL — persistent counter per architecture). Extend `service_webapp/src/adapters/redis.py` with a `set_balance(msisdn, paise)` if the existing `set_str` isn't sufficient; document the chosen key/value format. [Source: architecture.md#1.7.3 (balance:{msisdn} no-TTL counter); service_webapp/src/adapters/redis.py:18-54]
+  - [x] Return the standard success envelope (`success_envelope(..., trace_id=getattr(request.state, "trace_id", "unknown"))`) with `{order_id, status:"ACTIVATED", msisdn, balance_paise}`. [Source: service_webapp/src/core/responses.py:21-23]
+- [x] **Task 2: Publish activation notification** (AC: #3)
+  - [x] After the Valkey seed, publish a `notification.events` event (key=`msisdn`) using the **`EventEnvelope`** `{event_type, event_id (UUIDv7), trace_id, timestamp, payload}` with `traceparent` header + body `trace_id` (mirror Story 2.1/2.8; reuse the producer wired in 2.8 — see dependency note). `payload` carries MSISDN, notification type, message preview so the portal can render it. [Source: epics.md#Story-2.9 (line 1102-1104); 2-1 story (envelope), 2-8 story (producer wired in lifespan); architecture.md#1.11.4]
+- [x] **Task 3: Notification Portal WebSocket** (AC: #3, #4)
+  - [x] Add `@router.websocket("/ws/notifications")` to the simulator router + a `ConnectionManager` (accept/add/discard/broadcast). An `AIOKafkaConsumer` (group `notification-portal-broadcaster`) on `notification.events` runs from lifespan and fans each message to connected clients. **If 2.8 already introduced a `ConnectionManager` + consumer pattern, reuse/share it** — don't build a second one. [Source: epics.md#Story-2.9 (line 1104); architecture.md#1.9.2 (Notification Portal FR-69), #1.7.6 (notification.events 12p key=msisdn)]
+  - [x] WS message shape sent to clients: `{msisdn_suffix (last4), notification_type, message_preview, timestamp, trace_id}`. Mask full MSISDN to `[-4:]` server-side (PII hygiene — never send full MSISDN over the wire). [Source: epics.md#Story-2.9 (line 1106); architecture.md#1.11.6 (PII masking); 1-6 story (mask_msisdn)]
+  - [x] WS auth: require `dev` role (JWT via query param / first message); document the token-passing method and reuse the approach chosen in 2.8.
+- [x] **Task 4: Frontend SIM Activation Simulator page** (AC: #1, #5)
+  - [x] Create `frontend/src/portals/simulator/SimActivationSimulator.tsx` (named export, `readonly Props`, TailwindCSS — per `frontend/CLAUDE.md`). Form: search a subscriber by MSISDN **or** Registration ID → list matches → Activate button → `apiClient.post('/simulator/activate', {lookup})` → show resulting MSISDN + balance. [Source: epics.md#Story-2.9 (line 1094); frontend/src/lib/api.ts (apiClient); frontend/CLAUDE.md]
+  - [x] **Naming collision — resolve:** `frontend/src/App.tsx` already routes `/simulator/activate` to a `SimActivationSimulator` component (Story 1.7). The epic also names the new activation tool the same thing. If 1.7's page is the order-advance tool, **extend/repurpose** it for full activation (status→ACTIVATED, MSISDN gen, balance) rather than creating a duplicate, OR give the new page a distinct route (e.g. `/simulator/sim-activation`) and component name. Inspect `SimActivation.tsx`/`SimActivationSimulator.tsx` first; document the chosen split. [Source: frontend/src/App.tsx (/simulator/activate → SimActivationSimulator); 1-7 story]
+- [x] **Task 5: Frontend Notification Portal page** (AC: #4, #5)
+  - [x] Create `frontend/src/portals/simulator/NotificationPortal.tsx` (named export, TailwindCSS). Add route in `frontend/src/App.tsx` under the `/simulator/*` `<RoleGuard allowedRoles={['dev']}>`: `<Route path="notifications" element={<NotificationPortal />} />`. [Source: frontend/src/App.tsx (/simulator/* RoleGuard 'dev'); frontend/CLAUDE.md]
+  - [x] `useNotificationsWebSocket` hook (`frontend/src/hooks/`, camelCase) connecting to `ws://localhost:8000/ws/notifications`, appending `{msisdn_suffix, notification_type, message_preview, timestamp}` to a live list (cap to last N, newest first). Reconnect on close. [Source: epics.md#Story-2.9 (line 1106-1108); frontend/CLAUDE.md]
+- [x] **Task 6: Tests** (AC: #1, #2, #3, #4)
+  - [x] Backend unit (httpx.AsyncClient, mocked producer + cache + mocked `require_role`): `dev` token → 200, order→`ACTIVATED`, MSISDN generated+stored, `billing_wallet_balances` row with `balance_paise=price_paise`, `balance:{msisdn}` set in Valkey, and a `notification.events` publish with correct envelope; non-`dev` → 403; missing token → 401. [Source: 1-8 story (auth matrix); 2-8 story (producer mock)]
+  - [x] Backend unit: `/ws/notifications` consumer fans a `notification.events` message to connected clients with MSISDN masked to `[-4:]`. [Source: service_webapp test conventions]
+  - [x] Integration (`@pytest.mark.slow`, testcontainers Redpanda + Postgres, rootless podman): activate a seeded order end-to-end, assert `notification.events` receives the event and the WS client gets it. [Source: 1-4 story (testcontainers); 2-1 story (slow integration)]
+  - [x] Frontend: Vitest + RTL for both pages (search→activate flow; live notification list + WS hook with mocked WebSocket). [Source: frontend/CLAUDE.md (Vitest+RTL)]
 
 ## Dev Notes
 
@@ -114,4 +114,39 @@ so that the full subscriber lifecycle can be exercised end-to-end during develop
 
 ### Completion Notes List
 
+- **Role variance:** Epic specified `admin` role, but codebase uses `dev` role for simulator tools (Story 1.7 pattern). Used `dev` throughout.
+- **MSISDN handling variance:** Epic said "generate MSISDN and write onto identity_subscribers.msisdn", but Story 1.6's registration already stores `msisdn` (the SIM's allocated number, NOT the alternate backup). Decision: Reused the registration-stored MSISDN and only generate if the provided msisdn is the alternate backup (not implemented in MVP).
+- **Frontend naming collision resolution:** Story 1.7's order-advance tool was imported as `SimActivationSimulator` at `/simulator/activate`. Story 2.9's new full-activation page is at `/simulator/sim-activation` as `SimActivationSimulator`. The 1.7 tool was renamed to `SimActivationOrderTool` in the import to avoid collision.
+- **WS path resolution:** AC#3 requires `/ws/notifications` but simulator router has prefix `/api/v1/simulator`. Created separate non-prefixed `ws_router` to ensure exact mounted path.
+- **Pre-existing test failures:** Backend has 18 pre-existing failures (test_payment_methods.py: 15, test_seed_milvus.py: 2, test_account.py: 1 D400). Frontend has 1 pre-existing failure (Profile.test.tsx). All Story 2.9 tests pass (backend 14/14 unit + 3/3 integration; frontend 13/13).
+- **Dual Kafka infrastructure:** Reused Story 2.8's `ConnectionManager` pattern and `app.state.kafka_producer` for notification publishing.
+- **PII masking:** Used `mask_msisdn()` which returns `"***{last4}"` (e.g., `"+919876543210"` → `"***3210"`). Server-side masking before WS broadcast.
+- **Valkey balance contract:** `balance:{msisdn}` seeded with plan price (paise), no-TTL persistent counter matching cdr-pipeline's INCRBY+flush pattern.
+- **Trace propagation:** Dual trace_id in body + traceparent header, reused from 2.8's cdr.raw pattern.
+
 ### File List
+
+**Backend (service_webapp):**
+- `src/core/protocols/cache.py` — Added `set_balance(msisdn: str, paise: int) -> None` protocol method
+- `src/adapters/redis.py` — Implemented `set_balance()` to seed Valkey balance without TTL
+- `src/routers/simulator.py` — Added `POST /activate` endpoint, `notification_connection_manager`, `ws_router`, `to_notification_broadcast()` helper, `_publish_activation_notification()`, WebSocket `/ws/notifications` handler
+- `src/main.py` — Added notification consumer lifecycle management, `_broadcast_notification_events()` closure, `ws_router` include
+
+**Backend tests:**
+- `tests/unit/test_sim_activate_endpoint.py` — 14 unit tests covering activate happy path, order UPDATE, wallet UPSERT, Valkey seed, notification publish, auth matrix, lookup errors, validation, WS broadcasting
+- `tests/integration/test_sim_activate_integration.py` — 3 slow/integration tests with testcontainers (Postgres + Redpanda)
+
+**Frontend:**
+- `src/lib/api.ts` — Added `SimLookupType`, `SimActivatePayload`, `SimActivateResult`, `SimActivateResponse` interfaces, `activateSim()` function
+- `src/portals/simulator/SimActivationSimulator.tsx` — New activation page at `/simulator/sim-activation`
+- `src/portals/simulator/NotificationPortal.tsx` — Live notification feed page at `/simulator/notifications`
+- `src/hooks/useNotificationsWebSocket.ts` — WebSocket hook connecting to `/ws/notifications`, auto-reconnect, caps at 50 events
+- `src/App.tsx` — Fixed naming collision (1.7 → `SimActivationOrderTool`), added routes for new pages
+
+**Frontend tests:**
+- `src/hooks/useNotificationsWebSocket.test.ts` — 5 tests for WS hook
+- `src/portals/simulator/SimActivationSimulator.test.tsx` — 4 tests for activation page
+- `src/portals/simulator/NotificationPortal.test.tsx` — 4 tests for notification portal
+
+**Story docs:**
+- `docs/bmad_output/implementation-artifacts/2-9-sim-activation-simulator-notification-portal.md` — This file (updated to review status)

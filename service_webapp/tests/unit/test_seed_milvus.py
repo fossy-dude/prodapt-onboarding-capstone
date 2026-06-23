@@ -231,7 +231,7 @@ def test_drop_and_create_does_not_drop_when_absent(seeder: ModuleType) -> None:
 
 def test_build_schema_adds_expected_metadata_fields(seeder: ModuleType) -> None:
     """All per-collection metadata scalars are added to the schema (pk/text/embedding/sparse too)."""
-    with patch("pymilvus.MilvusClient") as mock_cls:
+    with patch.object(seeder, "MilvusClient") as mock_cls:
         schema_mock = MagicMock()
         mock_cls.create_schema.return_value = schema_mock
 
@@ -253,7 +253,7 @@ def test_build_schema_adds_expected_metadata_fields(seeder: ModuleType) -> None:
 
 
 def test_build_schema_embedding_dim_is_1536(seeder: ModuleType) -> None:
-    with patch("pymilvus.MilvusClient") as mock_cls:
+    with patch.object(seeder, "MilvusClient") as mock_cls:
         schema_mock = MagicMock()
         mock_cls.create_schema.return_value = schema_mock
         seeder._build_schema("plan_vectors")
