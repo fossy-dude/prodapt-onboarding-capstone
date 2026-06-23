@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery } from "@tanstack/react-query";
 
-import { getActiveOrder, getOrderStatus } from '../lib/api';
+import { getActiveOrder, getOrderStatus } from "../lib/api";
 
 /**
  * Discover the subscriber's active order then poll its status every 10 seconds.
@@ -12,19 +12,19 @@ import { getActiveOrder, getOrderStatus } from '../lib/api';
  */
 export function useOrderStatus() {
   const activeQuery = useQuery({
-    queryKey: ['activeOrder'],
+    queryKey: ["activeOrder"],
     queryFn: getActiveOrder,
   });
 
   const orderId = activeQuery.data?.order_id ?? null;
 
   const statusQuery = useQuery({
-    queryKey: ['orderStatus', orderId],
+    queryKey: ["orderStatus", orderId],
     queryFn: () => getOrderStatus(orderId!),
     enabled: orderId !== null,
     refetchInterval: (query) => {
       if (query.state.error) return false;
-      if (query.state.data?.status === 'ACTIVATED') return false;
+      if (query.state.data?.status === "ACTIVATED") return false;
       return 10_000;
     },
   });
@@ -35,7 +35,8 @@ export function useOrderStatus() {
     status: statusQuery.data?.status ?? null,
     msisdn: statusQuery.data?.msisdn ?? null,
     updatedAt: statusQuery.data?.updated_at ?? null,
-    isLoading: activeQuery.isLoading || (orderId !== null && statusQuery.isLoading),
+    isLoading:
+      activeQuery.isLoading || (orderId !== null && statusQuery.isLoading),
     isError: activeQuery.isError || statusQuery.isError,
     error: activeQuery.error ?? statusQuery.error,
   };

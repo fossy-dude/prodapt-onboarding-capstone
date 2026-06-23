@@ -1,10 +1,14 @@
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Button } from '../../components/ui/Button';
-import { Card } from '../../components/ui/Card';
-import { Table, type TableColumn } from '../../components/ui/Table';
-import { advanceOrderState, getSimulatorOrders, toApiError } from '../../lib/api';
+import { Button } from "../../components/ui/Button";
+import { Card } from "../../components/ui/Card";
+import { Table, type TableColumn } from "../../components/ui/Table";
+import {
+  advanceOrderState,
+  getSimulatorOrders,
+  toApiError,
+} from "../../lib/api";
 
 interface OrderRow {
   readonly order_id: string;
@@ -13,17 +17,17 @@ interface OrderRow {
 }
 
 const STATE_LABELS: Record<string, string> = {
-  CREATED: 'Created',
-  KYC_PENDING: 'KYC Pending',
-  KYC_VERIFIED: 'KYC Verified',
-  ACTIVATED: 'Activated',
+  CREATED: "Created",
+  KYC_PENDING: "KYC Pending",
+  KYC_VERIFIED: "KYC Verified",
+  ACTIVATED: "Activated",
 };
 
 const COLUMNS: readonly TableColumn[] = [
-  { key: 'id', header: 'Order ID' },
-  { key: 'state', header: 'Current State' },
-  { key: 'action', header: 'Action' },
-  { key: 'result', header: 'Result' },
+  { key: "id", header: "Order ID" },
+  { key: "state", header: "Current State" },
+  { key: "action", header: "Action" },
+  { key: "result", header: "Result" },
 ];
 
 function OrderAdvanceRow({ order }: { readonly order: OrderRow }) {
@@ -39,20 +43,22 @@ function OrderAdvanceRow({ order }: { readonly order: OrderRow }) {
       );
       setError(null);
       // Refresh the order list so the row's new state reflects after an advance.
-      void queryClient.invalidateQueries({ queryKey: ['simulatorOrders'] });
+      void queryClient.invalidateQueries({ queryKey: ["simulatorOrders"] });
     },
     onError: (err) => {
       const api = toApiError(err);
-      setError(api?.message ?? 'Failed to advance order state.');
+      setError(api?.message ?? "Failed to advance order state.");
       setResult(null);
     },
   });
 
-  const isTerminal = order.current_status === 'ACTIVATED';
+  const isTerminal = order.current_status === "ACTIVATED";
 
   return (
     <tr className="border-t border-neutral-200">
-      <td className="py-2 pr-4 font-mono text-xs text-neutral-700">{order.order_id.slice(0, 8)}…</td>
+      <td className="py-2 pr-4 font-mono text-xs text-neutral-700">
+        {order.order_id.slice(0, 8)}…
+      </td>
       <td className="py-2 pr-4 text-sm">
         {STATE_LABELS[order.current_status] ?? order.current_status}
       </td>
@@ -63,7 +69,7 @@ function OrderAdvanceRow({ order }: { readonly order: OrderRow }) {
           onClick={() => mutation.mutate()}
           className="text-xs"
         >
-          {mutation.isPending ? 'Advancing…' : 'Advance'}
+          {mutation.isPending ? "Advancing…" : "Advance"}
         </Button>
       </td>
       <td className="py-2 text-xs">
@@ -83,7 +89,7 @@ function OrderAdvanceRow({ order }: { readonly order: OrderRow }) {
  */
 export function SimActivation() {
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['simulatorOrders'],
+    queryKey: ["simulatorOrders"],
     queryFn: getSimulatorOrders,
   });
   const orders = data?.orders ?? [];
@@ -91,7 +97,9 @@ export function SimActivation() {
   return (
     <main className="px-4 py-10">
       <Card>
-        <h1 className="mb-2 text-xl font-bold text-neutral-900">SIM Activation — Simulator Tool</h1>
+        <h1 className="mb-2 text-xl font-bold text-neutral-900">
+          SIM Activation — Simulator Tool
+        </h1>
         <p className="mb-6 text-sm text-neutral-500">
           Advance order fulfilment state for testing. Forward transitions only.
         </p>
@@ -107,7 +115,9 @@ export function SimActivation() {
           <Table
             columns={COLUMNS}
             rows={orders}
-            renderRow={(order) => <OrderAdvanceRow key={order.order_id} order={order} />}
+            renderRow={(order) => (
+              <OrderAdvanceRow key={order.order_id} order={order} />
+            )}
             emptyState="No orders found."
           />
         )}

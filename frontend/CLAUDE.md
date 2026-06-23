@@ -72,10 +72,10 @@ Every module, feature, and shared unit must have an `index.ts` barrel file that 
 
 ```typescript
 // ✅ Correct
-import { Button } from '@/shared/ui';
+import { Button } from "@/shared/ui";
 
 // ❌ Wrong
-import { Button } from '@/shared/ui/Button/Button';
+import { Button } from "@/shared/ui/Button/Button";
 ```
 
 ---
@@ -154,7 +154,7 @@ export type { ComponentProps };
 
 ```typescript
 // ✅ type for unions/primitives
-type Status = 'idle' | 'loading' | 'success' | 'error';
+type Status = "idle" | "loading" | "success" | "error";
 type ID = string;
 
 // ✅ interface for object shapes
@@ -211,7 +211,7 @@ TypeScript strict mode is enabled with additional strictness flags:
 
 ```typescript
 // ✅ Preferred
-type Status = 'idle' | 'loading' | 'success' | 'error';
+type Status = "idle" | "loading" | "success" | "error";
 
 // ❌ Avoid
 enum Status {
@@ -248,12 +248,16 @@ enum Status {
 ```typescript
 // ✅ Correct
 interface ButtonProps {
-  readonly variant?: 'primary' | 'secondary';
+  readonly variant?: "primary" | "secondary";
   readonly disabled?: boolean;
   readonly children: React.ReactNode;
 }
 
-function Button({ variant = 'primary', disabled = false, children }: ButtonProps) {
+function Button({
+  variant = "primary",
+  disabled = false,
+  children,
+}: ButtonProps) {
   // ...
 }
 ```

@@ -8,6 +8,7 @@ import pytest
 
 # ── MilvusAdapter unit tests ──────────────────────────────────────────────────
 
+
 @pytest.fixture
 def mock_milvus_client() -> MagicMock:
     client = MagicMock()
@@ -29,17 +30,13 @@ def adapter(mock_milvus_client: MagicMock):
         yield adp
 
 
-async def test_ping_returns_true_when_list_collections_succeeds(
-    adapter: object, mock_milvus_client: MagicMock
-) -> None:
+async def test_ping_returns_true_when_list_collections_succeeds(adapter: object, mock_milvus_client: MagicMock) -> None:
     mock_milvus_client.list_collections.return_value = []
     result = await adapter.ping()
     assert result is True
 
 
-async def test_ping_returns_false_when_list_collections_raises(
-    adapter: object, mock_milvus_client: MagicMock
-) -> None:
+async def test_ping_returns_false_when_list_collections_raises(adapter: object, mock_milvus_client: MagicMock) -> None:
     mock_milvus_client.list_collections.side_effect = RuntimeError("connection refused")
     result = await adapter.ping()
     assert result is False
@@ -51,17 +48,13 @@ async def test_ping_never_raises(adapter: object, mock_milvus_client: MagicMock)
     assert isinstance(result, bool)
 
 
-async def test_create_collections_if_absent_creates_missing(
-    adapter: object, mock_milvus_client: MagicMock
-) -> None:
+async def test_create_collections_if_absent_creates_missing(adapter: object, mock_milvus_client: MagicMock) -> None:
     mock_milvus_client.has_collection.return_value = False
     await adapter.create_collections_if_absent()
     assert mock_milvus_client.create_collection.call_count == 3
 
 
-async def test_create_collections_if_absent_skips_existing(
-    adapter: object, mock_milvus_client: MagicMock
-) -> None:
+async def test_create_collections_if_absent_skips_existing(adapter: object, mock_milvus_client: MagicMock) -> None:
     mock_milvus_client.has_collection.return_value = True
     await adapter.create_collections_if_absent()
     mock_milvus_client.create_collection.assert_not_called()
@@ -111,6 +104,7 @@ async def test_close_is_best_effort(adapter: object, mock_milvus_client: MagicMo
 
 # ── Seeder unit tests ─────────────────────────────────────────────────────────
 
+
 def test_faq_yaml_has_min_50_entries() -> None:
     from pathlib import Path
 
@@ -139,6 +133,7 @@ def test_faq_yaml_required_fields_present() -> None:
 
 
 # ── EmbeddingClient protocol tests ────────────────────────────────────────────
+
 
 async def test_azure_embedding_client_uses_langchain() -> None:
     with patch("adapters.embeddings.AzureOpenAIEmbeddings") as mock_cls:

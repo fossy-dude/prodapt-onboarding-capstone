@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { getToken } from '../lib/auth';
+import { getToken } from "../lib/auth";
 
 export interface NotificationEvent {
   readonly msisdn_suffix: string;
@@ -10,7 +10,7 @@ export interface NotificationEvent {
   readonly trace_id: string;
 }
 
-type ConnectionStatus = 'connecting' | 'open' | 'closed' | 'error';
+type ConnectionStatus = "connecting" | "open" | "closed" | "error";
 
 interface UseNotificationsWebSocketResult {
   readonly events: readonly NotificationEvent[];
@@ -18,7 +18,9 @@ interface UseNotificationsWebSocketResult {
   readonly clearEvents: () => void;
 }
 
-const WS_BASE_URL = (import.meta.env.VITE_WS_BASE_URL as string | undefined) ?? 'ws://localhost:8000';
+const WS_BASE_URL =
+  (import.meta.env.VITE_WS_BASE_URL as string | undefined) ??
+  "ws://localhost:8000";
 // Cap the live feed so a long-running portal session never grows unbounded.
 const MAX_EVENTS = 50;
 
@@ -32,7 +34,7 @@ const MAX_EVENTS = 50;
  */
 export function useNotificationsWebSocket(): UseNotificationsWebSocketResult {
   const [events, setEvents] = useState<readonly NotificationEvent[]>([]);
-  const [status, setStatus] = useState<ConnectionStatus>('connecting');
+  const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -45,16 +47,16 @@ export function useNotificationsWebSocket(): UseNotificationsWebSocketResult {
       if (cancelled) return;
       const token = getToken();
       if (!token) {
-        setStatus('error');
+        setStatus("error");
         return;
       }
       const url = `${WS_BASE_URL}/ws/notifications?token=${encodeURIComponent(token)}`;
       const ws = new WebSocket(url);
       wsRef.current = ws;
-      setStatus('connecting');
+      setStatus("connecting");
 
       ws.onopen = () => {
-        if (!cancelled) setStatus('open');
+        if (!cancelled) setStatus("open");
       };
 
       ws.onmessage = (evt: MessageEvent<string>) => {
@@ -68,12 +70,12 @@ export function useNotificationsWebSocket(): UseNotificationsWebSocketResult {
       };
 
       ws.onerror = () => {
-        if (!cancelled) setStatus('error');
+        if (!cancelled) setStatus("error");
       };
 
       ws.onclose = () => {
         if (!cancelled) {
-          setStatus('closed');
+          setStatus("closed");
           reconnectRef.current = setTimeout(connect, 3000);
         }
       };

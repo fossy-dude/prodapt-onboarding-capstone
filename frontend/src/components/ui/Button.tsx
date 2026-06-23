@@ -1,6 +1,6 @@
-import { type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { type ButtonHTMLAttributes, type ReactNode } from "react";
 
-type Variant = 'primary' | 'secondary' | 'destructive';
+type Variant = "primary" | "secondary" | "destructive";
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   readonly variant?: Variant;
@@ -8,15 +8,23 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const VARIANT_CLASSES: Record<Variant, string> = {
-  primary: 'bg-brand-600 text-white hover:bg-brand-700 focus-visible:ring-brand-500',
-  secondary: 'bg-neutral-100 text-neutral-800 hover:bg-neutral-200 focus-visible:ring-neutral-400 border border-neutral-200',
-  destructive: 'bg-danger-600 text-white hover:bg-danger-700 focus-visible:ring-danger-600',
+  primary:
+    "bg-brand-600 text-white hover:bg-brand-700 focus-visible:ring-brand-500",
+  secondary:
+    "bg-neutral-100 text-neutral-800 hover:bg-neutral-200 focus-visible:ring-neutral-400 border border-neutral-200",
+  destructive:
+    "bg-danger-600 text-white hover:bg-danger-700 focus-visible:ring-danger-600",
 };
 
 /**
  * Primary shared button (UX brief §3.1). Tailwind tokens only.
  */
-function Button({ variant = 'primary', children, className = '', ...rest }: ButtonProps) {
+function Button({
+  variant = "primary",
+  children,
+  className = "",
+  ...rest
+}: ButtonProps) {
   return (
     <button
       type="button"

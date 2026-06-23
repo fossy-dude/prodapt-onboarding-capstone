@@ -12,7 +12,7 @@ export interface RegisterPayload {
   readonly city: string;
   readonly state: string;
   readonly pin_code: string;
-  readonly id_proof_type: 'Aadhaar' | 'PAN' | 'Passport' | 'Voter ID';
+  readonly id_proof_type: "Aadhaar" | "PAN" | "Passport" | "Voter ID";
   readonly id_proof_number: string;
   readonly consent: boolean;
 }

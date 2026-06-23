@@ -27,4 +27,4 @@ tox:
 
 # Auto-format code (ruff format)
 format:
-    uvx ruff format src/
+    uvx ruff format

@@ -542,7 +542,7 @@ _PAYMENT_METHOD_TYPES = Literal["CREDIT_CARD", "UPI", "NET_BANKING", "MOBILE_WAL
 
 
 def _looks_like_raw_pan(token: str) -> bool:
-    """Defensive check: does the token look like a raw PAN?
+    """Check whether the token looks like a raw PAN.
 
     Returns ``True`` if the token is 13-19 contiguous digits OR passes the Luhn
     algorithm. Client-side tokenisation is the design, but if a bug sends a raw

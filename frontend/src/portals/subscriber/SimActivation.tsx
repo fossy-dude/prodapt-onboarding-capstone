@@ -1,15 +1,15 @@
-import { Badge } from '../../components/ui/Badge';
-import { Card } from '../../components/ui/Card';
-import { useOrderStatus } from '../../hooks/useOrderStatus';
+import { Badge } from "../../components/ui/Badge";
+import { Card } from "../../components/ui/Card";
+import { useOrderStatus } from "../../hooks/useOrderStatus";
 
 const STEPS = [
-  { key: 'CREATED', label: 'Order Created' },
-  { key: 'KYC_PENDING', label: 'KYC Pending' },
-  { key: 'KYC_VERIFIED', label: 'KYC Verified' },
-  { key: 'ACTIVATED', label: 'Activated' },
+  { key: "CREATED", label: "Order Created" },
+  { key: "KYC_PENDING", label: "KYC Pending" },
+  { key: "KYC_VERIFIED", label: "KYC Verified" },
+  { key: "ACTIVATED", label: "Activated" },
 ] as const;
 
-type OrderStatus = (typeof STEPS)[number]['key'];
+type OrderStatus = (typeof STEPS)[number]["key"];
 
 const STATUS_INDEX: Record<OrderStatus, number> = {
   CREATED: 0,
@@ -18,14 +18,20 @@ const STATUS_INDEX: Record<OrderStatus, number> = {
   ACTIVATED: 3,
 };
 
-const KNOWN_STATUSES: ReadonlySet<string> = new Set(STEPS.map((step) => step.key));
+const KNOWN_STATUSES: ReadonlySet<string> = new Set(
+  STEPS.map((step) => step.key),
+);
 
 /** Narrow an arbitrary API status string to a known tracker step. */
 function isOrderStatus(value: unknown): value is OrderStatus {
-  return typeof value === 'string' && KNOWN_STATUSES.has(value);
+  return typeof value === "string" && KNOWN_STATUSES.has(value);
 }
 
-function StepIndicator({ currentStatus }: { readonly currentStatus: OrderStatus }) {
+function StepIndicator({
+  currentStatus,
+}: {
+  readonly currentStatus: OrderStatus;
+}) {
   const currentIndex = STATUS_INDEX[currentStatus];
   return (
     <ol className="flex items-center gap-0">
@@ -36,25 +42,29 @@ function StepIndicator({ currentStatus }: { readonly currentStatus: OrderStatus 
           <li key={step.key} className="flex flex-1 flex-col items-center">
             <div className="flex items-center w-full">
               {idx > 0 && (
-                <div className={`h-0.5 flex-1 ${done || active ? 'bg-brand-600' : 'bg-neutral-200'}`} />
+                <div
+                  className={`h-0.5 flex-1 ${done || active ? "bg-brand-600" : "bg-neutral-200"}`}
+                />
               )}
               <div
                 className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-sm font-semibold ${
                   done
-                    ? 'border-brand-600 bg-brand-600 text-white'
+                    ? "border-brand-600 bg-brand-600 text-white"
                     : active
-                      ? 'border-brand-600 bg-white text-brand-600'
-                      : 'border-neutral-300 bg-white text-neutral-400'
+                      ? "border-brand-600 bg-white text-brand-600"
+                      : "border-neutral-300 bg-white text-neutral-400"
                 }`}
               >
-                {done ? '✓' : idx + 1}
+                {done ? "✓" : idx + 1}
               </div>
               {idx < STEPS.length - 1 && (
-                <div className={`h-0.5 flex-1 ${done ? 'bg-brand-600' : 'bg-neutral-200'}`} />
+                <div
+                  className={`h-0.5 flex-1 ${done ? "bg-brand-600" : "bg-neutral-200"}`}
+                />
               )}
             </div>
             <span
-              className={`mt-1 text-xs text-center ${active ? 'font-semibold text-brand-700' : done ? 'text-neutral-600' : 'text-neutral-400'}`}
+              className={`mt-1 text-xs text-center ${active ? "font-semibold text-brand-700" : done ? "text-neutral-600" : "text-neutral-400"}`}
             >
               {step.label}
             </span>
@@ -66,7 +76,8 @@ function StepIndicator({ currentStatus }: { readonly currentStatus: OrderStatus 
 }
 
 function SimActivationContent() {
-  const { status, msisdn, hasActiveOrder, isLoading, isError } = useOrderStatus();
+  const { status, msisdn, hasActiveOrder, isLoading, isError } =
+    useOrderStatus();
 
   if (isLoading) {
     return (
@@ -92,9 +103,12 @@ function SimActivationContent() {
         role="status"
         aria-label="No activation in progress"
       >
-        <p className="text-sm font-medium text-neutral-700">No SIM activation in progress.</p>
+        <p className="text-sm font-medium text-neutral-700">
+          No SIM activation in progress.
+        </p>
         <p className="mt-1 text-xs text-neutral-500">
-          Once you start a SIM activation, its step-by-step progress will appear here.
+          Once you start a SIM activation, its step-by-step progress will appear
+          here.
         </p>
       </div>
     );
@@ -104,7 +118,8 @@ function SimActivationContent() {
   if (!isOrderStatus(status)) {
     return (
       <p className="text-sm text-danger-600" role="alert">
-        Unexpected order status{status ? ` “${status}”` : ''}. Please refresh or contact support.
+        Unexpected order status{status ? ` “${status}”` : ""}. Please refresh or
+        contact support.
       </p>
     );
   }
@@ -114,23 +129,28 @@ function SimActivationContent() {
   return (
     <div className="space-y-6">
       <StepIndicator currentStatus={orderStatus} />
-      {orderStatus === 'ACTIVATED' && msisdn !== null && (
+      {orderStatus === "ACTIVATED" && msisdn !== null && (
         <div
           className="rounded-lg border border-success-300 bg-success-50 p-4"
           role="status"
           aria-label="Activation complete"
         >
-          <p className="text-sm font-medium text-success-800">Your SIM is activated!</p>
+          <p className="text-sm font-medium text-success-800">
+            Your SIM is activated!
+          </p>
           <p className="mt-1 text-sm text-success-700">
-            Mobile number: <span className="font-mono font-semibold">{msisdn}</span>
+            Mobile number:{" "}
+            <span className="font-mono font-semibold">{msisdn}</span>
           </p>
           <div className="mt-2">
             <Badge variant="verified">Active</Badge>
           </div>
         </div>
       )}
-      {orderStatus !== 'ACTIVATED' && (
-        <p className="text-xs text-neutral-500">Status refreshes automatically every 10 seconds.</p>
+      {orderStatus !== "ACTIVATED" && (
+        <p className="text-xs text-neutral-500">
+          Status refreshes automatically every 10 seconds.
+        </p>
       )}
     </div>
   );
@@ -147,7 +167,9 @@ export function SimActivation() {
     <main className="flex min-h-screen items-start justify-center px-4 py-10">
       <div className="w-full max-w-lg">
         <Card>
-          <h1 className="mb-6 text-xl font-bold text-neutral-900">SIM Activation Status</h1>
+          <h1 className="mb-6 text-xl font-bold text-neutral-900">
+            SIM Activation Status
+          </h1>
           <SimActivationContent />
         </Card>
       </div>

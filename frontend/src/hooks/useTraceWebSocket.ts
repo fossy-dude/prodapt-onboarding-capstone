@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { getToken } from '../lib/auth';
+import { getToken } from "../lib/auth";
 
 export interface TraceStageEvent {
   readonly stage: string;
@@ -9,7 +9,7 @@ export interface TraceStageEvent {
   readonly error: string | null;
 }
 
-type ConnectionStatus = 'connecting' | 'open' | 'closed' | 'error';
+type ConnectionStatus = "connecting" | "open" | "closed" | "error";
 
 interface UseTraceWebSocketResult {
   readonly events: readonly TraceStageEvent[];
@@ -17,11 +17,13 @@ interface UseTraceWebSocketResult {
   readonly clearEvents: () => void;
 }
 
-const WS_BASE_URL = (import.meta.env.VITE_WS_BASE_URL as string | undefined) ?? 'ws://localhost:8000';
+const WS_BASE_URL =
+  (import.meta.env.VITE_WS_BASE_URL as string | undefined) ??
+  "ws://localhost:8000";
 
 export function useTraceWebSocket(): UseTraceWebSocketResult {
   const [events, setEvents] = useState<readonly TraceStageEvent[]>([]);
-  const [status, setStatus] = useState<ConnectionStatus>('connecting');
+  const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -34,16 +36,16 @@ export function useTraceWebSocket(): UseTraceWebSocketResult {
       if (cancelled) return;
       const token = getToken();
       if (!token) {
-        setStatus('error');
+        setStatus("error");
         return;
       }
       const url = `${WS_BASE_URL}/ws/simulator/trace?token=${encodeURIComponent(token)}`;
       const ws = new WebSocket(url);
       wsRef.current = ws;
-      setStatus('connecting');
+      setStatus("connecting");
 
       ws.onopen = () => {
-        if (!cancelled) setStatus('open');
+        if (!cancelled) setStatus("open");
       };
 
       ws.onmessage = (evt: MessageEvent<string>) => {
@@ -57,12 +59,12 @@ export function useTraceWebSocket(): UseTraceWebSocketResult {
       };
 
       ws.onerror = () => {
-        if (!cancelled) setStatus('error');
+        if (!cancelled) setStatus("error");
       };
 
       ws.onclose = () => {
         if (!cancelled) {
-          setStatus('closed');
+          setStatus("closed");
           reconnectRef.current = setTimeout(connect, 3000);
         }
       };

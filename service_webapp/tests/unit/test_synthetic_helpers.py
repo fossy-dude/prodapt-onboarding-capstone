@@ -151,41 +151,23 @@ class TestTowerId:
 
         tower = _tower_id()
         assert tower.startswith("TOWER_")
-        suffix = tower[len("TOWER_"):]
+        suffix = tower[len("TOWER_") :]
         assert len(suffix) == 7
         assert suffix.isdigit()
 
 
 class TestSeedPlansSql:
     def test_seed_sql_file_exists(self):
-        sql_path = (
-            Path(__file__).parent.parent.parent.parent
-            / "service_webapp"
-            / "db"
-            / "seed"
-            / "seed_plans.sql"
-        )
+        sql_path = Path(__file__).parent.parent.parent.parent / "service_webapp" / "db" / "seed" / "seed_plans.sql"
         assert sql_path.exists(), f"seed_plans.sql not found at {sql_path}"
 
     def test_seed_sql_contains_on_conflict(self):
-        sql_path = (
-            Path(__file__).parent.parent.parent.parent
-            / "service_webapp"
-            / "db"
-            / "seed"
-            / "seed_plans.sql"
-        )
+        sql_path = Path(__file__).parent.parent.parent.parent / "service_webapp" / "db" / "seed" / "seed_plans.sql"
         content = sql_path.read_text()
         assert "ON CONFLICT" in content
         assert "DO NOTHING" in content
 
     def test_seed_sql_targets_correct_table(self):
-        sql_path = (
-            Path(__file__).parent.parent.parent.parent
-            / "service_webapp"
-            / "db"
-            / "seed"
-            / "seed_plans.sql"
-        )
+        sql_path = Path(__file__).parent.parent.parent.parent / "service_webapp" / "db" / "seed" / "seed_plans.sql"
         content = sql_path.read_text()
         assert "INSERT INTO plans_plans" in content

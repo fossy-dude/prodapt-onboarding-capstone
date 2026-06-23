@@ -12,10 +12,10 @@
  * On mismatch, missing token, or expired token → redirect to /login.
  */
 
-import { type ReactNode } from 'react';
-import { Navigate } from 'react-router-dom';
+import { type ReactNode } from "react";
+import { Navigate } from "react-router-dom";
 
-import { getRole, isAuthenticated, type PortalRole } from '../../lib/auth';
+import { getRole, isAuthenticated, type PortalRole } from "../../lib/auth";
 
 interface RoleGuardProps {
   /** The role(s) that may access this subtree. */

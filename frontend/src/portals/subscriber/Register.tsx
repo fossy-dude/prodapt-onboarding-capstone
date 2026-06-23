@@ -1,11 +1,11 @@
-import { useState, type FormEvent } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useState, type FormEvent } from "react";
+import { useMutation } from "@tanstack/react-query";
 
-import { Badge, Button, Card, CardSection } from '../../components/ui';
-import { ERROR_CODES, registerSubscriber, toApiError } from '../../lib/api';
-import type { RegisterPayload } from '../../types/subscriber';
+import { Badge, Button, Card, CardSection } from "../../components/ui";
+import { ERROR_CODES, registerSubscriber, toApiError } from "../../lib/api";
+import type { RegisterPayload } from "../../types/subscriber";
 
-const ID_PROOF_TYPES = ['Aadhaar', 'PAN', 'Passport', 'Voter ID'] as const;
+const ID_PROOF_TYPES = ["Aadhaar", "PAN", "Passport", "Voter ID"] as const;
 const MSISDN_RE = /^\d{10,15}$/;
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
@@ -26,18 +26,18 @@ interface FormState {
 }
 
 const EMPTY_FORM: FormState = {
-  full_name: '',
-  email: '',
-  msisdn: '',
-  alternate_mobile: '',
-  date_of_birth: '',
-  address_line1: '',
-  address_line2: '',
-  city: '',
-  state: '',
-  pin_code: '',
-  id_proof_type: 'Aadhaar',
-  id_proof_number: '',
+  full_name: "",
+  email: "",
+  msisdn: "",
+  alternate_mobile: "",
+  date_of_birth: "",
+  address_line1: "",
+  address_line2: "",
+  city: "",
+  state: "",
+  pin_code: "",
+  id_proof_type: "Aadhaar",
+  id_proof_number: "",
   consent: false,
 };
 
@@ -56,9 +56,9 @@ type Step = 1 | 2 | 3;
 function Register() {
   const [step, setStep] = useState<Step>(1);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  const [registrationId, setRegistrationId] = useState<string>('');
-  const [otp, setOtp] = useState<string>('');
-  const [stepError, setStepError] = useState<string>('');
+  const [registrationId, setRegistrationId] = useState<string>("");
+  const [otp, setOtp] = useState<string>("");
+  const [stepError, setStepError] = useState<string>("");
 
   const mutation = useMutation({
     mutationFn: registerSubscriber,
@@ -71,32 +71,44 @@ function Register() {
       if (apiError?.code === ERROR_CODES.DUPLICATE_MSISDN) {
         // The duplicate is an MSISDN-field error — return to Step 1 to show it inline.
         setStep(1);
-        setStepError('This mobile number is already registered.');
+        setStepError("This mobile number is already registered.");
       } else {
-        setStepError(apiError?.message ?? 'Registration failed. Please try again.');
+        setStepError(
+          apiError?.message ?? "Registration failed. Please try again.",
+        );
       }
     },
   });
 
-  const setField = <K extends keyof FormState>(key: K, value: FormState[K]): void => {
+  const setField = <K extends keyof FormState>(
+    key: K,
+    value: FormState[K],
+  ): void => {
     setForm((prev) => ({ ...prev, [key]: value }));
-    setStepError('');
+    setStepError("");
   };
 
   const validateStep1 = (): boolean => {
-    if (!form.full_name.trim()) return invalidate('Full name is required.');
-    if (!EMAIL_RE.test(form.email)) return invalidate('A valid email is required.');
-    if (!MSISDN_RE.test(form.msisdn)) return invalidate('MSISDN must be 10-15 digits.');
-    if (!MSISDN_RE.test(form.alternate_mobile)) return invalidate('Alternate mobile must be 10-15 digits.');
+    if (!form.full_name.trim()) return invalidate("Full name is required.");
+    if (!EMAIL_RE.test(form.email))
+      return invalidate("A valid email is required.");
+    if (!MSISDN_RE.test(form.msisdn))
+      return invalidate("MSISDN must be 10-15 digits.");
+    if (!MSISDN_RE.test(form.alternate_mobile))
+      return invalidate("Alternate mobile must be 10-15 digits.");
     return true;
   };
 
   const validateStep2 = (): boolean => {
-    if (!form.date_of_birth) return invalidate('Date of birth is required.');
-    if (!form.address_line1.trim()) return invalidate('Address line 1 is required.');
-    if (!form.city.trim() || !form.state.trim() || !form.pin_code.trim()) return invalidate('Full address is required.');
-    if (!form.id_proof_number.trim()) return invalidate('ID proof number is required.');
-    if (!form.consent) return invalidate('Consent is required to submit the TRAI CAF.');
+    if (!form.date_of_birth) return invalidate("Date of birth is required.");
+    if (!form.address_line1.trim())
+      return invalidate("Address line 1 is required.");
+    if (!form.city.trim() || !form.state.trim() || !form.pin_code.trim())
+      return invalidate("Full address is required.");
+    if (!form.id_proof_number.trim())
+      return invalidate("ID proof number is required.");
+    if (!form.consent)
+      return invalidate("Consent is required to submit the TRAI CAF.");
     return true;
   };
 
@@ -110,8 +122,8 @@ function Register() {
   };
 
   const handleBack = (): void => {
-    setStepError('');
-    setStep((s) => (s > 1 ? (s - 1) : s) as Step);
+    setStepError("");
+    setStep((s) => (s > 1 ? s - 1 : s) as Step);
   };
 
   const handleSubmit = (event: FormEvent): void => {
@@ -125,17 +137,25 @@ function Register() {
   return (
     <main className="mx-auto max-w-2xl px-4 py-8">
       <header className="mb-6">
-        <h1 className="text-2xl font-bold text-neutral-900">Subscriber Registration</h1>
+        <h1 className="text-2xl font-bold text-neutral-900">
+          Subscriber Registration
+        </h1>
         <p className="mt-1 text-sm text-neutral-600">
-          Step {step} of 3 —{' '}
-          {step === 1 ? 'Personal details' : step === 2 ? 'TRAI CAF' : 'Registration complete'}
+          Step {step} of 3 —{" "}
+          {step === 1
+            ? "Personal details"
+            : step === 2
+              ? "TRAI CAF"
+              : "Registration complete"}
         </p>
       </header>
 
       {step === 3 ? (
         <Card>
           <CardSection title="Your Registration ID">
-            <p className="mb-2 text-sm text-neutral-600">Use this ID to log in once your SIM is active.</p>
+            <p className="mb-2 text-sm text-neutral-600">
+              Use this ID to log in once your SIM is active.
+            </p>
             <p
               role="textbox"
               aria-label="Registration ID"
@@ -144,14 +164,16 @@ function Register() {
               {registrationId}
             </p>
             <div className="mt-3">
-              <Badge variant="pending">{mutation.data?.data.status ?? 'REGISTRATION_COMPLETE'}</Badge>
+              <Badge variant="pending">
+                {mutation.data?.data.status ?? "REGISTRATION_COMPLETE"}
+              </Badge>
             </div>
           </CardSection>
 
           <CardSection title="Verify your mobile">
             <p className="mb-3 text-sm text-neutral-600">
-              An OTP was sent to your alternate mobile number. Enter it to verify (verification completes the login
-              flow in Story 1.8).
+              An OTP was sent to your alternate mobile number. Enter it to
+              verify (verification completes the login flow in Story 1.8).
             </p>
             <input
               aria-label="One-time passcode"
@@ -172,19 +194,28 @@ function Register() {
           <form onSubmit={handleSubmit} noValidate>
             {step === 1 && (
               <CardSection title="Personal details">
-                <Field label="Full name" value={form.full_name} onChange={(v) => setField('full_name', v)} />
-                <Field label="Email" value={form.email} type="email" onChange={(v) => setField('email', v)} />
+                <Field
+                  label="Full name"
+                  value={form.full_name}
+                  onChange={(v) => setField("full_name", v)}
+                />
+                <Field
+                  label="Email"
+                  value={form.email}
+                  type="email"
+                  onChange={(v) => setField("email", v)}
+                />
                 <Field
                   label="MSISDN (mobile to activate)"
                   value={form.msisdn}
                   inputMode="numeric"
-                  onChange={(v) => setField('msisdn', v)}
+                  onChange={(v) => setField("msisdn", v)}
                 />
                 <Field
                   label="Alternate mobile (for OTP)"
                   value={form.alternate_mobile}
                   inputMode="numeric"
-                  onChange={(v) => setField('alternate_mobile', v)}
+                  onChange={(v) => setField("alternate_mobile", v)}
                 />
               </CardSection>
             )}
@@ -196,26 +227,54 @@ function Register() {
                     label="Date of birth"
                     value={form.date_of_birth}
                     type="date"
-                    onChange={(v) => setField('date_of_birth', v)}
+                    onChange={(v) => setField("date_of_birth", v)}
                   />
-                  <Field label="Address line 1" value={form.address_line1} onChange={(v) => setField('address_line1', v)} />
-                  <Field label="Address line 2" value={form.address_line2} onChange={(v) => setField('address_line2', v)} />
+                  <Field
+                    label="Address line 1"
+                    value={form.address_line1}
+                    onChange={(v) => setField("address_line1", v)}
+                  />
+                  <Field
+                    label="Address line 2"
+                    value={form.address_line2}
+                    onChange={(v) => setField("address_line2", v)}
+                  />
                   <div className="grid grid-cols-2 gap-3">
-                    <Field label="City" value={form.city} onChange={(v) => setField('city', v)} />
-                    <Field label="State" value={form.state} onChange={(v) => setField('state', v)} />
+                    <Field
+                      label="City"
+                      value={form.city}
+                      onChange={(v) => setField("city", v)}
+                    />
+                    <Field
+                      label="State"
+                      value={form.state}
+                      onChange={(v) => setField("state", v)}
+                    />
                   </div>
-                  <Field label="PIN code" value={form.pin_code} onChange={(v) => setField('pin_code', v)} />
+                  <Field
+                    label="PIN code"
+                    value={form.pin_code}
+                    onChange={(v) => setField("pin_code", v)}
+                  />
                 </CardSection>
 
                 <CardSection title="ID proof">
-                  <label className="mb-1 block text-sm font-medium text-neutral-800" htmlFor="id_proof_type">
+                  <label
+                    className="mb-1 block text-sm font-medium text-neutral-800"
+                    htmlFor="id_proof_type"
+                  >
                     ID proof type
                   </label>
                   <select
                     id="id_proof_type"
                     className="mb-3 w-full rounded-md border border-neutral-200 px-3 py-2 text-base"
                     value={form.id_proof_type}
-                    onChange={(e) => setField('id_proof_type', e.target.value as FormState['id_proof_type'])}
+                    onChange={(e) =>
+                      setField(
+                        "id_proof_type",
+                        e.target.value as FormState["id_proof_type"],
+                      )
+                    }
                   >
                     {ID_PROOF_TYPES.map((t) => (
                       <option key={t} value={t}>
@@ -226,13 +285,13 @@ function Register() {
                   <Field
                     label="ID proof number"
                     value={form.id_proof_number}
-                    onChange={(v) => setField('id_proof_number', v)}
+                    onChange={(v) => setField("id_proof_number", v)}
                   />
                   <label className="mt-3 flex items-center gap-2 text-sm text-neutral-800">
                     <input
                       type="checkbox"
                       checked={form.consent}
-                      onChange={(e) => setField('consent', e.target.checked)}
+                      onChange={(e) => setField("consent", e.target.checked)}
                     />
                     I consent to data processing per the TRAI CAF.
                   </label>
@@ -259,8 +318,12 @@ function Register() {
                   Next
                 </Button>
               ) : (
-                <Button type="submit" variant="primary" disabled={mutation.isPending}>
-                  {mutation.isPending ? 'Submitting…' : 'Submit registration'}
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={mutation.isPending}
+                >
+                  {mutation.isPending ? "Submitting…" : "Submit registration"}
                 </Button>
               )}
             </div>
@@ -276,14 +339,26 @@ interface FieldProps {
   readonly value: string;
   readonly onChange: (value: string) => void;
   readonly type?: string;
-  readonly inputMode?: 'numeric' | 'text';
+  readonly inputMode?: "numeric" | "text";
 }
 
-function Field({ label, value, onChange, type = 'text', inputMode = 'text' }: FieldProps) {
-  const fieldId = label.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+  inputMode = "text",
+}: FieldProps) {
+  const fieldId = label
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
   return (
     <div className="mb-3">
-      <label className="mb-1 block text-sm font-medium text-neutral-800" htmlFor={fieldId}>
+      <label
+        className="mb-1 block text-sm font-medium text-neutral-800"
+        htmlFor={fieldId}
+      >
         {label}
       </label>
       <input

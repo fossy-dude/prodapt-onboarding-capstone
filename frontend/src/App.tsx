@@ -1,15 +1,15 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from "react-router-dom";
 
-import { RoleGuard } from './components/layout/RoleGuard';
-import { Login } from './portals/auth/Login';
-import { PaymentMethods } from './portals/subscriber/PaymentMethods';
-import { Profile } from './portals/subscriber/Profile';
-import { CdrSimulator } from './portals/simulator/CdrSimulator';
-import { NotificationPortal } from './portals/simulator/NotificationPortal';
-import { SimActivation as SimActivationOrderTool } from './portals/simulator/SimActivation';
-import { SimActivationSimulator } from './portals/simulator/SimActivationSimulator';
-import { Register } from './portals/subscriber/Register';
-import { SimActivation } from './portals/subscriber/SimActivation';
+import { RoleGuard } from "./components/layout/RoleGuard";
+import { Login } from "./portals/auth/Login";
+import { PaymentMethods } from "./portals/subscriber/PaymentMethods";
+import { Profile } from "./portals/subscriber/Profile";
+import { CdrSimulator } from "./portals/simulator/CdrSimulator";
+import { NotificationPortal } from "./portals/simulator/NotificationPortal";
+import { SimActivation as SimActivationOrderTool } from "./portals/simulator/SimActivation";
+import { SimActivationSimulator } from "./portals/simulator/SimActivationSimulator";
+import { Register } from "./portals/subscriber/Register";
+import { SimActivation } from "./portals/subscriber/SimActivation";
 
 /**
  * Placeholder dashboard rendered inside a role-gated subtree until the
@@ -47,17 +47,27 @@ function App() {
       {/* Role-gated subtrees */}
       <Route
         path="/subscriber/*"
-        element={<RoleGuard allowedRoles={['subscriber']}><Routes>
-          <Route path="activate" element={<SimActivation />} />
-          <Route path="profile" element={<Profile />} />
-          <Route path="profile/payment-methods" element={<PaymentMethods />} />
-          <Route path="*" element={<PortalPlaceholder role="Subscriber" />} />
-        </Routes></RoleGuard>}
+        element={
+          <RoleGuard allowedRoles={["subscriber"]}>
+            <Routes>
+              <Route path="activate" element={<SimActivation />} />
+              <Route path="profile" element={<Profile />} />
+              <Route
+                path="profile/payment-methods"
+                element={<PaymentMethods />}
+              />
+              <Route
+                path="*"
+                element={<PortalPlaceholder role="Subscriber" />}
+              />
+            </Routes>
+          </RoleGuard>
+        }
       />
       <Route
         path="/ops/*"
         element={
-          <RoleGuard allowedRoles={['ops', 'admin', 'marketing']}>
+          <RoleGuard allowedRoles={["ops", "admin", "marketing"]}>
             <PortalPlaceholder role="Ops" />
           </RoleGuard>
         }
@@ -65,23 +75,33 @@ function App() {
       <Route
         path="/fraud/*"
         element={
-          <RoleGuard allowedRoles={['fraud']}>
+          <RoleGuard allowedRoles={["fraud"]}>
             <PortalPlaceholder role="Fraud" />
           </RoleGuard>
         }
       />
       <Route
         path="/simulator/*"
-        element={<RoleGuard allowedRoles={['dev']}><Routes>
-          {/* Story 1.7 order-advance dev tool (imported directly — the `SimActivation`
+        element={
+          <RoleGuard allowedRoles={["dev"]}>
+            <Routes>
+              {/* Story 1.7 order-advance dev tool (imported directly — the `SimActivation`
               name was previously aliased to `SimActivationSimulator`, which is now the
               distinct Story 2.9 full-activation page at /simulator/sim-activation). */}
-          <Route path="activate" element={<SimActivationOrderTool />} />
-          <Route path="sim-activation" element={<SimActivationSimulator />} />
-          <Route path="notifications" element={<NotificationPortal />} />
-          <Route path="cdr" element={<CdrSimulator />} />
-          <Route path="*" element={<PortalPlaceholder role="Simulator" />} />
-        </Routes></RoleGuard>}
+              <Route path="activate" element={<SimActivationOrderTool />} />
+              <Route
+                path="sim-activation"
+                element={<SimActivationSimulator />}
+              />
+              <Route path="notifications" element={<NotificationPortal />} />
+              <Route path="cdr" element={<CdrSimulator />} />
+              <Route
+                path="*"
+                element={<PortalPlaceholder role="Simulator" />}
+              />
+            </Routes>
+          </RoleGuard>
+        }
       />
 
       {/* Default: redirect unauthenticated traffic to /login */}

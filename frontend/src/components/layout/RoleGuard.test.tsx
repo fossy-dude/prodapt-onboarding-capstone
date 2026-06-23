@@ -8,25 +8,25 @@
  * - Redirects to /login for an expired token.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 
-import { removeToken, saveToken } from '../../lib/auth';
-import { RoleGuard } from './RoleGuard';
+import { removeToken, saveToken } from "../../lib/auth";
+import { RoleGuard } from "./RoleGuard";
 
 // ── JWT helpers (same pattern as auth.test.ts) ────────────────────────────────
 
 function makeToken(payload: object, expiresInSeconds = 1800): string {
-  const header = btoa(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+  const header = btoa(JSON.stringify({ alg: "RS256", typ: "JWT" }))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
   const exp = Math.floor(Date.now() / 1000) + expiresInSeconds;
   const body = btoa(JSON.stringify({ exp, ...payload }))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
   return `${header}.${body}.fake-sig`;
 }
 
@@ -50,61 +50,61 @@ function renderWithRouter(initialPath: string, ui: React.ReactNode) {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe('RoleGuard', () => {
-  it('renders children when the token role matches allowedRoles', () => {
-    saveToken(makeToken({ sub: 'u1', 'cognito:groups': ['subscriber'] }));
+describe("RoleGuard", () => {
+  it("renders children when the token role matches allowedRoles", () => {
+    saveToken(makeToken({ sub: "u1", "cognito:groups": ["subscriber"] }));
     renderWithRouter(
-      '/subscriber',
-      <RoleGuard allowedRoles={['subscriber']}>
+      "/subscriber",
+      <RoleGuard allowedRoles={["subscriber"]}>
         <div>Subscriber dashboard</div>
       </RoleGuard>,
     );
-    expect(screen.getByText('Subscriber dashboard')).toBeInTheDocument();
+    expect(screen.getByText("Subscriber dashboard")).toBeInTheDocument();
   });
 
-  it('redirects to /login when no token is stored', () => {
+  it("redirects to /login when no token is stored", () => {
     renderWithRouter(
-      '/subscriber',
-      <RoleGuard allowedRoles={['subscriber']}>
+      "/subscriber",
+      <RoleGuard allowedRoles={["subscriber"]}>
         <div>Subscriber dashboard</div>
       </RoleGuard>,
     );
-    expect(screen.getByText('Login page')).toBeInTheDocument();
-    expect(screen.queryByText('Subscriber dashboard')).not.toBeInTheDocument();
+    expect(screen.getByText("Login page")).toBeInTheDocument();
+    expect(screen.queryByText("Subscriber dashboard")).not.toBeInTheDocument();
   });
 
-  it('redirects to /login when the token role does not match allowedRoles', () => {
-    saveToken(makeToken({ sub: 'u1', 'cognito:groups': ['ops'] })); // ops, not subscriber
+  it("redirects to /login when the token role does not match allowedRoles", () => {
+    saveToken(makeToken({ sub: "u1", "cognito:groups": ["ops"] })); // ops, not subscriber
     renderWithRouter(
-      '/subscriber',
-      <RoleGuard allowedRoles={['subscriber']}>
+      "/subscriber",
+      <RoleGuard allowedRoles={["subscriber"]}>
         <div>Subscriber dashboard</div>
       </RoleGuard>,
     );
-    expect(screen.getByText('Login page')).toBeInTheDocument();
-    expect(screen.queryByText('Subscriber dashboard')).not.toBeInTheDocument();
+    expect(screen.getByText("Login page")).toBeInTheDocument();
+    expect(screen.queryByText("Subscriber dashboard")).not.toBeInTheDocument();
   });
 
-  it('redirects to /login when the token is expired', () => {
-    saveToken(makeToken({ sub: 'u1', 'cognito:groups': ['subscriber'] }, -1));
+  it("redirects to /login when the token is expired", () => {
+    saveToken(makeToken({ sub: "u1", "cognito:groups": ["subscriber"] }, -1));
     renderWithRouter(
-      '/subscriber',
-      <RoleGuard allowedRoles={['subscriber']}>
+      "/subscriber",
+      <RoleGuard allowedRoles={["subscriber"]}>
         <div>Subscriber dashboard</div>
       </RoleGuard>,
     );
-    expect(screen.getByText('Login page')).toBeInTheDocument();
+    expect(screen.getByText("Login page")).toBeInTheDocument();
   });
 
-  it('allows multiple roles — renders when token role is any of them', () => {
-    saveToken(makeToken({ sub: 'u1', 'cognito:groups': ['admin'] }));
+  it("allows multiple roles — renders when token role is any of them", () => {
+    saveToken(makeToken({ sub: "u1", "cognito:groups": ["admin"] }));
     render(
-      <MemoryRouter initialEntries={['/ops']}>
+      <MemoryRouter initialEntries={["/ops"]}>
         <Routes>
           <Route
             path="/ops"
             element={
-              <RoleGuard allowedRoles={['ops', 'admin', 'marketing']}>
+              <RoleGuard allowedRoles={["ops", "admin", "marketing"]}>
                 <div>Ops dashboard</div>
               </RoleGuard>
             }
@@ -113,6 +113,6 @@ describe('RoleGuard', () => {
         </Routes>
       </MemoryRouter>,
     );
-    expect(screen.getByText('Ops dashboard')).toBeInTheDocument();
+    expect(screen.getByText("Ops dashboard")).toBeInTheDocument();
   });
 });

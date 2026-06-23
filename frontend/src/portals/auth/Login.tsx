@@ -11,44 +11,51 @@
  * This screen is top-level and NOT role-gated (§1.9.1, UX-DR7).
  */
 
-import { useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
+import { useState } from "react";
+import { Navigate, useNavigate } from "react-router-dom";
+import { useMutation } from "@tanstack/react-query";
 
-import { initiateLogin, verifyLoginOtp } from '../../lib/api';
-import { getRole, isAuthenticated, saveToken } from '../../lib/auth';
+import { initiateLogin, verifyLoginOtp } from "../../lib/api";
+import { getRole, isAuthenticated, saveToken } from "../../lib/auth";
 
 /** Map portal role to its root route. */
 const ROLE_ROUTE: Record<string, string> = {
-  subscriber: '/subscriber',
-  ops: '/ops',
-  fraud: '/fraud',
-  dev: '/simulator',
-  admin: '/ops',
-  marketing: '/ops',
+  subscriber: "/subscriber",
+  ops: "/ops",
+  fraud: "/fraud",
+  dev: "/simulator",
+  admin: "/ops",
+  marketing: "/ops",
 };
 
-type Step = 'identifier' | 'otp';
+type Step = "identifier" | "otp";
 
 function Login() {
   const navigate = useNavigate();
-  const [step, setStep] = useState<Step>('identifier');
-  const [identifier, setIdentifier] = useState('');
-  const [session, setSession] = useState('');
-  const [otp, setOtp] = useState('');
+  const [step, setStep] = useState<Step>("identifier");
+  const [identifier, setIdentifier] = useState("");
+  const [session, setSession] = useState("");
+  const [otp, setOtp] = useState("");
 
   // P19: server state via TanStack Query useMutation (spec Task 4 / Dev Notes §1.9.3).
   const initiateMutation = useMutation({
     mutationFn: (id: string) => initiateLogin(id),
     onSuccess: (result) => {
       setSession(result.session);
-      setStep('otp');
+      setStep("otp");
     },
   });
 
   const verifyMutation = useMutation({
-    mutationFn: ({ id, sess, code }: { id: string; sess: string; code: string }) =>
-      verifyLoginOtp(id, sess, code),
+    mutationFn: ({
+      id,
+      sess,
+      code,
+    }: {
+      id: string;
+      sess: string;
+      code: string;
+    }) => verifyLoginOtp(id, sess, code),
     onSuccess: (tokens) => {
       saveToken(tokens.access_token);
       const role = getRole();
@@ -81,14 +88,13 @@ function Login() {
     verifyMutation.mutate({ id: identifier, sess: session, code: otp });
   }
 
-  const error =
-    initiateMutation.isError
-      ? 'Failed to initiate login. Check your Registration ID or MSISDN.'
-      : verifyMutation.isError
-        ? 'OTP verification failed — check the code and try again.'
-        : verifyMutation.isSuccess && getRole() === null
-          ? 'Unrecognized account role — contact support.'
-          : null;
+  const error = initiateMutation.isError
+    ? "Failed to initiate login. Check your Registration ID or MSISDN."
+    : verifyMutation.isError
+      ? "OTP verification failed — check the code and try again."
+      : verifyMutation.isSuccess && getRole() === null
+        ? "Unrecognized account role — contact support."
+        : null;
 
   const loading = initiateMutation.isPending || verifyMutation.isPending;
 
@@ -97,20 +103,26 @@ function Login() {
       <div className="w-full max-w-sm rounded-xl bg-white p-8 shadow-sm ring-1 ring-neutral-200">
         <h1 className="mb-1 text-2xl font-bold text-neutral-900">Sign in</h1>
         <p className="mb-6 text-sm text-neutral-500">
-          {step === 'identifier'
-            ? 'Enter your Registration ID or mobile number.'
-            : 'Enter the OTP from the Notification Portal.'}
+          {step === "identifier"
+            ? "Enter your Registration ID or mobile number."
+            : "Enter the OTP from the Notification Portal."}
         </p>
 
         {error !== null && (
-          <p role="alert" className="mb-4 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">
+          <p
+            role="alert"
+            className="mb-4 rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700"
+          >
             {error}
           </p>
         )}
 
-        {step === 'identifier' ? (
+        {step === "identifier" ? (
           <form onSubmit={handleInitiate} noValidate>
-            <label className="mb-1 block text-sm font-medium text-neutral-700" htmlFor="identifier">
+            <label
+              className="mb-1 block text-sm font-medium text-neutral-700"
+              htmlFor="identifier"
+            >
               Registration ID or MSISDN
             </label>
             <input
@@ -125,15 +137,18 @@ function Login() {
             />
             <button
               type="submit"
-              disabled={loading || identifier.trim() === ''}
+              disabled={loading || identifier.trim() === ""}
               className="w-full rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              {loading ? 'Sending OTP…' : 'Continue'}
+              {loading ? "Sending OTP…" : "Continue"}
             </button>
           </form>
         ) : (
           <form onSubmit={handleVerify} noValidate>
-            <label className="mb-1 block text-sm font-medium text-neutral-700" htmlFor="otp">
+            <label
+              className="mb-1 block text-sm font-medium text-neutral-700"
+              htmlFor="otp"
+            >
               One-time passcode
             </label>
             <input
@@ -153,13 +168,13 @@ function Login() {
               disabled={loading || otp.length !== 6}
               className="mb-3 w-full rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              {loading ? 'Verifying…' : 'Sign in'}
+              {loading ? "Verifying…" : "Sign in"}
             </button>
             <button
               type="button"
               onClick={() => {
-                setStep('identifier');
-                setOtp('');
+                setStep("identifier");
+                setOtp("");
                 initiateMutation.reset();
                 verifyMutation.reset();
               }}

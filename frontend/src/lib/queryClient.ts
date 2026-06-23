@@ -1,4 +1,4 @@
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient } from "@tanstack/react-query";
 
 /**
  * Application QueryClient (UX brief §7.1 — src/lib/queryClient.ts).

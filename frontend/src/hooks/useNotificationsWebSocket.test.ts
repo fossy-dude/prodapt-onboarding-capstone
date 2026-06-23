@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { renderHook, act, waitFor } from "@testing-library/react";
 
-import { useNotificationsWebSocket } from './useNotificationsWebSocket';
+import { useNotificationsWebSocket } from "./useNotificationsWebSocket";
 
 class MockWebSocket {
   static instances: MockWebSocket[] = [];
@@ -32,11 +32,11 @@ class MockWebSocket {
   }
 }
 
-describe('useNotificationsWebSocket', () => {
+describe("useNotificationsWebSocket", () => {
   beforeEach(() => {
-    vi.stubGlobal('WebSocket', MockWebSocket);
+    vi.stubGlobal("WebSocket", MockWebSocket);
     MockWebSocket.instances = [];
-    localStorage.setItem('sboai_access_token', 'fake-token');
+    localStorage.setItem("sboai_access_token", "fake-token");
   });
 
   afterEach(() => {
@@ -45,14 +45,14 @@ describe('useNotificationsWebSocket', () => {
     localStorage.clear();
   });
 
-  it('opens a connection to /ws/notifications with the token in the URL', async () => {
+  it("opens a connection to /ws/notifications with the token in the URL", async () => {
     renderHook(() => useNotificationsWebSocket());
     await waitFor(() => expect(MockWebSocket.instances.length).toBe(1));
-    expect(MockWebSocket.instances[0]?.url).toContain('/ws/notifications');
-    expect(MockWebSocket.instances[0]?.url).toContain('token=fake-token');
+    expect(MockWebSocket.instances[0]?.url).toContain("/ws/notifications");
+    expect(MockWebSocket.instances[0]?.url).toContain("token=fake-token");
   });
 
-  it('prepends incoming notifications newest-first', async () => {
+  it("prepends incoming notifications newest-first", async () => {
     const { result } = renderHook(() => useNotificationsWebSocket());
     await waitFor(() => expect(MockWebSocket.instances.length).toBe(1));
     const ws = MockWebSocket.instances[0]!;
@@ -60,29 +60,29 @@ describe('useNotificationsWebSocket', () => {
 
     act(() =>
       ws.fireMessage({
-        msisdn_suffix: '3210',
-        notification_type: 'SIM_ACTIVATION',
-        message_preview: 'first',
-        timestamp: 't1',
-        trace_id: 'a'.repeat(32),
+        msisdn_suffix: "3210",
+        notification_type: "SIM_ACTIVATION",
+        message_preview: "first",
+        timestamp: "t1",
+        trace_id: "a".repeat(32),
       }),
     );
     act(() =>
       ws.fireMessage({
-        msisdn_suffix: '4321',
-        notification_type: 'LOW_BALANCE',
-        message_preview: 'second',
-        timestamp: 't2',
-        trace_id: 'b'.repeat(32),
+        msisdn_suffix: "4321",
+        notification_type: "LOW_BALANCE",
+        message_preview: "second",
+        timestamp: "t2",
+        trace_id: "b".repeat(32),
       }),
     );
 
     expect(result.current.events).toHaveLength(2);
-    expect(result.current.events[0]?.notification_type).toBe('LOW_BALANCE'); // newest first
-    expect(result.current.events[1]?.notification_type).toBe('SIM_ACTIVATION');
+    expect(result.current.events[0]?.notification_type).toBe("LOW_BALANCE"); // newest first
+    expect(result.current.events[1]?.notification_type).toBe("SIM_ACTIVATION");
   });
 
-  it('caps the live feed to the most recent 50 events', async () => {
+  it("caps the live feed to the most recent 50 events", async () => {
     const { result } = renderHook(() => useNotificationsWebSocket());
     await waitFor(() => expect(MockWebSocket.instances.length).toBe(1));
     const ws = MockWebSocket.instances[0]!;
@@ -92,30 +92,30 @@ describe('useNotificationsWebSocket', () => {
       for (let i = 0; i < 60; i += 1) {
         ws.fireMessage({
           msisdn_suffix: String(i),
-          notification_type: 'SIM_ACTIVATION',
+          notification_type: "SIM_ACTIVATION",
           message_preview: `msg-${i}`,
           timestamp: `t${i}`,
-          trace_id: 'c'.repeat(32),
+          trace_id: "c".repeat(32),
         });
       }
     });
 
     expect(result.current.events).toHaveLength(50);
     // newest-first: the last pushed (59) should be first
-    expect(result.current.events[0]?.message_preview).toBe('msg-59');
+    expect(result.current.events[0]?.message_preview).toBe("msg-59");
   });
 
-  it('clearEvents resets the feed', async () => {
+  it("clearEvents resets the feed", async () => {
     const { result } = renderHook(() => useNotificationsWebSocket());
     await waitFor(() => expect(MockWebSocket.instances.length).toBe(1));
     const ws = MockWebSocket.instances[0]!;
     act(() =>
       ws.fireMessage({
-        msisdn_suffix: '3210',
-        notification_type: 'SIM_ACTIVATION',
-        message_preview: 'x',
-        timestamp: 't1',
-        trace_id: 'a'.repeat(32),
+        msisdn_suffix: "3210",
+        notification_type: "SIM_ACTIVATION",
+        message_preview: "x",
+        timestamp: "t1",
+        trace_id: "a".repeat(32),
       }),
     );
     expect(result.current.events).toHaveLength(1);
@@ -124,9 +124,9 @@ describe('useNotificationsWebSocket', () => {
     expect(result.current.events).toHaveLength(0);
   });
 
-  it('sets error status when no token is present', () => {
-    localStorage.removeItem('sboai_access_token');
+  it("sets error status when no token is present", () => {
+    localStorage.removeItem("sboai_access_token");
     const { result } = renderHook(() => useNotificationsWebSocket());
-    expect(result.current.status).toBe('error');
+    expect(result.current.status).toBe("error");
   });
 });

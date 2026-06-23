@@ -1,6 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { getProfile, updateProfile, type ProfileData, type ProfileUpdatePayload } from '../lib/api';
+import {
+  getProfile,
+  updateProfile,
+  type ProfileData,
+  type ProfileUpdatePayload,
+} from "../lib/api";
 
 /**
  * TanStack Query keys + hooks for the subscriber profile (Story 1.9; §1.9.3).
@@ -8,7 +13,7 @@ import { getProfile, updateProfile, type ProfileData, type ProfileUpdatePayload 
  * The profile query is invalidated (and optimistically seeded) on a successful
  * edit so the read view reflects the PATCH response without a manual refetch.
  */
-export const PROFILE_QUERY_KEY = ['profile'] as const;
+export const PROFILE_QUERY_KEY = ["profile"] as const;
 
 /** Read the authenticated subscriber's decrypted profile. */
 export function useProfile() {

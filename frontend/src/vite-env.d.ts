@@ -12,7 +12,7 @@ interface ImportMetaEnv {
   readonly VITE_API_BASE_URL?: string;
 
   /** Application environment (development, staging, production) */
-  readonly VITE_ENV?: 'development' | 'staging' | 'production';
+  readonly VITE_ENV?: "development" | "staging" | "production";
 
   // Add more custom environment variables here as needed.
   // Example:

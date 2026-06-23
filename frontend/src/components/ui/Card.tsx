@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { type ReactNode } from "react";
 
 interface CardProps {
   readonly children: ReactNode;
@@ -8,9 +8,11 @@ interface CardProps {
 /**
  * Surface container for panels and form sections (UX brief §3.1).
  */
-function Card({ children, className = '' }: CardProps) {
+function Card({ children, className = "" }: CardProps) {
   return (
-    <div className={`rounded-lg border border-neutral-200 bg-neutral-50 p-6 shadow-sm ${className}`}>
+    <div
+      className={`rounded-lg border border-neutral-200 bg-neutral-50 p-6 shadow-sm ${className}`}
+    >
       {children}
     </div>
   );

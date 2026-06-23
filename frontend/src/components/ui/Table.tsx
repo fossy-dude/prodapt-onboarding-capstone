@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { type ReactNode } from "react";
 
 interface TableColumn {
   readonly key: string;
@@ -26,12 +26,14 @@ function Table<T>({
   renderRow,
   emptyState,
   caption,
-  className = '',
+  className = "",
 }: TableProps<T>) {
   return (
     <div className={`overflow-x-auto ${className}`}>
       <table className="w-full text-left text-sm">
-        {caption && <caption className="mb-2 text-xs text-neutral-500">{caption}</caption>}
+        {caption && (
+          <caption className="mb-2 text-xs text-neutral-500">{caption}</caption>
+        )}
         <thead>
           <tr className="border-b border-neutral-300 text-xs text-neutral-500">
             {columns.map((column) => (
@@ -44,7 +46,10 @@ function Table<T>({
         <tbody>
           {rows.length === 0 && emptyState ? (
             <tr>
-              <td colSpan={columns.length} className="py-4 text-sm text-neutral-500">
+              <td
+                colSpan={columns.length}
+                className="py-4 text-sm text-neutral-500"
+              >
                 {emptyState}
               </td>
             </tr>

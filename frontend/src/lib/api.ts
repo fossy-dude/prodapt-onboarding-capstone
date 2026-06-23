@@ -1,19 +1,22 @@
-import axios, { AxiosError, type AxiosInstance } from 'axios';
+import axios, { AxiosError, type AxiosInstance } from "axios";
 
-import type { RegisterPayload, RegisterResponseEnvelope } from '../types/subscriber';
+import type {
+  RegisterPayload,
+  RegisterResponseEnvelope,
+} from "../types/subscriber";
 import type {
   PaymentMethodsListResponse,
   PaymentMethodResponse,
   AddPaymentMethodPayload,
-} from '../types/payment-method';
-import { getToken, removeToken } from './auth';
+} from "../types/payment-method";
+import { getToken, removeToken } from "./auth";
 
 // Base URL for the service_webapp REST API. Vite exposes VITE_-prefixed env vars.
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
 
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
-  headers: { 'Content-Type': 'application/json' },
+  headers: { "Content-Type": "application/json" },
   timeout: 10_000,
 });
 
@@ -23,13 +26,13 @@ const apiClient: AxiosInstance = axios.create({
 apiClient.interceptors.request.use((config) => {
   const token = getToken();
   if (token !== null) {
-    config.headers['Authorization'] = `Bearer ${token}`;
+    config.headers["Authorization"] = `Bearer ${token}`;
   }
   return config;
 });
 
 /** Routes that must NOT trigger a /login redirect on 401 (they are part of the login flow). */
-const _LOGIN_PATHS = ['/auth/login/initiate', '/auth/login/verify'];
+const _LOGIN_PATHS = ["/auth/login/initiate", "/auth/login/verify"];
 
 /** On 401 response: clear the stored token and redirect to /login.
  *
@@ -40,14 +43,14 @@ apiClient.interceptors.response.use(
   (response) => response,
   (error: unknown) => {
     if (error instanceof AxiosError && error.response?.status === 401) {
-      const url = error.config?.url ?? '';
+      const url = error.config?.url ?? "";
       const isLoginRoute = _LOGIN_PATHS.some((path) => url.includes(path));
       if (!isLoginRoute) {
         removeToken();
         // P8: window.location.href is a full reload that bypasses React Router.
         // Acceptable for the auth redirect (avoids needing a shared event bus),
         // but guarded to login-route exclusion above to prevent loops.
-        window.location.href = '/login';
+        window.location.href = "/login";
       }
     }
     return Promise.reject(error);
@@ -58,11 +61,11 @@ apiClient.interceptors.response.use(
 
 /** Error codes the API returns in the standard error envelope (§1.11.3). */
 export const ERROR_CODES = {
-  DUPLICATE_MSISDN: 'DUPLICATE_MSISDN',
-  VALIDATION_ERROR: 'VALIDATION_ERROR',
-  UNAUTHENTICATED: 'UNAUTHENTICATED',
-  FORBIDDEN: 'FORBIDDEN',
-  OTP_INVALID: 'OTP_INVALID',
+  DUPLICATE_MSISDN: "DUPLICATE_MSISDN",
+  VALIDATION_ERROR: "VALIDATION_ERROR",
+  UNAUTHENTICATED: "UNAUTHENTICATED",
+  FORBIDDEN: "FORBIDDEN",
+  OTP_INVALID: "OTP_INVALID",
 } as const;
 
 export interface ApiError {
@@ -83,8 +86,13 @@ export function toApiError(error: unknown): ApiError | null {
 // ── Registration (Story 1.6) ──────────────────────────────────────────────────
 
 /** POST /subscriber/register — create a subscriber registration (Story 1.6). */
-export async function registerSubscriber(payload: RegisterPayload): Promise<RegisterResponseEnvelope> {
-  const { data } = await apiClient.post<RegisterResponseEnvelope>('/subscriber/register', payload);
+export async function registerSubscriber(
+  payload: RegisterPayload,
+): Promise<RegisterResponseEnvelope> {
+  const { data } = await apiClient.post<RegisterResponseEnvelope>(
+    "/subscriber/register",
+    payload,
+  );
   return data;
 }
 
@@ -109,8 +117,13 @@ interface LoginVerifyResponse {
  * POST /auth/login/initiate — start Cognito Custom Auth Flow (AC #1, #2).
  * Returns `{ session }` to pass to `verifyLoginOtp`.
  */
-export async function initiateLogin(identifier: string): Promise<{ session: string }> {
-  const { data } = await apiClient.post<LoginInitiateResponse>('/auth/login/initiate', { identifier });
+export async function initiateLogin(
+  identifier: string,
+): Promise<{ session: string }> {
+  const { data } = await apiClient.post<LoginInitiateResponse>(
+    "/auth/login/initiate",
+    { identifier },
+  );
   return data.data;
 }
 
@@ -121,12 +134,15 @@ export async function verifyLoginOtp(
   identifier: string,
   session: string,
   otp: string,
-): Promise<LoginVerifyResponse['data']> {
-  const { data } = await apiClient.post<LoginVerifyResponse>('/auth/login/verify', {
-    identifier,
-    session,
-    otp,
-  });
+): Promise<LoginVerifyResponse["data"]> {
+  const { data } = await apiClient.post<LoginVerifyResponse>(
+    "/auth/login/verify",
+    {
+      identifier,
+      session,
+      otp,
+    },
+  );
   return data.data;
 }
 
@@ -134,7 +150,7 @@ export async function verifyLoginOtp(
 
 export interface OrderStatusResponse {
   readonly data: {
-    readonly status: 'CREATED' | 'KYC_PENDING' | 'KYC_VERIFIED' | 'ACTIVATED';
+    readonly status: "CREATED" | "KYC_PENDING" | "KYC_VERIFIED" | "ACTIVATED";
     readonly updated_at: string;
     readonly msisdn: string | null;
   };
@@ -152,14 +168,20 @@ export interface ActiveOrderResponse {
 }
 
 /** GET /subscriber/orders/active — discover the subscriber's active NEW_ACTIVATION order. */
-export async function getActiveOrder(): Promise<ActiveOrderResponse['data']> {
-  const { data } = await apiClient.get<ActiveOrderResponse>('/subscriber/orders/active');
+export async function getActiveOrder(): Promise<ActiveOrderResponse["data"]> {
+  const { data } = await apiClient.get<ActiveOrderResponse>(
+    "/subscriber/orders/active",
+  );
   return data.data;
 }
 
 /** GET /subscriber/orders/{orderId}/status — poll fulfilment state. */
-export async function getOrderStatus(orderId: string): Promise<OrderStatusResponse['data']> {
-  const { data } = await apiClient.get<OrderStatusResponse>(`/subscriber/orders/${orderId}/status`);
+export async function getOrderStatus(
+  orderId: string,
+): Promise<OrderStatusResponse["data"]> {
+  const { data } = await apiClient.get<OrderStatusResponse>(
+    `/subscriber/orders/${orderId}/status`,
+  );
   return data.data;
 }
 
@@ -177,8 +199,11 @@ export interface SimulatorOrdersResponse {
 }
 
 /** GET /simulator/orders — list recent orders for the dev tool (dev role). */
-export async function getSimulatorOrders(): Promise<SimulatorOrdersResponse['data']> {
-  const { data } = await apiClient.get<SimulatorOrdersResponse>('/simulator/orders');
+export async function getSimulatorOrders(): Promise<
+  SimulatorOrdersResponse["data"]
+> {
+  const { data } =
+    await apiClient.get<SimulatorOrdersResponse>("/simulator/orders");
   return data.data;
 }
 
@@ -192,7 +217,9 @@ export interface AdvanceOrderResponse {
 }
 
 /** POST /simulator/orders/{orderId}/advance — advance the order state (dev tool). */
-export async function advanceOrderState(orderId: string): Promise<AdvanceOrderResponse['data']> {
+export async function advanceOrderState(
+  orderId: string,
+): Promise<AdvanceOrderResponse["data"]> {
   const { data } = await apiClient.post<AdvanceOrderResponse>(
     `/simulator/orders/${orderId}/advance`,
   );
@@ -235,13 +262,18 @@ interface ProfileResponse {
 
 /** GET /subscriber/profile — read the authenticated subscriber's decrypted profile. */
 export async function getProfile(): Promise<ProfileData> {
-  const { data } = await apiClient.get<ProfileResponse>('/subscriber/profile');
+  const { data } = await apiClient.get<ProfileResponse>("/subscriber/profile");
   return data.data;
 }
 
 /** PATCH /subscriber/profile — edit email/address (re-writes + audit on the server). */
-export async function updateProfile(payload: ProfileUpdatePayload): Promise<ProfileData> {
-  const { data } = await apiClient.patch<ProfileResponse>('/subscriber/profile', payload);
+export async function updateProfile(
+  payload: ProfileUpdatePayload,
+): Promise<ProfileData> {
+  const { data } = await apiClient.patch<ProfileResponse>(
+    "/subscriber/profile",
+    payload,
+  );
   return data.data;
 }
 
@@ -249,7 +281,9 @@ export async function updateProfile(payload: ProfileUpdatePayload): Promise<Prof
 
 /** GET /account/payment-methods — list subscriber's saved payment methods (AC #5). */
 export async function getPaymentMethods(): Promise<PaymentMethodsListResponse> {
-  const { data } = await apiClient.get<PaymentMethodsListResponse>('/account/payment-methods');
+  const { data } = await apiClient.get<PaymentMethodsListResponse>(
+    "/account/payment-methods",
+  );
   return data;
 }
 
@@ -257,7 +291,10 @@ export async function getPaymentMethods(): Promise<PaymentMethodsListResponse> {
 export async function addPaymentMethod(
   payload: AddPaymentMethodPayload,
 ): Promise<PaymentMethodResponse> {
-  const { data } = await apiClient.post<PaymentMethodResponse>('/account/payment-methods', payload);
+  const { data } = await apiClient.post<PaymentMethodResponse>(
+    "/account/payment-methods",
+    payload,
+  );
   return data;
 }
 
@@ -265,7 +302,9 @@ export async function addPaymentMethod(
  * PATCH /account/payment-methods/{id}/default — set a payment method as default (AC #5).
  * Clears the default flag on all other methods for this subscriber.
  */
-export async function setDefaultPaymentMethod(id: string): Promise<PaymentMethodResponse> {
+export async function setDefaultPaymentMethod(
+  id: string,
+): Promise<PaymentMethodResponse> {
   const { data } = await apiClient.patch<PaymentMethodResponse>(
     `/account/payment-methods/${id}/default`,
   );
@@ -282,11 +321,11 @@ export async function deletePaymentMethod(id: string): Promise<void> {
 // ── CDR Simulator (Story 2.8) ──────────────────────────────────────────────────
 
 export interface CdrDispatchPayload {
-  readonly cdr_type: 'voice' | 'data' | 'sms';
+  readonly cdr_type: "voice" | "data" | "sms";
   readonly subscriber_msisdn: string;
   readonly duration_seconds?: number;
   readonly volume_mb?: number;
-  readonly message_direction?: 'MO' | 'MT';
+  readonly message_direction?: "MO" | "MT";
   readonly timestamp?: string;
 }
 
@@ -303,13 +342,16 @@ interface CdrDispatchResponse {
 export async function dispatchCdr(
   payload: CdrDispatchPayload,
 ): Promise<{ trace_id: string; cdr_type: string; subscriber_msisdn: string }> {
-  const { data } = await apiClient.post<CdrDispatchResponse>('/simulator/cdr', payload);
+  const { data } = await apiClient.post<CdrDispatchResponse>(
+    "/simulator/cdr",
+    payload,
+  );
   return data.data;
 }
 
 // ── SIM Activation Simulator (Story 2.9) ────────────────────────────────────────
 
-export type SimLookupType = 'msisdn' | 'registration_id';
+export type SimLookupType = "msisdn" | "registration_id";
 
 export interface SimActivatePayload {
   readonly lookup_type: SimLookupType;
@@ -333,8 +375,13 @@ interface SimActivateResponse {
  * (resolves by MSISDN or Registration ID), seed the wallet + Valkey balance, and
  * publish a notification event (Story 2.9, AC #1, #2).
  */
-export async function activateSim(payload: SimActivatePayload): Promise<SimActivateResult> {
-  const { data } = await apiClient.post<SimActivateResponse>('/simulator/activate', payload);
+export async function activateSim(
+  payload: SimActivatePayload,
+): Promise<SimActivateResult> {
+  const { data } = await apiClient.post<SimActivateResponse>(
+    "/simulator/activate",
+    payload,
+  );
   return data.data;
 }
 

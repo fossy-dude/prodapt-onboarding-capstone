@@ -37,7 +37,7 @@ export interface TokenizedCard {
  */
 function extractLast4(pan: string): string {
   // Strip all non-digit characters so last4 always contains only digits.
-  const digits = pan.replace(/\D/g, '');
+  const digits = pan.replace(/\D/g, "");
   return digits.slice(-4);
 }
 
@@ -69,11 +69,11 @@ export function tokenizeCard(pan: string): TokenizedCard {
   // crypto.randomUUID() requires a secure context (HTTPS / localhost).
   // Fall back to a Math.random-based UUID v4 for plain-HTTP dev environments.
   const token =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
-      : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
           const r = (Math.random() * 16) | 0;
-          return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+          return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
         });
 
   // Extract last-4 digits for display/verification

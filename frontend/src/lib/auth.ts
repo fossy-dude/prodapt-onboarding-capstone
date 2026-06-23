@@ -9,14 +9,20 @@
  * prefix: subscriber → /subscriber/*, ops → /ops/*, etc.
  */
 
-const TOKEN_KEY = 'sboai_access_token';
+const TOKEN_KEY = "sboai_access_token";
 
 /** Valid portal roles — each maps to a route prefix. */
-export type PortalRole = 'subscriber' | 'ops' | 'fraud' | 'dev' | 'admin' | 'marketing';
+export type PortalRole =
+  | "subscriber"
+  | "ops"
+  | "fraud"
+  | "dev"
+  | "admin"
+  | "marketing";
 
 interface JwtPayload {
   readonly sub: string;
-  readonly 'cognito:groups'?: readonly string[];
+  readonly "cognito:groups"?: readonly string[];
   readonly exp?: number;
   readonly iat?: number;
   readonly [key: string]: unknown;
@@ -25,14 +31,15 @@ interface JwtPayload {
 /** Decode a JWT payload without verifying signature (verification happens on the backend). */
 function decodeJwtPayload(token: string): JwtPayload | null {
   try {
-    const parts = token.split('.');
+    const parts = token.split(".");
     if (parts.length !== 3) return null;
-    const base64 = (parts[1] ?? '').replace(/-/g, '+').replace(/_/g, '/');
+    const base64 = (parts[1] ?? "").replace(/-/g, "+").replace(/_/g, "/");
     const json = atob(base64);
     const parsed: unknown = JSON.parse(json);
     // P17: guard against non-object payloads (arrays, strings) that would cause
     // undefined property access on the JwtPayload fields downstream.
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+      return null;
     return parsed as JwtPayload;
   } catch {
     return null;
@@ -86,10 +93,17 @@ export function getRole(): PortalRole | null {
   if (!token) return null;
   const payload = decodeJwtPayload(token);
   if (!payload || isExpired(payload)) return null;
-  const groups = payload['cognito:groups'];
+  const groups = payload["cognito:groups"];
   if (!groups || groups.length === 0) return null;
   const first = groups[0];
-  const known: readonly PortalRole[] = ['subscriber', 'ops', 'fraud', 'dev', 'admin', 'marketing'];
+  const known: readonly PortalRole[] = [
+    "subscriber",
+    "ops",
+    "fraud",
+    "dev",
+    "admin",
+    "marketing",
+  ];
   return known.includes(first as PortalRole) ? (first as PortalRole) : null;
 }
 
@@ -105,7 +119,7 @@ export function getSub(): string | null {
 /** Clear the token and reload to /login — use for logout. */
 export function logout(): void {
   removeToken();
-  window.location.href = '/login';
+  window.location.href = "/login";
 }
 
 export { decodeJwtPayload };

@@ -10,9 +10,11 @@ Critical security requirements:
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient

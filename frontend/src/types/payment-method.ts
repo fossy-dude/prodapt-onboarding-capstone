@@ -9,10 +9,10 @@
 
 /** Payment method type variants (AC #3, #4). */
 export type PaymentMethodType =
-  | 'CREDIT_CARD'
-  | 'UPI'
-  | 'NET_BANKING'
-  | 'MOBILE_WALLET';
+  | "CREDIT_CARD"
+  | "UPI"
+  | "NET_BANKING"
+  | "MOBILE_WALLET";
 
 /** Base payment method record (AC #3). */
 export interface PaymentMethod {

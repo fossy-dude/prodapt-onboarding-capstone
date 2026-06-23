@@ -39,15 +39,11 @@ def pytest_collection_modifyitems(config, items):
     run_slow = config.getoption("--run-slow")
     if run_integration and run_slow:
         return  # both buckets opted in — nothing to gate
-    skip_gate = pytest.mark.skip(
-        reason="integration/slow test — rerun with --run-integration or --run-slow"
-    )
+    skip_gate = pytest.mark.skip(reason="integration/slow test — rerun with --run-integration or --run-slow")
     for item in items:
         has_slow = "slow" in item.keywords
         has_integration = "integration" in item.keywords
-        if (has_slow or has_integration) and not (
-            (has_slow and run_slow) or (has_integration and run_integration)
-        ):
+        if (has_slow or has_integration) and not ((has_slow and run_slow) or (has_integration and run_integration)):
             item.add_marker(skip_gate)
 
 

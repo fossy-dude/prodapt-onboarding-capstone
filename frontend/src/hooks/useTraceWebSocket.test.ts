@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { renderHook, act, waitFor } from "@testing-library/react";
 
-import { useTraceWebSocket } from './useTraceWebSocket';
+import { useTraceWebSocket } from "./useTraceWebSocket";
 
 class MockWebSocket {
   static instances: MockWebSocket[] = [];
@@ -33,11 +33,11 @@ class MockWebSocket {
   }
 }
 
-describe('useTraceWebSocket', () => {
+describe("useTraceWebSocket", () => {
   beforeEach(() => {
-    vi.stubGlobal('WebSocket', MockWebSocket);
+    vi.stubGlobal("WebSocket", MockWebSocket);
     MockWebSocket.instances = [];
-    localStorage.setItem('sboai_access_token', 'fake-token');
+    localStorage.setItem("sboai_access_token", "fake-token");
   });
 
   afterEach(() => {
@@ -46,52 +46,72 @@ describe('useTraceWebSocket', () => {
     localStorage.clear();
   });
 
-  it('opens a connection with the token in the URL', async () => {
+  it("opens a connection with the token in the URL", async () => {
     const { result } = renderHook(() => useTraceWebSocket());
     await waitFor(() => expect(MockWebSocket.instances.length).toBe(1));
-    expect(MockWebSocket.instances[0]?.url).toContain('token=fake-token');
-    expect(MockWebSocket.instances[0]?.url).toContain('/ws/simulator/trace');
+    expect(MockWebSocket.instances[0]?.url).toContain("token=fake-token");
+    expect(MockWebSocket.instances[0]?.url).toContain("/ws/simulator/trace");
 
     act(() => MockWebSocket.instances[0]?.fireOpen());
-    expect(result.current.status).toBe('open');
+    expect(result.current.status).toBe("open");
   });
 
-  it('appends incoming stage events to the list in order', async () => {
+  it("appends incoming stage events to the list in order", async () => {
     const { result } = renderHook(() => useTraceWebSocket());
     await waitFor(() => expect(MockWebSocket.instances.length).toBe(1));
     const ws = MockWebSocket.instances[0]!;
     act(() => ws.fireOpen());
 
     act(() =>
-      ws.fireMessage({ stage: 'Received', timestamp: 't1', trace_id: 'a'.repeat(32), error: null }),
+      ws.fireMessage({
+        stage: "Received",
+        timestamp: "t1",
+        trace_id: "a".repeat(32),
+        error: null,
+      }),
     );
     act(() =>
-      ws.fireMessage({ stage: 'Deduped', timestamp: 't2', trace_id: 'a'.repeat(32), error: null }),
+      ws.fireMessage({
+        stage: "Deduped",
+        timestamp: "t2",
+        trace_id: "a".repeat(32),
+        error: null,
+      }),
     );
 
     expect(result.current.events).toHaveLength(2);
-    expect(result.current.events[0]?.stage).toBe('Received');
-    expect(result.current.events[1]?.stage).toBe('Deduped');
+    expect(result.current.events[0]?.stage).toBe("Received");
+    expect(result.current.events[1]?.stage).toBe("Deduped");
   });
 
-  it('surfaces error field from an event', async () => {
+  it("surfaces error field from an event", async () => {
     const { result } = renderHook(() => useTraceWebSocket());
     await waitFor(() => expect(MockWebSocket.instances.length).toBe(1));
     const ws = MockWebSocket.instances[0]!;
 
     act(() =>
-      ws.fireMessage({ stage: 'Balance Deducted', timestamp: 't1', trace_id: 'b'.repeat(32), error: 'insufficient balance' }),
+      ws.fireMessage({
+        stage: "Balance Deducted",
+        timestamp: "t1",
+        trace_id: "b".repeat(32),
+        error: "insufficient balance",
+      }),
     );
 
-    expect(result.current.events[0]?.error).toBe('insufficient balance');
+    expect(result.current.events[0]?.error).toBe("insufficient balance");
   });
 
-  it('clearEvents resets the event list', async () => {
+  it("clearEvents resets the event list", async () => {
     const { result } = renderHook(() => useTraceWebSocket());
     await waitFor(() => expect(MockWebSocket.instances.length).toBe(1));
     const ws = MockWebSocket.instances[0]!;
     act(() =>
-      ws.fireMessage({ stage: 'Received', timestamp: 't1', trace_id: 'c'.repeat(32), error: null }),
+      ws.fireMessage({
+        stage: "Received",
+        timestamp: "t1",
+        trace_id: "c".repeat(32),
+        error: null,
+      }),
     );
     expect(result.current.events).toHaveLength(1);
 
@@ -99,9 +119,9 @@ describe('useTraceWebSocket', () => {
     expect(result.current.events).toHaveLength(0);
   });
 
-  it('sets error status when no token is present', () => {
-    localStorage.removeItem('sboai_access_token');
+  it("sets error status when no token is present", () => {
+    localStorage.removeItem("sboai_access_token");
     const { result } = renderHook(() => useTraceWebSocket());
-    expect(result.current.status).toBe('error');
+    expect(result.current.status).toBe("error");
   });
 });

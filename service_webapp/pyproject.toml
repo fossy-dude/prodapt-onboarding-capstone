@@ -63,7 +63,7 @@ dev = [
 line-length = 120
 target-version = "py311"
 fix = true
-src = ["src"]
+src = ["src","tests"]
 
 [tool.ruff.format]
 # 5. Use single quotes for non-triple-quoted strings.

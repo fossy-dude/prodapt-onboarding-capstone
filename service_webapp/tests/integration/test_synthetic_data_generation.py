@@ -20,9 +20,7 @@ from testcontainers.postgres import PostgresContainer
 
 pytestmark = [pytest.mark.slow, pytest.mark.integration]
 
-MIGRATIONS_DIR = (
-    Path(__file__).parent.parent.parent / "db" / "migrations"
-)
+MIGRATIONS_DIR = Path(__file__).parent.parent.parent / "db" / "migrations"
 SEED_SQL = Path(__file__).parent.parent.parent / "db" / "seed" / "seed_plans.sql"
 SCRIPTS_DIR = Path(__file__).parent.parent.parent.parent / "scripts"
 
@@ -40,8 +38,7 @@ def pg() -> PostgresContainer:
 @pytest.fixture(scope="module")
 def pg_conninfo(pg: PostgresContainer) -> str:
     return (
-        f"host=127.0.0.1 port={pg.get_exposed_port(5432)} "
-        f"dbname={pg.dbname} user={pg.username} password={pg.password}"
+        f"host=127.0.0.1 port={pg.get_exposed_port(5432)} dbname={pg.dbname} user={pg.username} password={pg.password}"
     )
 
 
@@ -172,15 +169,13 @@ def test_cdr_subscriber_id_fk_valid(seeded_db: str) -> None:
 def test_cdr_type_distribution(seeded_db: str) -> None:
     """CDR type distribution should be ≈ voice 60% / data 30% / SMS 10% (±5 pp tolerance)."""
     with psycopg.connect(seeded_db) as conn:
-        rows = conn.execute(
-            "SELECT cdr_type, COUNT(*) FROM billing_cdr_events GROUP BY cdr_type"
-        ).fetchall()
+        rows = conn.execute("SELECT cdr_type, COUNT(*) FROM billing_cdr_events GROUP BY cdr_type").fetchall()
     total = sum(r[1] for r in rows)
     dist = {r[0]: r[1] / total for r in rows}
 
     assert 0.55 <= dist.get("voice", 0) <= 0.65, f"Voice: {dist.get('voice', 0):.2%}"
-    assert 0.25 <= dist.get("data", 0)  <= 0.35, f"Data: {dist.get('data', 0):.2%}"
-    assert 0.05 <= dist.get("sms", 0)   <= 0.15, f"SMS: {dist.get('sms', 0):.2%}"
+    assert 0.25 <= dist.get("data", 0) <= 0.35, f"Data: {dist.get('data', 0):.2%}"
+    assert 0.05 <= dist.get("sms", 0) <= 0.15, f"SMS: {dist.get('sms', 0):.2%}"
 
 
 def test_fraud_flagged_fraction(seeded_db: str) -> None:
@@ -232,9 +227,7 @@ def test_data_cdr_has_required_fields(seeded_db: str) -> None:
 
 def test_cost_paise_not_negative(seeded_db: str) -> None:
     with psycopg.connect(seeded_db) as conn:
-        neg = conn.execute(
-            "SELECT COUNT(*) FROM billing_cdr_events WHERE cost_paise < 0"
-        ).fetchone()[0]
+        neg = conn.execute("SELECT COUNT(*) FROM billing_cdr_events WHERE cost_paise < 0").fetchone()[0]
     assert neg == 0, f"{neg} CDRs have negative cost_paise"
 
 
@@ -266,9 +259,6 @@ def test_sop_chunks_seeded(seeded_db: str) -> None:
 
 def test_sop_domains_populated(seeded_db: str) -> None:
     with psycopg.connect(seeded_db) as conn:
-        domains = {
-            r[0]
-            for r in conn.execute("SELECT DISTINCT domain FROM sop_knowledge_chunks").fetchall()
-        }
+        domains = {r[0] for r in conn.execute("SELECT DISTINCT domain FROM sop_knowledge_chunks").fetchall()}
     expected = {"billing", "fraud", "activation", "support", "compliance", "network"}
     assert expected.issubset(domains), f"Missing domains: {expected - domains}"

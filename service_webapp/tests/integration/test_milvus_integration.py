@@ -24,6 +24,7 @@ def milvus_db_path() -> str:
 @pytest.fixture(scope="module")
 def real_adapter(milvus_db_path: str) -> object:
     from adapters.milvus import MilvusAdapter
+
     return MilvusAdapter(milvus_db_path)
 
 
