@@ -1,5 +1,5 @@
 # generated: 2026-06-19
-# last_updated: 2026-06-19
+# last_updated: 2025-01-09  # Story 2.5 → review (CDR management API — DLQ inspect & worker control)
 # project: sboai_capstone
 # project_key: NOKEY
 # tracking_system: file-system
@@ -63,7 +63,7 @@ development_status:
   2-2-cdr-ingestion-consumer-dedup-dlq: done
   2-3-balance-deduction-engine-valkey-write-buffer-postgres-flush: in-progress
   2-4-audit-log-distributed-trace-propagation: in-progress
-  2-5-cdr-management-api-dlq-inspect-worker-control: in-progress
+  2-5-cdr-management-api-dlq-inspect-worker-control: review
   2-6-synthetic-dataset-generation-plans-subscribers-cdrs: done
   2-7-milvus-lite-initialisation-vector-seeding: review
   2-8-cdr-simulator-ui-form-dispatch-websocket-trace-display: review

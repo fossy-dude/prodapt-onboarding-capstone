@@ -34,13 +34,15 @@ logger = logging.getLogger("management.api")
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
 # Regexes for PII masking in raw DLQ payloads (§1.11.6).
-_MSISDN_RE = re.compile(r"\b(\d{6})(\d{4})\b")
-_IMEI_RE = re.compile(r"\b(\d{10})(\d{5})\b")
+# MSISDN: match 8-10 digits followed by last 4 (handles 12-digit with country code like 91XXXXXXXXXX)
+_MSISDN_RE = re.compile(r"\b(\d{8,10})(\d{4})\b")
+# IMEI: match 15-digit IMEI (standard) - redact all
+_IMEI_RE = re.compile(r"\b\d{15}\b")
 
 
 def _mask_payload(raw: str) -> str:
     """Mask MSISDNs (keep last 4) and IMEIs (redact all) in a raw JSON string."""
-    masked = _MSISDN_RE.sub(lambda m: f"******{m.group(2)}", raw)
+    masked = _MSISDN_RE.sub(lambda m: f"{'*' * len(m.group(1))}{m.group(2)}", raw)
     masked = _IMEI_RE.sub("***************", masked)
     return masked
 

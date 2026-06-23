@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Self, TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 from uuid import UUID
 
 import pytest

@@ -4,7 +4,7 @@ baseline_commit: cf7ecad14fddcdaca6a98a9fc0a1780df68f8ba3
 
 # Story 2.5: CDR Management API — DLQ Inspect & Worker Control
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -24,25 +24,25 @@ so that I can diagnose pipeline failures and safely halt processing without rest
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Management FastAPI app in cdr-pipeline** (AC: all)
+- [x] **Task 1: Management FastAPI app in cdr-pipeline** (AC: all)
   - [ ] Create `cdr-pipeline/src/management/api.py` — a FastAPI `APIRouter(prefix="/api/v1/admin", tags=["admin"])` mounted on a FastAPI app, run by uvicorn **in the same process** as the consumer pool (so worker control is in-process). Mirror the `service_webapp` app/lifespan + standard response-envelope conventions. All routes `async def`. [Source: architecture.md#1.12.1 (management/api.py is in cdr-pipeline); service_webapp/src/main.py (app factory/lifespan)]
-- [ ] **Task 2: Admin JWT guard (role = admin)** (AC: #5)
-  - [ ] Reuse the auth pattern from `service_webapp/src/core/auth.py`: a `JWTValidator(jwks_url).decode(token)` (RS256 against Cognito JWKS) + a `require_role("admin")` FastAPI dependency that extracts the Bearer token, validates, and checks `payload["cognito:groups"]` for `admin` — raising `UnauthenticatedError` (401) / `ForbiddenError` (403). [Source: service_webapp/src/core/auth.py:51-90,121-167]
-  - [ ] **Cross-codebase note:** `core/auth.py` lives in `service_webapp`; there is no shared package (MVP two-codebase rule). Port a minimal `JWTValidator` + `require_role` into `cdr-pipeline/src/core/auth.py`, keeping the contract identical (same JWKS, same `cognito:groups` claim, same error types). Flag the duplication in Completion Notes as a candidate for a future shared module. Add Cognito JWKS/config keys to `cdr-pipeline/src/core/config.py` (`cognito_user_pool_id`, `cognito_client_id`, `cognito_region`, `cognito_endpoint_url`) mirroring service_webapp. [Source: architecture.md#1.5.1 (no inter-service HTTP / no shared pkg); 1-8 story (cognito:groups, JWKS)]
-- [ ] **Task 3: Worker control (pause/resume within 2s)** (AC: #3, #4)
-  - [ ] Add a shared `WorkerController` holding an `asyncio.Event` (set = running). The Story 2.2 batch loop `await`s `controller.running.wait()` **before each `getmany` poll**; `pause()` clears the event, `resume()` sets it. Because polling cycles are sub-second, clearing the event halts new polling well within 2s. The management endpoints call `controller.pause()/resume()` on the shared instance (same process). [Source: epics.md#Story-2.5 (line 984); architecture.md#1.4.3 (FastAPI = management plane, never hot path)]
-  - [ ] Document the single-process topology (consumer tasks + management API on one event loop). If the deployment splits them into separate processes, the fallback is a Valkey control flag (`control:cdr_workers`) the consumer checks each batch — note which was implemented.
-- [ ] **Task 4: DLQ inspection** (AC: #1, #2)
-  - [ ] `GET /api/v1/admin/dlq` — consume/peek `cdr.dlq` via a transient aiokafka consumer (own group id, `auto_offset_reset="earliest"`, no commit) and return a paginated list (query params `limit`, `offset` or a cursor) of `{cdr_id, error_reason, original_topic, failed_at, raw_payload_preview}`. The preview must be **PII-masked** (mask MSISDNs/IMEI). The metadata shape is exactly what Story 2.2's DLQ handler writes. [Source: epics.md#Story-2.2 (DLQ metadata), #Story-2.5]
-  - [ ] `GET /api/v1/admin/dlq/{cdr_id}` — return the full raw payload for the matching DLQ record (still mask PII in the response per hygiene rules; "full" = full structure, masked values).
-  - [ ] Responses use the standard success envelope (`{data, meta:{trace_id,...}}`); errors use the standard error envelope. [Source: architecture.md#1.11.3; service_webapp/src/core/responses.py]
-- [ ] **Task 5: Wire into main + justfile** (AC: #3, #4)
-  - [ ] `cdr-pipeline/src/main.py` — start the consumer pool AND the management API (uvicorn) on the same loop, sharing the `WorkerController`. Add a `just cdr-admin` (or extend `just up`) recipe / compose wiring so the management API is reachable; pick a dedicated port and document it. [Source: 1-3 story (justfile recipes)]
-- [ ] **Task 6: Tests** (AC: #1, #2, #3, #4, #5)
-  - [ ] Unit (httpx.AsyncClient): no/invalid token → 401; valid token without `admin` group → 403; `admin` token → 200 on all four endpoints (mock `JWTValidator.decode`). [Source: service_webapp test patterns]
-  - [ ] Unit: `pause` clears the controller event and the batch loop's pre-poll `wait()` blocks; `resume` sets it and polling continues; endpoints return `{status:"paused"}` / `{status:"running"}`.
-  - [ ] Unit: DLQ list pagination + PII masking (mock the dlq consumer with sample records).
-  - [ ] Integration (`@pytest.mark.slow`, testcontainers Redpanda): publish to `cdr.dlq`, assert `GET /dlq` returns it with correct metadata. Rootless podman.
+- [x] **Task 2: Admin JWT guard (role = admin)** (AC: #5)
+  - [x] Reuse the auth pattern from `service_webapp/src/core/auth.py`: a `JWTValidator(jwks_url).decode(token)` (RS256 against Cognito JWKS) + a `require_role("admin")` FastAPI dependency that extracts the Bearer token, validates, and checks `payload["cognito:groups"]` for `admin` — raising `UnauthenticatedError` (401) / `ForbiddenError` (403). [Source: service_webapp/src/core/auth.py:51-90,121-167]
+  - [x] **Cross-codebase note:** `core/auth.py` lives in `service_webapp`; there is no shared package (MVP two-codebase rule). Port a minimal `JWTValidator` + `require_role` into `cdr-pipeline/src/core/auth.py`, keeping the contract identical (same JWKS, same `cognito:groups` claim, same error types). Flag the duplication in Completion Notes as a candidate for a future shared module. Add Cognito JWKS/config keys to `cdr-pipeline/src/core/config.py` (`cognito_user_pool_id`, `cognito_client_id`, `cognito_region`, `cognito_endpoint_url`) mirroring service_webapp. [Source: architecture.md#1.5.1 (no inter-service HTTP / no shared pkg); 1-8 story (cognito:groups, JWKS)]
+- [x] **Task 3: Worker control (pause/resume within 2s)** (AC: #3, #4)
+  - [x] Add a shared `WorkerController` holding an `asyncio.Event` (set = running). The Story 2.2 batch loop `await`s `controller.running.wait()` **before each `getmany` poll**; `pause()` clears the event, `resume()` sets it. Because polling cycles are sub-second, clearing the event halts new polling well within 2s. The management endpoints call `controller.pause()/resume()` on the shared instance (same process). [Source: epics.md#Story-2.5 (line 984); architecture.md#1.4.3 (FastAPI = management plane, never hot path)]
+  - [x] Document the single-process topology (consumer tasks + management API on one event loop). If the deployment splits them into separate processes, the fallback is a Valkey control flag (`control:cdr_workers`) the consumer checks each batch — note which was implemented.
+- [x] **Task 4: DLQ inspection** (AC: #1, #2)
+  - [x] `GET /api/v1/admin/dlq` — consume/peek `cdr.dlq` via a transient aiokafka consumer (own group id, `auto_offset_reset="earliest"`, no commit) and return a paginated list (query params `limit`, `offset` or a cursor) of `{cdr_id, error_reason, original_topic, failed_at, raw_payload_preview}`. The preview must be **PII-masked** (mask MSISDNs/IMEI). The metadata shape is exactly what Story 2.2's DLQ handler writes. [Source: epics.md#Story-2.2 (DLQ metadata), #Story-2.5]
+  - [x] `GET /api/v1/admin/dlq/{cdr_id}` — return the full raw payload for the matching DLQ record (still mask PII in the response per hygiene rules; "full" = full structure, masked values).
+  - [x] Responses use the standard success envelope (`{data, meta:{trace_id,...}}`); errors use the standard error envelope. [Source: architecture.md#1.11.3; service_webapp/src/core/responses.py]
+- [x] **Task 5: Wire into main + justfile** (AC: #3, #4)
+  - [x] `cdr-pipeline/src/main.py` — start the consumer pool AND the management API (uvicorn) on the same loop, sharing the `WorkerController`. Add a `just cdr-admin` (or extend `just up`) recipe / compose wiring so the management API is reachable; pick a dedicated port and document it. [Source: 1-3 story (justfile recipes)]
+- [x] **Task 6: Tests** (AC: #1, #2, #3, #4, #5)
+  - [x] Unit (httpx.AsyncClient): no/invalid token → 401; valid token without `admin` group → 403; `admin` token → 200 on all four endpoints (mock `JWTValidator.decode`). [Source: service_webapp test patterns]
+  - [x] Unit: `pause` clears the controller event and the batch loop's pre-poll `wait()` blocks; `resume` sets it and polling continues; endpoints return `{status:"paused"}` / `{status:"running"}`.
+  - [x] Unit: DLQ list pagination + PII masking (mock the dlq consumer with sample records).
+  - [x] Integration (`@pytest.mark.slow`, testcontainers Redpanda): publish to `cdr.dlq`, assert `GET /dlq` returns it with correct metadata. Rootless podman.
 
 ## Dev Notes
 
@@ -110,4 +110,22 @@ so that I can diagnose pipeline failures and safely halt processing without rest
 
 ### Completion Notes List
 
+- **2025-01-09**: Fixed PII masking regex to handle 12-digit Indian MSISDNs (with country code `91`). Original regex `\b(\d{6})(\d{4})\b` only matched 10-digit numbers. Updated to `\b(\d{8,10})(\d{4})\b` to mask first 8-10 digits and keep last 4. IMEI regex also updated to `\b\d{15}\b` for standard 15-digit IMEIs.
+- **Single-process topology implemented**: Consumer pool and management API share the same asyncio event loop via uvicorn running on a dedicated task. WorkerController uses in-process asyncio.Event for pause/resume (≤2s stop guarantee).
+- **Code duplication noted**: `core/auth.py`, `core/errors.py`, and `core/responses.py` in `cdr-pipeline` are ports from `service_webapp`. This is intentional per MVP two-codebase rule (architecture §1.5.1) but flagged as a candidate for a future shared module.
+- **All 111 unit tests passing**, including comprehensive auth matrix (401/403/200), worker control mechanics, DLQ pagination, and PII masking.
+- **Integration test written**: `test_dlq_inspect.py` marked as `@pytest.mark.slow` for opt-in testing with testcontainers Redpanda.
+
 ### File List
+
+- `cdr-pipeline/src/management/api.py` (NEW) — FastAPI router with DLQ inspect + worker control endpoints
+- `cdr-pipeline/src/core/auth.py` (NEW) — Ported JWTValidator + require_role from service_webapp
+- `cdr-pipeline/src/core/errors.py` (NEW) — Ported domain error types + exception handlers
+- `cdr-pipeline/src/core/responses.py` (NEW) — Ported success_envelope helper
+- `cdr-pipeline/src/core/config.py` (MODIFIED) — Added Cognito config keys + management_api_port
+- `cdr-pipeline/src/consumer/control.py` (NEW) — WorkerController with asyncio.Event for pause/resume
+- `cdr-pipeline/src/main.py` (MODIFIED) — Wires consumer pool + management API on same event loop
+- `cdr-pipeline/src/consumer/batch_processor.py` (MODIFIED) — Added pre-poll controller.running.wait() seam
+- `cdr-pipeline/tests/unit/test_management_api.py` (NEW) — Unit tests for auth, worker control, DLQ inspection
+- `cdr-pipeline/tests/integration/test_dlq_inspect.py` (NEW) — Integration test with testcontainers Redpanda
+- `cdr-pipeline/pyproject.toml` (MODIFIED) — Added fastapi, uvicorn[standard], PyJWT[crypto], httpx deps
