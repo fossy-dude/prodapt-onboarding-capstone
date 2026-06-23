@@ -135,6 +135,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await _consumer.start()
                 async for msg in _consumer:
                     try:
+                        if msg.value is None:
+                            continue
                         await _trace_connection_manager.broadcast(msg.value)
                     except Exception as exc:
                         logging.getLogger(__name__).debug("trace broadcast error: %s", exc)

@@ -149,7 +149,7 @@ class MilvusAdapter(VectorStoreProtocol):
             ranker=RRFRanker(),
             limit=top_k,
         )
-        return [hit.to_dict() for hit in (results[0] if results else [])]
+        return list(results[0]) if results else []
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 

@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from langchain_openai import AzureOpenAIEmbeddings
+
+if TYPE_CHECKING:
+    from core.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +45,7 @@ class AzureEmbeddingClient(EmbeddingClientProtocol):
             azure_endpoint=azure_endpoint,
             api_key=api_key,
             azure_deployment=azure_deployment,
-            openai_api_version=api_version,
+            api_version=api_version,
             dimensions=dimensions,
         )
 
@@ -57,7 +60,7 @@ class AzureEmbeddingClient(EmbeddingClientProtocol):
         return results
 
 
-def make_embedding_client(settings: object) -> AzureEmbeddingClient:
+def make_embedding_client(settings: Settings) -> AzureEmbeddingClient:
     """Construct an ``AzureEmbeddingClient`` from the config singleton."""
     return AzureEmbeddingClient(
         azure_endpoint=settings.azure_openai_endpoint,

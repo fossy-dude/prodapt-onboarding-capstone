@@ -329,6 +329,8 @@ deps = [
     "PyJWT[crypto]>=2.8",
     "faker>=26",
     "pandas>=2.0",
+    "aiokafka>=0.11",
+    "uuid7>=0.1",
 ]
 commands = [
     ["ruff", "check", "."],

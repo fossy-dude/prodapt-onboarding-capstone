@@ -766,7 +766,7 @@ async def delete_payment_method(
     method_id: str,
     request: Request,
     jwt_payload: dict = require_role("subscriber"),
-) -> JSONResponse:
+) -> Response:
     """Delete a saved payment method.
 
     Authorises that the JWT ``sub`` matches the method's ``subscriber_id``; mismatches
