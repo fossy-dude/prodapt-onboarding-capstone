@@ -55,7 +55,7 @@ completedAt: '2026-06-18'
 | PII                       | AES-256 at rest        | Encrypted columns; PII never in logs               |
 | Auth                      | JWT + OTP step-up      | 4 role-separated dashboards                        |
 
-**Scale & Complexity:** Enterprise. ~18 services/agents. Two deployment contexts: MVP (local Docker Compose / MiniStack) and Target State (AWS EKS, Mumbai).
+**Scale & Complexity:** Enterprise. ~18 services/agents. Two deployment contexts: MVP (local Podman Compose / MiniStack) and Target State (AWS EKS, Mumbai).
 
 ### 1.2.2. Technical Constraints
 
@@ -90,10 +90,10 @@ completedAt: '2026-06-18'
 | **Application Backend**    | Python 3.14 + FastAPI                           | All non-pipeline services in one FastAPI monorepo                                                                                                                          |
 | **DB Client**              | Psycopg3 (async) + connection pool              | Native async protocol; binary mode; faster than asyncpg for most workloads; SQL-only, no ORM                                                                               |
 | **DB Migrations**          | Flyway (SQL-native)                             | All schema DDL, views, materialized views, triggers managed as versioned SQL migrations                                                                                    |
-| **Event Bus**              | Redpanda (Kafka-compatible, Docker)             | No ZooKeeper; Kafka-wire-compatible; simpler MVP ops                                                                                                                       |
-| **Balance Write Buffer**   | Valkey (Docker, MVP)                            | Fast atomic INCRBY; session store; dedup SET; Redis-compatible;                                                                                                            |
+| **Event Bus**              | Redpanda (Kafka-compatible, Podman)             | No ZooKeeper; Kafka-wire-compatible; simpler MVP ops                                                                                                                       |
+| **Balance Write Buffer**   | Valkey (Podman, MVP)                            | Fast atomic INCRBY; session store; dedup SET; Redis-compatible;                                                                                                            |
 | **Primary Database**       | PostgreSQL 16                                   | Source of truth for balance, accounts, audit, plans                                                                                                                        |
-| **Vector Store**           | Milvus Lite (Python, embedded)                  | Fixed. MVP uses `milvus-lite` — no separate container; runs in-process via `pymilvus[milvus-lite]`; data persisted to Docker volume                                        |
+| **Vector Store**           | Milvus Lite (Python, embedded)                  | Fixed. MVP uses `milvus-lite` — no separate container; runs in-process via `pymilvus[milvus-lite]`; data persisted to Podman volume                                        |
 | **Agent Orchestration**    | LangGraph (Python)                              | Stateful graph, native A2A, multi-turn memory                                                                                                                              |
 | **LLM Provider**           | Azure OpenAI                                    | GPT-5.4-mini and GPT-5.4 for agents; `text-embedding-3-small` for embeddings                                                                                               |
 | **Frontend**               | React 18 + Vite + TailwindCSS                   | Fast builds; single SPA with role-based routing                                                                                                                            |
@@ -101,15 +101,15 @@ completedAt: '2026-06-18'
 | **Agent–UI Protocol**      | AG-UI (via CopilotKit runtime)                  | Typed event stream: tool calls, state snapshots, text deltas                                                                                                               |
 | **Config Management**      | pydantic-settings                               | Unified env / `.env` / Secrets Manager config; eager load; fails fast                                                                                                      |
 | **Auth**                   | AWS Cognito (via MiniStack)                     | JWT issuance; OTP via Cognito; role claims in token                                                                                                                        |
-| **Observability (infra)**  | OTEL-TUI (Docker)                               | Low memory footprint; traces/logs/metrics in terminal                                                                                                                      |
-| **Observability (agents)** | LangFuse (self-hosted Docker)                   | All agent/tool calls traced                                                                                                                                                |
-| **Log routing**            | Fluentd                                         | Routes Docker logs to OTEL-TUI (MVP) or LGTM (Target)                                                                                                                      |
+| **Observability (infra)**  | OTEL-TUI (Podman)                               | Low memory footprint; traces/logs/metrics in terminal                                                                                                                      |
+| **Observability (agents)** | LangFuse (self-hosted Podman)                   | All agent/tool calls traced                                                                                                                                                |
+| **Log routing**            | Fluentd                                         | Routes Podman logs to OTEL-TUI (MVP) or LGTM (Target)                                                                                                                      |
 | **PDF Generation**         | WeasyPrint (Python)                             | HTML→PDF for receipts; no headless browser dep                                                                                                                             |
 | **ML Forecasting**         | scikit-learn                                    | Subscriber growth/plan popularity; simple linear/gradient-boost                                                                                                            |
 | **Linting / Formatting**   | ruff (lint + format) + pyrefly (static linting) | Single tool replaces flake8 + isort + Black; configured in `pyproject.toml` [Source](https://github.com/fossy-dude/pydantic-config-mgmt-template/blob/main/pyproject.toml) |
 | **Test runner**            | `uv tox` (tox-uv plugin)                        | Runs lint, typecheck, and pytest in isolated envs; `uv` for fast dep install                                                                                               |
-| **CI/CD**                  | GitHub Actions                                  | PR checks: `uv tox` (all envs), Docker build                                                                                                                               |
-| **Container**              | Docker Compose                                  | All services including Redpanda, Valkey, Postgres, LangFuse, MiniStack (Milvus Lite runs embedded in service_backend — no separate container)                              |
+| **CI/CD**                  | GitHub Actions                                  | PR checks: `uv tox` (all envs), Podman build                                                                                                                               |
+| **Container**              | Podman Compose                                  | All services including Redpanda, Valkey, Postgres, LangFuse, MiniStack (Milvus Lite runs embedded in service_webapp — no separate container)                               |
 | **CDR Simulator**          | Python Scripts                                  | Manually generated via a UI. Limited to 100 CDRs in 1 shot                                                                                                                 |
 
 ### 1.3.2. Decided Stack — Target State
@@ -211,11 +211,11 @@ sboai_capstone/
 ├── cdr-pipeline/          # CDR ingestion + balance engine + fraud pre-screener
 │   (Python, aiokafka, Redpanda, Redis, Postgres)
 │
-└── service_backend/           # All other backend: API, agents, notifications, USSD
+└── service_webapp/           # All other backend: API, agents, notifications, USSD
     (Python, FastAPI, LangGraph, Milvus, Postgres, Redis)
 ```
 
-All non-CDR domain logic (auth, accounts, balance reads, recharge, chatbot agents, USSD, notifications, dashboards, fraud case management, ML forecasting) lives in `service_backend` as FastAPI routers and internal Python modules. No HTTP between the two codebases — they share Postgres and Redis.
+All non-CDR domain logic (auth, accounts, balance reads, recharge, chatbot agents, USSD, notifications, dashboards, fraud case management, ML forecasting) lives in `service_webapp` as FastAPI routers and internal Python modules. No HTTP between the two codebases — they share Postgres and Redis.
 
 ### 1.5.2. Target State — Microservices
 
@@ -436,7 +436,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";  -- already required for PII encrypti
 **Migration file location:**
 
 ```
-service_backend/db/migrations/
+service_webapp/db/migrations/
   V1__baseline_schema.sql          # all domains: CREATE TABLE, indexes, FK constraints
   V2__set_modified_at_trigger.sql  # trigger function + application to all tables
   V3__segmentation_kpi_mvw.sql     # materialized view + refresh function
@@ -516,15 +516,15 @@ CREATE TRIGGER trg_identity_subscribers_modified_at
 
 **MVP — Milvus Lite (embedded, Python dependency):**
 
-Milvus Lite runs fully in-process as a Python library via `pymilvus[milvus-lite]`. There is no separate Milvus container or server process. The embedded server starts automatically when `MilvusClient` is instantiated with a file path. Data is written to a local `.db` file mounted on a Docker volume for persistence across container restarts.
+Milvus Lite runs fully in-process as a Python library via `pymilvus[milvus-lite]`. There is no separate Milvus container or server process. The embedded server starts automatically when `MilvusClient` is instantiated with a file path. Data is written to a local `.db` file mounted on a Podman volume for persistence across container restarts.
 
 **Why Milvus Lite for MVP:**
 
 - Zero-ops: no separate container, no etcd, no MinIO required
 - Same `pymilvus` client API — collection creation, upsert, hybrid search all identical to Milvus standalone/distributed
-- Docker volume ensures data persists; re-seeding is a `just seed-milvus` command, not a cluster restart
+- Podman volume ensures data persists; re-seeding is a `just seed-milvus` command, not a cluster restart
 
-**Milvus Lite Dockerfile (`service_backend/Dockerfile`):**
+**Milvus Lite Dockerfile (`service_webapp/Dockerfile`):**
 
 ```dockerfile
 FROM python:3.11-slim
@@ -546,7 +546,7 @@ RUN pip install --no-cache-dir "uv" \
     && uv pip install --system --no-cache "pymilvus[milvus-lite]" \
     && uv pip install --system --no-cache -e ".[dev]"
 
-# Data directory for Milvus Lite persistence (mounted as Docker volume)
+# Data directory for Milvus Lite persistence (mounted as Podman volume)
 RUN mkdir -p /app/data/milvus
 
 COPY src/ src/
@@ -554,12 +554,12 @@ COPY src/ src/
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
 
-**Docker Compose volume mount for Milvus Lite persistence:**
+**Podman Compose volume mount for Milvus Lite persistence:**
 
 ```yaml
 services:
-  service_backend:
-    build: ./service_backend
+  service_webapp:
+    build: ./service_webapp
     volumes:
       - milvus_lite_data:/app/data/milvus   # Milvus Lite .db file persisted here
 
@@ -572,7 +572,7 @@ volumes:
 ```python
 from pymilvus import MilvusClient
 
-# Lite: file path → embedded server, data persisted to Docker volume
+# Lite: file path → embedded server, data persisted to Podman volume
 client = MilvusClient(uri="/app/data/milvus/sboai.db")
 ```
 
@@ -607,7 +607,7 @@ Index type: HNSW. BM25 lexical index on same collections for hybrid search. RRF 
 
 ### 1.8.1. Auth Flow
 
-**MVP:** AWS Cognito (MiniStack) issues JWTs. OTP sent via Cognito (stored in Notification Portal for testing). Roles: `subscriber`, `ops`, `fraud`, `admin/simulator`. **Access token TTL: 30 minutes** (configured in Cognito App Client settings). Refresh token TTL: 30 days.
+**MVP:** AWS Cognito (MiniStack) issues JWTs. The login OTP is issued via Cognito's Custom Auth Flow and published to the Redpanda `notification.events` stream, surfaced live on the Notification Portal for testing (**no SNS in MVP**). Roles: `subscriber`, `ops`, `fraud`, `dev`, `admin`, `marketing` (delivered as the `cognito:groups` claim; the Simulator developer dashboard is gated by `dev`). **Access token TTL: 30 minutes** (configured in Cognito App Client settings). Refresh token TTL: 30 days.
 
 **Target:** Keycloak on EKS. Same JWT structure; role claims identical. API Gateway validates JWT on every request. Blacklist enforcement at API Gateway layer (FR-66). **Access token TTL: 30 minutes** (configured in Keycloak client settings — same as MVP).
 
@@ -686,7 +686,7 @@ OTEL Collector (Docker)
   ├─► OTEL-TUI  (traces, metrics, logs in terminal — low memory footprint)
   └─► LangFuse  (agent/LLM traces only)
 
-Docker container logs → Fluentd → OTEL-TUI
+Podman container logs → Fluentd → OTEL-TUI
 ```
 
 Trace ID propagated via OTEL `traceparent` header across all service calls and Kafka message headers.
@@ -723,7 +723,7 @@ Grafana dashboards: CDR pipeline health, balance P95, fraud escalation rate, age
 
 **All application configuration is managed via `pydantic-settings` at runtime.** This covers environment variables, `.env` files, and AWS Secrets Manager secrets — all resolved at startup (eager load; missing secrets are a fatal startup error).
 
-**Bootstrap template:** [fossy-dude/pydantic-config-mgmt-template](https://github.com/fossy-dude/pydantic-config-mgmt-template) is the reference implementation to bootstrap config management in both `cdr-pipeline` and `service_backend`.
+**Bootstrap template:** [fossy-dude/pydantic-config-mgmt-template](https://github.com/fossy-dude/pydantic-config-mgmt-template) is the reference implementation to bootstrap config management in both `cdr-pipeline` and `service_webapp`.
 
 **Pattern:**
 
@@ -748,7 +748,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_nested_delimiter="__",   # DB__HOST maps to db.host
         env_file=".env",
-        secrets_dir="/run/secrets",  # Docker secrets mount (MVP)
+        secrets_dir="/run/secrets",  # Podman secrets mount (MVP)
     )
 
 settings = Settings()   # loaded once at module import; fails fast on missing values
@@ -963,7 +963,7 @@ uv tox -e test
 # Or via justfile shortcuts:
 just lint      # ruff check across both codebases
 just format    # ruff format across both codebases
-just test      # uv tox -e test in service_backend
+just test      # uv tox -e test in service_webapp
 just test-cdr  # uv tox -e test in cdr-pipeline
 ```
 
@@ -1029,7 +1029,7 @@ sboai_capstone/
 │   ├── tests/
 │   └── Dockerfile
 │
-├── service_backend/                     # All other backend (FastAPI monorepo for MVP)
+├── service_webapp/                     # All other backend (FastAPI monorepo for MVP)
 │   ├── pyproject.toml               # deps + ruff/pyrefly/tox config; dev extras: ruff, pyrefly, pytest, tox, tox-uv, testcontainers
 │   ├── src/
 │   │   ├── main.py                  # FastAPI app entrypoint + middleware registration
@@ -1222,7 +1222,7 @@ sboai_capstone/
                      realistic intra-day distribution (peak hours 9–11am, 6–9pm)
 ```
 
-**Script location:** `service_backend/db/seed/synthetic_generator.py`
+**Script location:** `service_webapp/db/seed/synthetic_generator.py`
 
 **Key design decisions:**
 
@@ -1264,39 +1264,39 @@ class OtelTraceMiddleware(BaseHTTPMiddleware):
 # justfile — works on Windows (PowerShell), macOS, Linux
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 
-deps:         docker compose -f docker/docker-compose-dependencies.yaml up -d
-up:           docker compose -f docker/docker-compose.yaml up -d
-down:         docker compose -f docker/docker-compose.yaml down
-logs:         docker compose -f docker/docker-compose.yaml logs -f
-restart svc:  docker compose -f docker/docker-compose.yaml restart {{svc}}
+deps:         podman compose -f docker/docker-compose-dependencies.yaml up -d
+up:           podman compose -f docker/docker-compose.yaml up -d
+down:         podman compose -f docker/docker-compose.yaml down
+logs:         podman compose -f docker/docker-compose.yaml logs -f
+restart svc:  podman compose -f docker/docker-compose.yaml restart {{svc}}
 
-backend:      cd service_backend && uvicorn src.main:app --reload --port 8000
+backend:      cd service_webapp && uvicorn src.main:app --reload --port 8000
 frontend:     cd frontend && npm run dev
 cdr:          cd cdr-pipeline && python -m src.main
 
-migrate:      flyway -url=jdbc:postgresql://localhost:5432/sboai -locations=filesystem:service_backend/db/migrations migrate
-seed:         cd service_backend && python scripts/generate_synthetic_data.py
-seed-milvus:  cd service_backend && python scripts/seed_milvus.sh
+migrate:      flyway -url=jdbc:postgresql://localhost:5432/sboai -locations=filesystem:service_webapp/db/migrations migrate
+seed:         cd service_webapp && python scripts/generate_synthetic_data.py
+seed-milvus:  cd service_webapp && python scripts/seed_milvus.sh
 
-test:         cd service_backend && uv tox -e test
+test:         cd service_webapp && uv tox -e test
 test-cdr:     cd cdr-pipeline && uv tox -e test
 test-fe:      cd frontend && npm run test
-tox:          cd service_backend && uv tox && cd ../cdr-pipeline && uv tox  # lint + typecheck + test
+tox:          cd service_webapp && uv tox && cd ../cdr-pipeline && uv tox  # lint + typecheck + test
 
-lint:         cd service_backend && uv tox -e lint && cd ../cdr-pipeline && uv tox -e lint
-format:       cd service_backend && ruff format src/ && cd ../cdr-pipeline && ruff format src/
+lint:         cd service_webapp && uv tox -e lint && cd ../cdr-pipeline && uv tox -e lint
+format:       cd service_webapp && ruff format src/ && cd ../cdr-pipeline && ruff format src/
 lint-fe:      cd frontend && npm run lint
 ```
 
-### 1.12.3. Docker Compose Services (MVP)
+### 1.12.3. Podman Compose Services (MVP)
 
-**Two-file Docker Compose split:** Infrastructure dependencies are defined in `docker/docker-compose-dependencies.yaml`. The full stack `docker/docker-compose.yaml` uses Compose's `include:` directive to reuse all dependency definitions and adds the application services on top. This allows local development with just `docker compose -f docker/docker-compose-dependencies.yaml up -d` — no codebase containers needed while iterating.
+**Two-file Podman Compose split:** Infrastructure dependencies are defined in `docker/docker-compose-dependencies.yaml`. The full stack `docker/docker-compose.yaml` uses Compose's `include:` directive to reuse all dependency definitions and adds the application services on top. This allows local development with just `podman compose -f docker/docker-compose-dependencies.yaml up -d` — no codebase containers needed while iterating.
 
 **MiniStack** MiniStack is lighter, faster to start, and sufficient for the Cognito + S3 surface area used in MVP.
 
 **Valkey (standalone, not MiniStack-bundled):** Valkey runs as its own dedicated container, independent of MiniStack. This avoids any implicit dependency on MiniStack's internal Redis and gives a clean separation: Valkey = application data layer; MiniStack = Cognito/S3 simulation.
 
-**Persistence:** Named Docker volumes are configured for Cognito user pools, S3 objects, and PostgreSQL data so state survives container restarts during development.
+**Persistence:** Named Podman volumes are configured for Cognito user pools, S3 objects, and PostgreSQL data so state survives container restarts during development.
 
 **`docker/docker-compose-dependencies.yaml` — infrastructure only:**
 
@@ -1318,13 +1318,13 @@ services:
   #   overhead + headroom:             ≈ 475MB
   #   Total ceiling: 512MB. Adjust based on observed RSS in dev.
   #   With noeviction policy: if Valkey hits 512MB, new writes return OOM errors.
-  #   Monitor with: docker stats valkey | grep MEM
+  #   Monitor with: podman stats valkey | grep MEM
   postgres:          # Primary DB
     volumes:
       - postgres_data:/var/lib/postgresql/data   # persisted across restarts
 
-  # Milvus: NOT a separate container in MVP — Milvus Lite runs embedded in service_backend (Python dep)
-  # Data persisted via milvus_lite_data volume mounted into service_backend container
+  # Milvus: NOT a separate container in MVP — Milvus Lite runs embedded in service_webapp (Python dep)
+  # Data persisted via milvus_lite_data volume mounted into service_webapp container
   langfuse:          # Agent observability
   ministack:         # AWS Cognito + S3 simulation (no Redis bundled — Valkey is separate)
     volumes:
@@ -1340,7 +1340,7 @@ volumes:
   valkey_data:
   ministack_cognito:
   ministack_s3:
-  milvus_lite_data:    # Milvus Lite .db file — persisted across service_backend container restarts
+  milvus_lite_data:    # Milvus Lite .db file — persisted across service_webapp container restarts
 ```
 
 **`docker/docker-compose.yaml` — full stack (extends dependencies):**
@@ -1351,10 +1351,10 @@ include:
 
 services:
   cdr-pipeline:      # CDR consumer + management API
-  service_backend:       # FastAPI monorepo
+  service_webapp:       # FastAPI monorepo
     deploy:
       replicas: 1    # HARD CONSTRAINT: Milvus Lite embedded .db file does not support concurrent process access.
-                     # Scaling service_backend to >1 replica in MVP will corrupt the Milvus Lite data file.
+                     # Scaling service_webapp to >1 replica in MVP will corrupt the Milvus Lite data file.
                      # Scale-out is only supported in Target State with Milvus Distributed on EKS.
   frontend:          # Vite dev server (or nginx for built assets)
 ```
@@ -1363,11 +1363,11 @@ services:
 
 **Valkey on restart — balance warm-up required:** Valkey is non-persisted across full stack restarts in dev. On restart, `cdr-pipeline` runs `load_balances_from_postgres()` at startup before the consumer loop begins — this re-seeds all `balance:{msisdn}` keys from Postgres. No manual intervention needed; warm-up completes in < 5s for 300K subscribers.
 
-**Milvus Lite persistence:** The `milvus_lite_data` Docker volume persists the embedded Milvus `.db` file across `service_backend` container restarts. If the volume is wiped, re-seed with `just seed-milvus`.
+**Milvus Lite persistence:** The `milvus_lite_data` Podman volume persists the embedded Milvus `.db` file across `service_webapp` container restarts. If the volume is wiped, re-seed with `just seed-milvus`.
 
 ### 1.12.4. PostgreSQL Container Initialization
 
-**Constraint: All PostgreSQL setup must happen at container creation time, not at application startup or migration time.** This includes extension installation, role/user creation, and database provisioning. The PostgreSQL container is configured via an `init/` directory of SQL scripts that Docker executes exactly once on first volume mount.
+**Constraint: All PostgreSQL setup must happen at container creation time, not at application startup or migration time.** This includes extension installation, role/user creation, and database provisioning. The PostgreSQL container is configured via an `init/` directory of SQL scripts that Podman executes exactly once on first volume mount.
 
 **Directory layout:**
 
@@ -1401,7 +1401,7 @@ CREATE USER sboai_readonly WITH PASSWORD '${POSTGRES_READONLY_PASSWORD}';
 -- Flyway migration user: runs DDL migrations; separate from app user
 CREATE USER sboai_flyway WITH PASSWORD '${POSTGRES_FLYWAY_PASSWORD}' CREATEROLE;
 
--- Grant privileges (database must exist first — created by Docker POSTGRES_DB env var)
+-- Grant privileges (database must exist first — created by Podman POSTGRES_DB env var)
 GRANT ALL PRIVILEGES ON DATABASE sboai TO sboai_app;
 GRANT CONNECT ON DATABASE sboai TO sboai_readonly;
 GRANT CONNECT ON DATABASE sboai TO sboai_flyway;
@@ -1454,8 +1454,8 @@ POSTGRES_FLYWAY_PASSWORD=change_me_flyway
 - Valkey (Docker, standalone) → Redis-compatible; Python `valkey[asyncio]` client; same wire protocol as Redis
 - LangGraph + Azure OpenAI: supported; `langchain-openai` with Azure base URL
 - OTEL-TUI + OTEL Collector: standard OTLP receiver
-- Milvus Lite: `pymilvus[milvus-lite]` embedded in-process; HNSW + BM25 hybrid supported; same client API as Milvus Distributed; data file on Docker volume
-- WeasyPrint: pure Python; no browser dep; works in Docker Alpine
+- Milvus Lite: `pymilvus[milvus-lite]` embedded in-process; HNSW + BM25 hybrid supported; same client API as Milvus Distributed; data file on Podman volume
+- WeasyPrint: pure Python; no browser dep; works in Podman Alpine
 
 ### 1.13.2. NFR Coverage ✅
 
@@ -1509,7 +1509,7 @@ All 77 FRs are architecturally addressed:
 - Session timeout / token revocation
 - ML fraud classifier (architecture hook only)
 
-### 1.13.4a. Known Limitations & Accepted Risk Callouts
+### 1.13.5. Known Limitations & Accepted Risk Callouts
 
 The following are acknowledged architectural limitations accepted for MVP velocity. Each has a documented rationale and a stated remediation path for Target State or post-MVP hardening.
 
@@ -1546,7 +1546,7 @@ The following are acknowledged architectural limitations accepted for MVP veloci
 | **MVP acceptance**    | Accepted for local dev environment only. Credentials are in `.env` (gitignored); blast radius is limited to the local Postgres container.                                                                                                                                                                 |
 | **Target State path** | Remove `CREATEROLE` from `sboai_flyway`. Grant only: `CONNECT` on database `sboai`, `CREATE` on `schema public`, ownership of objects created by migrations. Role management in Target State is handled by Terraform (`aws_rds_cluster` parameter group + Secrets Manager rotation).                      |
 
-### 1.13.5. Architecture Completeness Checklist
+### 1.13.6. Architecture Completeness Checklist
 
 **Requirements Analysis**
 
@@ -1572,11 +1572,11 @@ The following are acknowledged architectural limitations accepted for MVP veloci
 **Project Structure**
 
 - [x] Complete directory structure defined
-- [x] Component boundaries established (cdr-pipeline vs service_backend; FR mapping to routers/agents)
+- [x] Component boundaries established (cdr-pipeline vs service_webapp; FR mapping to routers/agents)
 - [x] Integration points mapped (Kafka topics, Valkey key patterns, Milvus collections)
 - [x] Requirements to structure mapping complete
 
-### 1.13.6. Architecture Readiness Assessment
+### 1.13.7. Architecture Readiness Assessment
 
 **Overall Status:** READY FOR IMPLEMENTATION
 
@@ -1597,11 +1597,11 @@ The following are acknowledged architectural limitations accepted for MVP veloci
 - Deep learning forecasting model evaluation (TimesFM vs Chronos vs Prophet benchmarks on synthetic data)
 - Milvus collection schema versioning strategy as knowledge base grows
 
-### 1.13.7. Implementation Handoff
+### 1.13.8. Implementation Handoff
 
 **AI Agent Guidelines:**
 
-- The two-codebase boundary (`cdr-pipeline/` vs `service_backend/`) is hard — no HTTP calls across it in MVP
+- The two-codebase boundary (`cdr-pipeline/` vs `service_webapp/`) is hard — no HTTP calls across it in MVP
 - All agents must be async (never `await` an LLM call inside the Kafka batch processing loop)
 - Every FastAPI endpoint must emit OTEL spans with `trace_id`; LangGraph nodes must pass `trace_id` in LangFuse metadata
 - PII never in log statements — use subscriber UUID or MSISDN suffix `[-4:]`
@@ -1609,11 +1609,11 @@ The following are acknowledged architectural limitations accepted for MVP veloci
 
 **First Implementation Priorities:**
 
-1. `docker-compose.yml` — bring up all infra (Redpanda, Valkey, Postgres, MiniStack, LangFuse, OTEL-TUI, Fluentd); Milvus Lite starts embedded in service_backend — no separate container
+1. `docker-compose.yml` — bring up all infra (Redpanda, Valkey, Postgres, MiniStack, LangFuse, OTEL-TUI, Fluentd); Milvus Lite starts embedded in service_webapp — no separate container
 2. Postgres schema migrations (Flyway SQL) — all domains, views, triggers
 3. Synthetic dataset generation (`scripts/generate_synthetic_data.py`) — 1K plans, 300K subscribers, 5M CDRs (in that order)
 4. CDR pipeline consumer (`cdr-pipeline/`) — dedup + balance write + fan-out
-5. Core FastAPI app (`service_backend/`) — account, balance, recharge routers
+5. Core FastAPI app (`service_webapp/`) — account, balance, recharge routers
 6. LangGraph chatbot graph — Support Agent + RAG tool + Milvus ingest
 7. Frontend shell — React Router + role-based layout + auth integration
 
@@ -1625,7 +1625,7 @@ See `README.md` at the project root for the authoritative end-to-end setup seque
 
 ### 1.14.1. Overview
 
-Terraform manages all AWS Target State infrastructure. MVP infrastructure is Docker Compose only — no Terraform needed for local development. The `infrastructure/` folder is structured so that MVP developers can ignore it entirely; Target State engineers apply it before any application deployment.
+Terraform manages all AWS Target State infrastructure. MVP infrastructure is Podman Compose only — no Terraform needed for local development. The `infrastructure/` folder is structured so that MVP developers can ignore it entirely; Target State engineers apply it before any application deployment.
 
 **Constraint:** Terraform is applied **before** any application deployment. The sequence is: Terraform → DB migrations → seed data → application deploy. See `README.md` for the exact sequence.
 
@@ -1661,7 +1661,7 @@ infrastructure/
 │   │   │   ├── main.tf
 │   │   │   ├── variables.tf
 │   │   │   └── outputs.tf
-│   │   ├── cognito/                 # Cognito User Pool + App Client; OTP config; role claims
+│   │   ├── cognito/                 # Cognito User Pool + App Client; role groups (cognito:groups); OTP via Custom Auth + Redpanda
 │   │   │   ├── main.tf
 │   │   │   ├── variables.tf
 │   │   │   └── outputs.tf
@@ -1693,18 +1693,18 @@ infrastructure/
 
 ### 1.14.3. Module Responsibilities
 
-| Module        | AWS Resources                                                                       | Notes                                                                            |
-| ------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `networking`  | VPC, public/private/DB subnets, NAT GW, IGW, route tables, SGs                      | All in `ap-south-1`; no cross-region peering                                     |
-| `eks`         | EKS cluster (managed), node groups, IAM roles, OIDC provider                        | Hosts: LangFuse, Milvus Distributed, Keycloak, app microservices                 |
-| `rds`         | RDS PostgreSQL 16 Multi-AZ, parameter group, subnet group, Secrets Manager rotation | Same parameter group must enable `pg_uuidv7`, `pgcrypto`, `pg_trgm`, `btree_gin` |
-| `msk`         | MSK cluster, 24-partition topics (`cdr.raw`, `cdr.enriched.filtered`, etc.), IAM    | `ap-south-1`; 3-broker cluster minimum                                           |
-| `elasticache` | ElastiCache Valkey (Redis-compatible), `maxmemory-policy noeviction`                | Subnet group within private subnets                                              |
-| `cognito`     | User Pool, App Client, OTP (SMS via SNS), custom attributes (`role`)                | Outputs: `USER_POOL_ID`, `APP_CLIENT_ID` for app config                          |
-| `s3`          | Audit archive bucket, lifecycle: Standard → IA (2yr) → Glacier (6yr)                | TRAI 6-year retention; no public access                                          |
-| `cloudfront`  | Distribution, S3 origin, OAC, cache behaviours, SPA 403/404 → 200 routing           | Custom domain + ACM cert                                                         |
-| `api_gateway` | HTTP API, JWT authorizer (Cognito), routes, per-subscriber usage plan               | FR-36 throttle; blacklist enforcement at JWT layer                               |
-| `secrets`     | Secrets Manager entries for DB credentials, Azure OpenAI key, LangFuse key          | Rotated via Lambda (RDS) or manual (API keys)                                    |
+| Module        | AWS Resources                                                                                                                                                                                            | Notes                                                                            |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `networking`  | VPC, public/private/DB subnets, NAT GW, IGW, route tables, SGs                                                                                                                                           | All in `ap-south-1`; no cross-region peering                                     |
+| `eks`         | EKS cluster (managed), node groups, IAM roles, OIDC provider                                                                                                                                             | Hosts: LangFuse, Milvus Distributed, Keycloak, app microservices                 |
+| `rds`         | RDS PostgreSQL 16 Multi-AZ, parameter group, subnet group, Secrets Manager rotation                                                                                                                      | Same parameter group must enable `pg_uuidv7`, `pgcrypto`, `pg_trgm`, `btree_gin` |
+| `msk`         | MSK cluster, 24-partition topics (`cdr.raw`, `cdr.enriched.filtered`, etc.), IAM                                                                                                                         | `ap-south-1`; 3-broker cluster minimum                                           |
+| `elasticache` | ElastiCache Valkey (Redis-compatible), `maxmemory-policy noeviction`                                                                                                                                     | Subnet group within private subnets                                              |
+| `cognito`     | User Pool, App Client, role groups (`subscriber`/`ops`/`fraud`/`dev`/`admin`/`marketing` → `cognito:groups`); login OTP via Custom Auth Flow published to Redpanda `notification.events` (no SNS in MVP) | Outputs: `USER_POOL_ID`, `APP_CLIENT_ID` for app config                          |
+| `s3`          | Audit archive bucket, lifecycle: Standard → IA (2yr) → Glacier (6yr)                                                                                                                                     | TRAI 6-year retention; no public access                                          |
+| `cloudfront`  | Distribution, S3 origin, OAC, cache behaviours, SPA 403/404 → 200 routing                                                                                                                                | Custom domain + ACM cert                                                         |
+| `api_gateway` | HTTP API, JWT authorizer (Cognito), routes, per-subscriber usage plan                                                                                                                                    | FR-36 throttle; blacklist enforcement at JWT layer                               |
+| `secrets`     | Secrets Manager entries for DB credentials, Azure OpenAI key, LangFuse key                                                                                                                               | Rotated via Lambda (RDS) or manual (API keys)                                    |
 
 **RDS PostgreSQL extensions via parameter group:** The `rds` module must configure a custom DB parameter group that pre-loads `pg_uuidv7`, `pgcrypto`, `pg_trgm`, and `btree_gin` so Flyway migrations can reference them without superuser `CREATE EXTENSION` calls at migration time.
 
@@ -1731,11 +1731,11 @@ Terraform outputs feed directly into the application's pydantic-settings configu
 
 | Terraform Output         | Application Config Key       | Consumer                             |
 | ------------------------ | ---------------------------- | ------------------------------------ |
-| `rds_endpoint`           | `db.host`                    | `service_backend`, `cdr-ingestion`   |
+| `rds_endpoint`           | `db.host`                    | `service_webapp`, `cdr-ingestion`    |
 | `msk_bootstrap_brokers`  | `kafka_brokers`              | `cdr-ingestion`, notification, fraud |
-| `elasticache_endpoint`   | `redis_url`                  | `service_backend`, `cdr-ingestion`   |
-| `cognito_user_pool_id`   | `cognito_user_pool_id`       | `service_backend` auth               |
-| `cognito_app_client_id`  | `cognito_app_client_id`      | `service_backend` auth               |
+| `elasticache_endpoint`   | `redis_url`                  | `service_webapp`, `cdr-ingestion`    |
+| `cognito_user_pool_id`   | `cognito_user_pool_id`       | `service_webapp` auth                |
+| `cognito_app_client_id`  | `cognito_app_client_id`      | `service_webapp` auth                |
 | `cloudfront_domain`      | Frontend deployment target   | CI/CD                                |
 | `api_gateway_invoke_url` | Frontend `VITE_API_BASE_URL` | Frontend build                       |
 
@@ -1745,7 +1745,7 @@ Terraform outputs feed directly into the application's pydantic-settings configu
 
 ### 1.15.1. README.md Structure
 
-The project root `README.md` is the single authoritative onboarding document. It covers both MVP (local Docker Compose) and Target State (AWS) setup in separate top-level sections. Implementation teams must follow the sequence exactly — each phase depends on the previous.
+The project root `README.md` is the single authoritative onboarding document. It covers both MVP (local Podman Compose) and Target State (AWS) setup in separate top-level sections. Implementation teams must follow the sequence exactly — each phase depends on the previous.
 
 **File location:** `README.md` (project root)
 
@@ -1755,14 +1755,14 @@ The project root `README.md` is the single authoritative onboarding document. It
 # AI-Powered Prepaid Billing System
 
 ## 1. Prerequisites
-   - Docker Desktop / Docker Engine + Compose plugin
+   - Podman Desktop / Podman Engine + Compose plugin
    - just (task runner)
    - uv (Python package manager)
    - Node.js 20+ and npm
    - Flyway CLI
    - (Target State only) Terraform ≥ 1.7, AWS CLI v2, kubectl, helm
 
-## 2. MVP Setup — Local Docker Compose
+## 2. MVP Setup — Local Podman Compose
 
 ### 2.1 Clone and configure environment
    git clone ...
@@ -1787,10 +1787,10 @@ The project root `README.md` is the single authoritative onboarding document. It
 
 ### 2.5 Start application services
    just up
-   # Starts: cdr-pipeline, service_backend (Milvus Lite embedded), frontend
+   # Starts: cdr-pipeline, service_webapp (Milvus Lite embedded), frontend
 
 ### 2.6 Verify
-   curl http://localhost:8000/health   # service_backend
+   curl http://localhost:8000/health   # service_webapp
    curl http://localhost:8001/health   # cdr-pipeline management API
    open http://localhost:5173          # React frontend
 
@@ -1822,7 +1822,7 @@ The project root `README.md` is the single authoritative onboarding document. It
 
 ### 3.6 Deploy application services to EKS
    helm upgrade --install cdr-ingestion ./helm/cdr-ingestion/
-   helm upgrade --install service_backend ./helm/service_backend/
+   helm upgrade --install service_webapp ./helm/service_webapp/
    # (other services)
 
 ### 3.7 Deploy frontend to S3 + CloudFront
@@ -1847,7 +1847,7 @@ The dependency order between setup phases is mandatory; skipping or reordering w
 
 ```
 Phase 1: Infrastructure
-  MVP     → Docker containers (just deps)
+  MVP     → Podman containers (just deps)
              └─ Postgres init: extensions + users (automatic on first start)
   Target  → Terraform apply (infrastructure/terraform/environments/{env})
              └─ RDS extensions provisioned via parameter group
@@ -1861,7 +1861,7 @@ Phase 3: Seed Data
   Both    → Synthetic data generation (just seed): plans → subscribers → CDRs
              Requires: Phase 2 complete (FK constraints must exist)
           → Milvus ingestion (just seed-milvus)
-             Requires: Phase 1 complete (service_backend running for Milvus Lite)
+             Requires: Phase 1 complete (service_webapp running for Milvus Lite)
 
 Phase 4: Application Config (Target State only)
   Target  → Terraform outputs → Secrets Manager entries populated
@@ -1869,7 +1869,7 @@ Phase 4: Application Config (Target State only)
              Requires: Phase 1 complete
 
 Phase 5: Application Deploy
-  MVP     → just up (docker compose full stack)
+  MVP     → just up (podman compose full stack)
   Target  → helm deploy to EKS + S3/CloudFront frontend deploy
              Requires: Phases 1–4 complete
 ```

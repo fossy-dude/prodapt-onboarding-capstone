@@ -1,5 +1,5 @@
 # generated: 2026-06-19
-# last_updated: 2026-06-19
+# last_updated: 2025-01-09  # Story 2.5 → review (CDR management API — DLQ inspect & worker control)
 # project: sboai_capstone
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-19
+last_updated: 2026-06-23  # Story 2.9 → in-progress (SIM activation simulator & notification portal)
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -44,41 +44,41 @@ story_location: docs/bmad_output/implementation-artifacts
 
 development_status:
   # Epic 1: Core Infrastructure, Tooling & Subscriber Identity
-  epic-1: in-progress
-  1-1-ux-brief-subscriber-registration-identity-flows: ready-for-dev
-  1-2-docker-compose-stack-postgres-init-flyway-baseline: ready-for-dev
-  1-3-project-tooling-justfile-github-actions-ci-linters-readme: ready-for-dev
-  1-4-pydantic-settings-singleton-health-endpoints-otel-trace-middleware: ready-for-dev
-  1-5-langfuse-self-hosted-setup-client-instrumentation-scaffold: ready-for-dev
-  1-6-subscriber-registration-trai-caf-pii-encryption: ready-for-dev
-  1-7-sim-activation-order-tracker-ui: ready-for-dev
-  1-8-login-otp-step-up-jwt-role-based-auth: ready-for-dev
-  1-9-profile-management-kyc-status-view: ready-for-dev
-  1-10-saved-payment-methods-pci-dss-tokenisation: ready-for-dev
+  epic-1: done
+  1-1-ux-brief-subscriber-registration-identity-flows: done
+  1-2-docker-compose-stack-postgres-init-flyway-baseline: done
+  1-3-project-tooling-justfile-github-actions-ci-linters-readme: done
+  1-4-pydantic-settings-singleton-health-endpoints-otel-trace-middleware: done
+  1-5-langfuse-self-hosted-setup-client-instrumentation-scaffold: done
+  1-6-subscriber-registration-trai-caf-pii-encryption: done
+  1-7-sim-activation-order-tracker-ui: done
+  1-8-login-otp-step-up-jwt-role-based-auth: done
+  1-9-profile-management-kyc-status-view: done
+  1-10-saved-payment-methods-pci-dss-tokenisation: done
   epic-1-retrospective: optional
 
   # Epic 2: CDR Pipeline, Balance Engine, Synthetic Data & Simulator Tools
-  epic-2: backlog
-  2-1-redpanda-topic-provisioning-kafka-envelope-contract: backlog
-  2-2-cdr-ingestion-consumer-dedup-dlq: backlog
-  2-3-balance-deduction-engine-valkey-write-buffer-postgres-flush: backlog
-  2-4-audit-log-distributed-trace-propagation: backlog
-  2-5-cdr-management-api-dlq-inspect-worker-control: backlog
-  2-6-synthetic-dataset-generation-plans-subscribers-cdrs: backlog
-  2-7-milvus-lite-initialisation-vector-seeding: backlog
-  2-8-cdr-simulator-ui-form-dispatch-websocket-trace-display: backlog
-  2-9-sim-activation-simulator-notification-portal: backlog
+  epic-2: done
+  2-1-redpanda-topic-provisioning-kafka-envelope-contract: done
+  2-2-cdr-ingestion-consumer-dedup-dlq: done
+  2-3-balance-deduction-engine-valkey-write-buffer-postgres-flush: done
+  2-4-audit-log-distributed-trace-propagation: done
+  2-5-cdr-management-api-dlq-inspect-worker-control: done
+  2-6-synthetic-dataset-generation-plans-subscribers-cdrs: done
+  2-7-milvus-lite-initialisation-vector-seeding: done
+  2-8-cdr-simulator-ui-form-dispatch-websocket-trace-display: done
+  2-9-sim-activation-simulator-notification-portal: done
   epic-2-retrospective: optional
 
   # Epic 3: Subscriber Self-Care Portal
-  epic-3: backlog
-  3-1-ux-brief-balance-usage-recharge-portal-flows: backlog
-  3-2-real-time-balance-display-usage-breakdown: backlog
-  3-3-transaction-history-ledger: backlog
-  3-4-plan-details-view-plan-catalogue: backlog
-  3-5-recharge-purchase-plan-selection-simulated-payment: backlog
-  3-6-pdf-receipt-generation: backlog
-  3-7-refund-view: backlog
+  epic-3: in-progress
+  3-1-ux-brief-balance-usage-recharge-portal-flows: review
+  3-2-real-time-balance-display-usage-breakdown: ready-for-dev
+  3-3-transaction-history-ledger: ready-for-dev
+  3-4-plan-details-view-plan-catalogue: ready-for-dev
+  3-5-recharge-purchase-plan-selection-simulated-payment: ready-for-dev
+  3-6-pdf-receipt-generation: ready-for-dev
+  3-7-refund-view: ready-for-dev
   epic-3-retrospective: optional
 
   # Epic 4: Notifications & USSD Interface

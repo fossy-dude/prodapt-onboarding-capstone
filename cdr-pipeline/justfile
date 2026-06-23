@@ -1,0 +1,30 @@
+# cdr-pipeline justfile — Python CDR processing tasks
+
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
+set dotenv-load := true
+
+uv_tox := "uvx --with tox-uv tox"
+
+# Default: print the recipe list
+default:
+    @just --list
+
+# Run tests via tox
+test:
+    {{uv_tox}} -e test
+
+# Run integration tests (opt-in; integration/slow are skipped by default)
+test-integration:
+    {{uv_tox}} -e test -- --run-integration
+
+# Lint code (ruff lint + ruff format check + pyrefly type check)
+lint:
+    {{uv_tox}} -e lint
+
+# Run full tox (lint + test)
+tox:
+    {{uv_tox}}
+
+# Auto-format code (ruff format)
+format:
+    uvx ruff format

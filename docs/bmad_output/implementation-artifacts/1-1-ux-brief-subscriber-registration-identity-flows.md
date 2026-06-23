@@ -1,6 +1,10 @@
+---
+baseline_commit: 597ec09b7f4dacee810be9331a16c3dbb43883c2
+---
+
 # Story 1.1: UX Brief — Subscriber Registration & Identity Flows
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -22,31 +26,31 @@ so that frontend stories in this epic have a clear, agreed-upon design target an
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Author the UX brief document** (AC: #1, #7)
-  - [ ] Create `docs/bmad_output/planning-artifacts/ux-brief-identity.md`
-  - [ ] Add a "Document Status" header: lightweight UX brief, MVP scope, supersedes any conflicting frontend conventions for these flows (see Project Structure Notes)
-  - [ ] Document the route table for the identity flows with screen name, route, portal prefix, and one-line purpose
-- [ ] **Task 2: Document the route map and role gating** (AC: #1, #2)
-  - [ ] List subscriber-facing identity routes: `/register`, `/activate`, `/login`, `/profile`, `/profile/kyc`, `/profile/payment-methods`
-  - [ ] Document the four role-gated prefixes (`/subscriber/*`, `/ops/*`, `/fraud/*`, `/simulator/*`) and the rule: JWT `role` claim selects the accessible subtree; mismatch → redirect to `/login` (UX-DR7, FR-67)
-  - [ ] Note that `/activate` (SIM order tracker) lives under the `/simulator/*` portal per architecture §1.12.1 (`src/portals/simulator/SimActivation.tsx`), even though it is a subscriber-facing screen — flag this as a known route/portal placement to confirm with downstream story 1.7
-- [ ] **Task 3: Specify the shared UI component library** (AC: #3, #6)
-  - [ ] List the five shared components (`Button`, `Card`, `Badge`, `Table`, `Modal`) with their target location `frontend/src/components/ui/`
-  - [ ] State the styling rule: **TailwindCSS utility classes only**; no per-component CSS files; only `globals.css` permitted (architecture §1.11.2 React rules)
-  - [ ] State naming: components `PascalCase.tsx`, hooks `usePascalCase.ts`, utility files `camelCase.ts`
-  - [ ] For `Badge`, specify the three KYC status variants used by Story 1.9: Verified (green), Pending (amber), Rejected (red) — so the component is built once with the right variant API
-- [ ] **Task 4: Describe the multi-step registration form** (AC: #4)
-  - [ ] Step 1 — personal details (name, email, alternate mobile number for pre-activation OTP per PRD A-6)
-  - [ ] Step 2 — TRAI CAF fields (Customer Acquisition Form)
-  - [ ] Step 3 — display generated Registration ID (`REG-{YYYYMMDD}-{8 hex chars}`) + OTP entry
-  - [ ] Note the duplicate-MSISDN error surface (HTTP 409 `DUPLICATE_MSISDN`) maps to an inline form error in Step 1/2 (consumed by Story 1.6)
-- [ ] **Task 5: Specify the SIM activation order tracker** (AC: #5)
-  - [ ] Four-step indicator: Created → KYC Pending → KYC Verified → Activated
-  - [ ] Current step highlighted; completed steps show checkmark; polls `GET /api/v1/subscriber/orders/{order_id}/status` every 10s (detail consumed by Story 1.7)
-  - [ ] On `status = 'ACTIVATED'`, success banner with MSISDN
-- [ ] **Task 6: Add the Project Structure Notes / conflict callout to the brief** (AC: #7)
-  - [ ] Document the resolved decision: the architecture's `src/portals/*` + `components/ui/` + TailwindCSS layout is authoritative
-  - [ ] List the conflicts explicitly so the frontend dev (Story 1.7) knows the existing `frontend/` scaffold must be reorganised
+- [x] **Task 1: Author the UX brief document** (AC: #1, #7)
+  - [x] Create `docs/bmad_output/planning-artifacts/ux-brief-identity.md`
+  - [x] Add a "Document Status" header: lightweight UX brief, MVP scope, supersedes any conflicting frontend conventions for these flows (see Project Structure Notes)
+  - [x] Document the route table for the identity flows with screen name, route, portal prefix, and one-line purpose
+- [x] **Task 2: Document the route map and role gating** (AC: #1, #2)
+  - [x] List subscriber-facing identity routes: `/register`, `/activate`, `/login`, `/profile`, `/profile/kyc`, `/profile/payment-methods`
+  - [x] Document the four role-gated prefixes (`/subscriber/*`, `/ops/*`, `/fraud/*`, `/simulator/*`) and the rule: JWT `role` claim selects the accessible subtree; mismatch → redirect to `/login` (UX-DR7, FR-67)
+  - [x] Note that `/activate` (SIM order tracker) lives under the `/simulator/*` portal per architecture §1.12.1 (`src/portals/simulator/SimActivation.tsx`), even though it is a subscriber-facing screen — flag this as a known route/portal placement to confirm with downstream story 1.7
+- [x] **Task 3: Specify the shared UI component library** (AC: #3, #6)
+  - [x] List the five shared components (`Button`, `Card`, `Badge`, `Table`, `Modal`) with their target location `frontend/src/components/ui/`
+  - [x] State the styling rule: **TailwindCSS utility classes only**; no per-component CSS files; only `globals.css` permitted (architecture §1.11.2 React rules)
+  - [x] State naming: components `PascalCase.tsx`, hooks `usePascalCase.ts`, utility files `camelCase.ts`
+  - [x] For `Badge`, specify the three KYC status variants used by Story 1.9: Verified (green), Pending (amber), Rejected (red) — so the component is built once with the right variant API
+- [x] **Task 4: Describe the multi-step registration form** (AC: #4)
+  - [x] Step 1 — personal details (name, email, alternate mobile number for pre-activation OTP per PRD A-6)
+  - [x] Step 2 — TRAI CAF fields (Customer Acquisition Form)
+  - [x] Step 3 — display generated Registration ID (`REG-{YYYYMMDD}-{8 hex chars}`) + OTP entry
+  - [x] Note the duplicate-MSISDN error surface (HTTP 409 `DUPLICATE_MSISDN`) maps to an inline form error in Step 1/2 (consumed by Story 1.6)
+- [x] **Task 5: Specify the SIM activation order tracker** (AC: #5)
+  - [x] Four-step indicator: Created → KYC Pending → KYC Verified → Activated
+  - [x] Current step highlighted; completed steps show checkmark; polls `GET /api/v1/subscriber/orders/{order_id}/status` every 10s (detail consumed by Story 1.7)
+  - [x] On `status = 'ACTIVATED'`, success banner with MSISDN
+- [x] **Task 6: Add the Project Structure Notes / conflict callout to the brief** (AC: #7)
+  - [x] Document the resolved decision: the architecture's `src/portals/*` + `components/ui/` + TailwindCSS layout is authoritative
+  - [x] List the conflicts explicitly so the frontend dev (Story 1.7) knows the existing `frontend/` scaffold must be reorganised
 
 ## Dev Notes
 
@@ -119,10 +123,26 @@ frontend/src/lib/     api.ts (Axios + error interceptor), auth.ts (JWT decode/ro
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+claude-sonnet-4-6
 
 ### Debug Log References
 
+No blockers. Documentation-only story; all content derived from architecture.md (§1.9.1, §1.11.2, §1.12.1) and prd.md (UJ-1, A-6, FR-4, FR-67).
+
 ### Completion Notes List
 
+- Produced `docs/bmad_output/planning-artifacts/ux-brief-identity.md` covering all 6 tasks and 7 ACs.
+- Clarified SimActivation dual-placement: architecture monorepo layout shows two files — `portals/subscriber/SimActivation.tsx` (read-only subscriber tracker) and `portals/simulator/SimActivation.tsx` (dev tool). Story file Task 2 referenced only the simulator location; the brief records the correct subscriber location with the open question flagged for Story 1.7.
+- Badge component specified with `verified` / `pending` / `rejected` variant API to ensure Story 1.9 can consume it without rework.
+- Conflict resolution table explicitly supersedes `frontend/CLAUDE.md` FSD conventions in favour of architecture-defined layout and TailwindCSS styling.
+
 ### File List
+
+- docs/bmad_output/planning-artifacts/ux-brief-identity.md (created)
+- docs/bmad_output/implementation-artifacts/1-1-ux-brief-subscriber-registration-identity-flows.md (updated — tasks, status, record)
+- docs/bmad_output/implementation-artifacts/sprint-status.yaml (updated — story status)
+
+## Change Log
+
+- 2026-06-20: Story 1.1 complete — UX brief authored at `docs/bmad_output/planning-artifacts/ux-brief-identity.md`. All 6 tasks and 7 ACs satisfied. Status set to review.
+- 2026-06-20: UX brief amended — added Section 4 (Tailwind Global Theme): font families (Inter/JetBrains Mono), locked type scale (xs→3xl), colour palette (brand/neutral/success/warning/danger tokens), and `tailwind.config.ts` reference snippet. Section numbers 4–6 renumbered to 5–7.

@@ -1,0 +1,342 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cdr-pipeline"
+version = "0.1.0"
+description = "CDR ingestion, balance engine and fraud pre-screener pipeline (MVP: Python)."
+requires-python = ">=3.11"
+dependencies = [
+    # Story 1.4: config singleton (same eager-load pattern as service_webapp).
+    "pydantic-settings>=2.3",
+    # Story 2.1: Kafka envelope model, async producer, topic provisioning.
+    "pydantic>=2",
+    "aiokafka>=0.11",
+    "uuid7>=0.1",
+    # Story 2.2: Valkey dedup cache + W3C trace-context extraction on consume.
+    "valkey[asyncio]>=6",
+    "opentelemetry-sdk>=1.25",
+    # Story 2.3: Postgres async adapter (balance ledger flush).
+    "psycopg[binary,pool]>=3.2",
+    # Story 2.5: management API + admin JWT guard.
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "PyJWT[crypto]>=2.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pyinstrument>=5.1.0",
+    "python-semantic-release>=10.0",
+]
+test = [
+    "ruff>=0.12.9",
+    "pytest>=7.0.0",
+    "pytest-env>=1.1.0",
+    "tox>=4.0.0",
+    "pyrefly>=0.31.0",
+    "testcontainers[kafka]>=4",
+]
+
+# ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+# │                                           Ruff Config                                            │
+# └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+# Adopted verbatim from docs/Ref-Linting-config-pyproject.toml (Story 1.3 canonical lint template).
+# `src` added so ruff treats cdr-pipeline/src as a first-party import root (layout requirement).
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+fix = true
+src = ["src","tests"]
+
+[tool.ruff.format]
+# 5. Use single quotes for non-triple-quoted strings.
+quote-style = "double"
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+    "B", # flake8-bugbear
+    "C4", # comprehensions
+    "D", # pydocstyle
+    "E", # pycodestyle
+    "F", # pyflakes
+    "FA", # flake8-future-annotations
+    "FLY", # flynt
+    "G", # flake8-logging-format
+    "I", # isort
+    "INT", # flake8-gettext
+    "ISC", # implicit string concatenation
+    "NPY002", # numpy-legacy-random
+    "PERF", # Perflint
+    "PGH", # pygrep-hooks
+    "PIE", # misc lints
+    "PL", # pylint
+    "PT", # flake8-pytest-style
+    "PYI", # flake8-pyi
+    "Q", # flake8-quotes
+    "RUF", # Ruff-specific rules
+    "S102", # flake8-bandit: exec-builtin
+    "T10", # flake8-debugger
+    "TCH", # type-checking imports
+    "TID", # tidy imports
+    "UP", # pyupgrade
+    "W", # pycodestyle
+    "YTT", # flake8-2020
+]
+
+# Taken from pandas pyproject.toml as reference
+ignore = [
+    ### Intentionally disabled
+    # module level import not at top of file
+    "E402",
+    # do not assign a lambda expression, use a def
+    "E731",
+    # controversial
+    "B007",
+    # controversial
+    "B008",
+    # setattr is used to side-step mypy
+    "B009",
+    # getattr is used to side-step mypy
+    "B010",
+    # tests use comparisons but not their returned value
+    "B015",
+    # Function definition does not bind loop variable
+    "B023",
+    # Only works with python >=3.10
+    "B905",
+    # Too many arguments to function call
+    "PLR0913",
+    # Too many returns
+    "PLR0911",
+    # Too many branches
+    "PLR0912",
+    # Too many statements
+    "PLR0915",
+    # Redefined loop name
+    "PLW2901",
+    # Global statements are discouraged
+    "PLW0603",
+    # Use `typing.NamedTuple` instead of `collections.namedtuple`
+    "PYI024",
+    # No builtin `eval()` allowed
+    "S307",
+    # while int | float can be shortened to float, the former is more explicit
+    "PYI041",
+    # incorrect-dict-iterator, flags valid Series.items usage
+    "PERF102",
+    # try-except-in-loop, becomes useless in Python 3.11
+    "PERF203",
+    # pytest-parametrize-names-wrong-type
+    "PT006",
+    # pytest-parametrize-values-wrong-type
+    "PT007",
+    # pytest-patch-with-lambda
+    "PT008",
+    # pytest-raises-with-multiple-statements
+    "PT012",
+    # pytest-assert-in-except
+    "PT017",
+    # pytest-composite-assertion
+    "PT018",
+    # pytest-fixture-param-without-value
+    "PT019",
+    # The following rules may cause conflicts when used with the formatter:
+    "ISC001",
+    ### TODO: Enable gradually
+    # Useless statement
+    "B018",
+    # Magic number
+    "PLR2004",
+    # comparison-with-itself
+    "PLR0124",
+    # collection-literal-concatenation
+    "RUF005",
+    # pairwise-over-zipped (>=PY310 only)
+    "RUF007",
+    # mutable-class-default
+    "RUF012",
+    # Unnecessary pass/... literal
+    "PIE790",
+    # Unused imports
+    "F401",
+    "E501", # (line too long)
+    "G004", # (logging-format-interpolation - use f-strings
+    "W291", # Trailing Whitespace
+    "W293", # Blank lines contains Trailing Whitespace
+    # Docstring styles - too much
+    "D100", # Missing docstring in public module
+    "D104", # Missing docstring in public package
+]
+unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["E402"]
+"**/{tests,docs,tools}/*" = ["E402"]
+"error_codes.py" = ["C408"]
+# Tests legitimately omit module/function docstrings; narrow ignore keeps the rule set intact elsewhere.
+# PLC0415 (import-not-at-top) allowed in tests so config imports can be deferred (Story 1.4).
+"tests/*" = ["D100", "D101", "D102", "D103", "D104", "D105", "PLC0415"]
+
+
+[tool.ruff.lint.flake8-pytest-style]
+fixture-parentheses = false
+mark-parentheses = false
+
+[tool.ruff.lint.flake8-quotes]
+docstring-quotes = "double"
+
+[tool.ruff.lint.isort]
+case-sensitive = true
+combine-as-imports = true
+force-wrap-aliases = true
+split-on-trailing-comma = true
+
+[tool.ruff.lint.pyupgrade]
+# Preserve types, even if a file imports `from __future__ import annotations`.
+keep-runtime-typing = true
+
+[tool.ruff.lint.pydocstyle]
+# Use numpy-style docstrings.
+convention = "numpy"
+
+[tool.ruff.lint.pyflakes]
+#A list of modules to ignore when considering unused imports. These will not be removed even if unused
+allowed-unused-imports = []
+
+
+# ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+# │                                          Pytest config                                           │
+# └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+python_files = "test_*.py"
+markers = [
+    # Slow running tests
+    "slow",
+    # Unit, integration and functional tests
+    "unit",
+    "functional",
+    "integration",
+    "security",
+    # Internal API calls involved. Can be skipped if required
+    "api__internal",
+]
+addopts = [
+    "--import-mode=importlib",
+    "--strict-config",
+    "--strict-markers",
+    "--asyncio-mode=auto",
+]
+# addopts = "--cov --cov-report html --cov-report term-missing"
+
+# pytest-env: provide REQUIRED env vars so the eager ``settings = Settings()``
+# singleton (core/config.py) succeeds at collection time. (Story 1.4.)
+env = [
+    "DB__HOST=localhost",
+    "DB__PORT=5432",
+    "DB__NAME=sboai_test",
+    "DB__USER=sboai_app",
+    "DB__PASSWORD=change_me_app",
+    "VALKEY_URL=redis://localhost:6379",
+    "KAFKA_BROKERS=localhost:9092",
+    # Story 2.5: Cognito settings for management API (optional fields; tests mock JWTValidator).
+    "COGNITO_ENDPOINT_URL=http://localhost:4566",
+    "COGNITO_REGION=ap-south-1",
+    "COGNITO_USER_POOL_ID=test-pool",
+    "COGNITO_CLIENT_ID=test-client",
+]
+# /run/secrets is a Podman-only mount; absent in dev/test. (Story 1.4.)
+filterwarnings = [
+    "ignore:directory \"/run/secrets\" does not exist:UserWarning",
+]
+
+# ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+# │                                          Pyrefly config                                          │
+# └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+[tool.pyrefly]
+project-includes = ["src/*"]
+project-excludes = [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/*venv/**/*",
+]
+[tool.pyrefly.errors]
+no-matching-overload = false
+
+# ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+# │                                               tox                                                │
+# └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+# Adapted from docs/Ref-Linting-config-pyproject.toml. Uses uv-venv-runner with per-env `deps` instead
+# of the template's uv-venv-lock-runner + `uv sync --extra test`, for consistency with service_webapp
+# (whose runtime deps require system libraries that `uv sync` would attempt to build). Env names
+# `lint`/`test` match the justfile (`uv tox -e lint`/`-e test`) and the CI gate. See Story 1.3 Notes.
+
+[tool.tox]
+requires = ["tox>=4.15"]
+env_list = ["lint", "test"]
+
+[tool.tox.env_run_base]
+runner = "uv-venv-runner"
+description = "Run quality gate under {base_python}"
+# Do not build/install the project package itself — the lint/type/test tools run
+# against source files directly, and src/ is placed on sys.path via [tool.pytest].
+package = "skip"
+
+[tool.tox.env.lint]
+description = "Run ruff (lint + format check) and pyrefly type checking"
+# Story 1.4: the consumer config imports pydantic-settings, so pyrefly needs it
+# resolvable in the lint venv. Story 2.2: valkey + opentelemetry are imported by
+# the new adapters/consumer, so they must resolve here too.
+deps = [
+    "ruff>=0.12.9",
+    "pyrefly>=0.31.0",
+    "pydantic-settings>=2.3",
+    "pydantic>=2",
+    "aiokafka>=0.11",
+    "uuid7>=0.1",
+    "valkey[asyncio]>=6",
+    "opentelemetry-sdk>=1.25",
+    # Story 2.3: Postgres async adapter.
+    "psycopg[binary,pool]>=3.2",
+    # Story 2.5: management API + admin JWT guard.
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "PyJWT[crypto]>=2.8",
+]
+commands = [
+    ["ruff", "check", "."],
+    ["ruff", "format", "--check", "."],
+    ["pyrefly", "check"],
+]
+
+[tool.tox.env.test]
+description = "Run pytest (unit tests only; integration/slow skip by default via conftest)"
+# Story 1.4: config singleton tests need pydantic-settings + pytest-asyncio.
+# Story 2.2: valkey + opentelemetry for the new adapters/consumer; testcontainers
+# adds the redis extra for the slow Redpanda+Valkey integration test.
+# Story 2.5: httpx for AsyncClient; fastapi, uvicorn, PyJWT[crypto] for management API.
+deps = [
+    "pytest>=8",
+    "pytest-env>=1.1.0",
+    "pytest-asyncio>=0.23",
+    "pydantic-settings>=2.3",
+    "pydantic>=2",
+    "aiokafka>=0.11",
+    "uuid7>=0.1",
+    "valkey[asyncio]>=6",
+    "opentelemetry-sdk>=1.25",
+    "pytest-mock>=3",
+    "testcontainers[kafka,redis,postgres]>=4",
+    "psycopg[binary,pool]>=3.2",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "PyJWT[crypto]>=2.8",
+    "httpx>=0.27",
+]
+commands = [["pytest", "{posargs}"]]
