@@ -2,15 +2,14 @@ r"""Integration test: balance engine warm-up → deduct → flush (Story 2.3, Ta
 
 Slow / integration: needs a container runtime (Podman/Docker socket) and uses
 testcontainers Postgres + Valkey — the REAL database + cache, NOT mocks. Skipped by
-the default ``just test-cdr`` gate (``-m "not slow"``). Run with rootless Podman:
+default (the conftest hook gates ``slow`` + ``integration`` marks). Opt in:
 
     DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock \
-        cd cdr-pipeline && uvx --with tox-uv tox -e test -- -m slow
+        cd cdr-pipeline && uvx --with tox-uv tox -e test -- --run-slow
 """
 
 from __future__ import annotations
 
-import asyncio
 import pathlib
 from datetime import UTC, datetime
 from uuid import UUID
@@ -19,11 +18,10 @@ import pytest
 from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
-from adapters.postgres import Psycopg3AsyncAdapter, conninfo_from
+from adapters.postgres import Psycopg3AsyncAdapter
 from adapters.redis import ValkeyAdapter
 from consumer.balance_writer import BalanceEngine
 from consumer.startup import load_balances_from_postgres
-from core.config import DatabaseSettings
 from models.cdr import SmsCdr
 
 pytestmark = [pytest.mark.slow, pytest.mark.integration]
@@ -35,7 +33,6 @@ _SUBSCRIBER = UUID("0192a4d0-1234-7000-8000-000000000abc")
 _SUBSCRIBER2 = UUID("0192a4d0-9999-7000-8000-000000000def")
 _MSISDN = "9876543210"
 _MSISDN2 = "9876543211"
-_TRACE = "0123456789abcdef0123456789abcdef"
 
 
 @pytest.fixture
@@ -76,19 +73,13 @@ async def test_warmup_seeds_balances_and_builds_indices(postgres: str, valkey: s
             await conn.execute(
                 "INSERT INTO identity_subscribers (id, msisdn, subscriber_name) VALUES "
                 "($1, $2, 'Test One'), ($3, $4, 'Test Two')",
-                _SUBSCRIBER,
-                _MSISDN,
-                _SUBSCRIBER2,
-                _MSISDN2,
+                (_SUBSCRIBER, _MSISDN, _SUBSCRIBER2, _MSISDN2),
             )
             # Insert wallet balances
             await conn.execute(
                 "INSERT INTO billing_wallet_balances (subscriber_id, msisdn, balance_paise) VALUES "
                 "($1, $2, 100000), ($3, $4, 50000)",
-                _SUBSCRIBER,
-                _MSISDN,
-                _SUBSCRIBER2,
-                _MSISDN2,
+                (_SUBSCRIBER, _MSISDN, _SUBSCRIBER2, _MSISDN2),
             )
 
         # Run warm-up
@@ -121,13 +112,11 @@ async def test_deduct_flush_updates_postgres_balance_and_ledger(postgres: str, v
         async with db.transaction() as conn:
             await conn.execute(
                 "INSERT INTO identity_subscribers (id, msisdn, subscriber_name) VALUES ($1, $2, 'Test')",
-                _SUBSCRIBER,
-                _MSISDN,
+                (_SUBSCRIBER, _MSISDN),
             )
             await conn.execute(
                 "INSERT INTO billing_wallet_balances (subscriber_id, msisdn, balance_paise) VALUES ($1, $2, 100000)",
-                _SUBSCRIBER,
-                _MSISDN,
+                (_SUBSCRIBER, _MSISDN),
             )
 
         # Warm-up
@@ -160,7 +149,7 @@ async def test_deduct_flush_updates_postgres_balance_and_ledger(postgres: str, v
         async with db.transaction() as conn:
             cur = await conn.execute(
                 "SELECT balance_paise FROM billing_wallet_balances WHERE msisdn = $1",
-                _MSISDN,
+                (_MSISDN,),
             )
             row = await cur.fetchone()
         assert row is not None
@@ -171,7 +160,7 @@ async def test_deduct_flush_updates_postgres_balance_and_ledger(postgres: str, v
             cur = await conn.execute(
                 "SELECT amount_paise, balance_before_paise, balance_after_paise, reference_id "
                 "FROM billing_transactions WHERE reference_id = $1",
-                cdr.cdr_id,
+                (cdr.cdr_id,),
             )
             row = await cur.fetchone()
         assert row is not None

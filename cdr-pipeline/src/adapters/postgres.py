@@ -82,9 +82,8 @@ class Psycopg3AsyncAdapter(DatabaseProtocol):
         except Exception:
             return False
 
-    @property
     @asynccontextmanager
-    async def transaction(self) -> AsyncIterator[AsyncConnection]:  # type: ignore[override]
+    async def transaction(self) -> AsyncIterator[AsyncConnection]:
         """Yield a pooled connection inside an explicit transaction.
 
         Used by warm-up (load_balances_from_postgres) and the flusher (wallet upserts

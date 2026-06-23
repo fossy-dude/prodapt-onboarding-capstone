@@ -50,7 +50,7 @@ These routes are documented in [UX Brief: Subscriber Registration & Identity Flo
 
 ### 2.3 Role-Gated Portal Prefixes
 
-The application is a single SPA. The JWT `role` claim determines which route subtree is accessible. A mismatch between the user's role and the requested route prefix causes a redirect to `/login`.
+The application is a single SPA. The portal role is derived from the JWT `cognito:groups` claim (the first group, mapped to a known role in `frontend/src/lib/auth.ts`) and determines which route subtree is accessible. A mismatch between the user's role and the requested route prefix causes a redirect to `/login`.
 
 | Prefix | Audience | Portal |
 |---|---|---|
@@ -59,7 +59,7 @@ The application is a single SPA. The JWT `role` claim determines which route sub
 | `/fraud/*` | Fraud analyst | Fraud Management Dashboard |
 | `/simulator/*` | Internal dev / QA | CDR Simulator + Notification Portal + SIM dev tools |
 
-**Rule:** JWT `role` claim selects the accessible subtree. Any request to a protected route where the token's `role` does not match → redirect to `/login`. Implemented via the `RoleGuard` component in `frontend/src/components/layout/RoleGuard.tsx`.
+**Rule:** The `cognito:groups`-derived role selects the accessible subtree. Any request to a protected route where the token's role does not match → redirect to `/login`. Implemented via the `RoleGuard` component in `frontend/src/components/layout/RoleGuard.tsx`.
 
 ---
 
@@ -75,7 +75,6 @@ All shared UI components live in `frontend/src/components/ui/`. They are shared 
 | `Card` | `Card.tsx` | Dashboard panels, plan cards, profile sections |
 | `Badge` | `Badge.tsx` | Status indicators (validity, current plan) |
 | `Table` | `Table.tsx` | Transaction history, plan catalogue |
-| `Modal` | `Modal.tsx` | Confirmation dialogs, form overlays |
 
 ### 3.2 New Components for Epic 3
 
@@ -83,9 +82,10 @@ All shared UI components live in `frontend/src/components/ui/`. They are shared 
 |---|---|---|---|
 | `Input` | `Input.tsx` | Form input fields (text, email, tel) | 3.5 |
 | `Select` | `Select.tsx` | Dropdown select (payment method, plan filter) | 3.5 |
+| `Modal` | `Modal.tsx` | Confirmation dialogs, form overlays (recharge confirm, add-card) | 3.5 |
 | `UsageRing` | `charts/UsageRing.tsx` | Circular progress chart for usage breakdown | 3.2 |
 
-> **Note:** `Input` and `Select` are NEW primitives required for the recharge form. They do not exist in the current `components/ui/` barrel. `UsageRing` is a NEW chart component; the `components/charts/` directory does not yet exist. These are created in Stories 3.2 and 3.5 — **not** in this doc-only story.
+> **Note:** `Modal`, `Input`, and `Select` are NEW primitives required for the recharge form — none exist in the current `components/ui/` barrel (only Badge/Button/Card/Table are present). `UsageRing` is a NEW chart component; the `components/charts/` directory does not yet exist. These are created in Stories 3.2 and 3.5 — **not** in this doc-only story.
 
 ### 3.3 Naming Conventions
 

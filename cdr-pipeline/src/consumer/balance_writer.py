@@ -20,18 +20,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from opentelemetry import trace
 
-from consumer.startup import BalanceWarmupState, load_balances_from_postgres
-from core.config import settings
+from consumer.startup import load_balances_from_postgres
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
     from core.protocols.cache import CacheProtocol
     from core.protocols.db import DatabaseProtocol
     from models.cdr import CdrEvent
@@ -40,6 +36,8 @@ logger = logging.getLogger("consumer.balance_writer")
 
 tracer = trace.get_tracer(__name__)
 
+# Bulk upsert: ON CONFLICT (msisdn) keeps the wallet row in sync with the live
+# Valkey buffer. subscriber_id is supplied so a genuinely new msisdn inserts too.
 _BALLED_UPSERT_SQL = """\
 INSERT INTO billing_wallet_balances (
     id, subscriber_id, msisdn, balance_paise, last_deduction_at, created_at, modified_at
@@ -59,6 +57,8 @@ DO UPDATE SET
     modified_at = NOW()
 """
 
+# Append-only forensic ledger (one row per first-sight deduction). amount_paise
+# is negative for a deduction; balance_before/after capture the atomic transition.
 _LEDGER_INSERT_SQL = """\
 INSERT INTO billing_transactions (
     id, subscriber_id, transaction_type, amount_paise, reference_type, reference_id,
@@ -90,27 +90,26 @@ class LedgerRow:
     balance_after: int
 
 
-@dataclass
 class BalanceEngine:
-    """Hot-path balance writer + async flusher."""
+    """Hot-path balance writer + async flusher.
 
-    _cache: CacheProtocol
-    _db: DatabaseProtocol
-    _flush_interval: float
-    _flush_dirty_threshold: int
+    Plain class (not a dataclass) so the mutable in-process state (dirty set,
+    ledger queue, indices) is initialised in ``__init__`` — a manual ``__init__``
+    on a ``@dataclass`` would silently skip the ``field(default_factory=...)``
+    defaults and leave those attributes unset.
 
-    # Warm-up indices (built by load_balances_from_postgres)
-    _subscriber_to_msisdn: dict[str, str] = field(default_factory=dict)
-    _msisdn_to_subscriber: dict[str, str] = field(default_factory=dict)
-
-    # In-process dirty set and ledger queue (shared between hot path and flusher)
-    _dirty_msisdns: set[str] = field(default_factory=set)
-    _ledger_queue: list[LedgerRow] = field(default_factory=list)
-
-    # Flusher loop control
-    _flusher_running: bool = False
-    _flusher_task: asyncio.Task[None] | None = None
-    _flusher_stopped: asyncio.Event = field(default_factory=asyncio.Event)
+    Parameters
+    ----------
+    cache : CacheProtocol
+        Valkey cache providing ``incr_by`` (hot path) and ``get_str`` (flusher).
+    db : DatabaseProtocol
+        Postgres adapter with a ``transaction`` context manager (flusher upserts
+        + ledger inserts, warm-up query).
+    flush_interval : float
+        Seconds between timed flushes (default 2s, AC #3).
+    flush_dirty_threshold : int
+        Dirty-msisdn count that triggers an early flush (default 5000, AC #3).
+    """
 
     def __init__(
         self,
@@ -120,10 +119,22 @@ class BalanceEngine:
         flush_interval: float = 2.0,
         flush_dirty_threshold: int = 5000,
     ) -> None:
-        self._cache = cache
-        self._db = db
-        self._flush_interval = flush_interval
-        self._flush_dirty_threshold = flush_dirty_threshold
+        self._cache: CacheProtocol = cache
+        self._db: DatabaseProtocol = db
+        self._flush_interval: float = flush_interval
+        self._flush_dirty_threshold: int = flush_dirty_threshold
+
+        # Warm-up indices (built by load_balances_from_postgres)
+        self._subscriber_to_msisdn: dict[str, str] = {}
+        self._msisdn_to_subscriber: dict[str, str] = {}
+
+        # In-process dirty set and ledger queue (shared between hot path and flusher)
+        self._dirty_msisdns: set[str] = set()
+        self._ledger_queue: list[LedgerRow] = []
+
+        # Flusher loop control
+        self._flusher_running: bool = False
+        self._flusher_task: asyncio.Task[None] | None = None
 
     async def warmup(self) -> None:
         """Run Postgres → Valkey warm-up and build indices (Task 3, AC #5).
@@ -174,7 +185,7 @@ class BalanceEngine:
             span.set_attribute("cdr.cost_paise", cost_paise)
 
             # Atomic INCRBY balance:{msisdn} -cost_paise
-            # Returns the NEW balance (after deduction)
+            # Returns the NEW balance (after deduction); before = after + cost.
             key = f"balance:{msisdn}"
             balance_after = await self._cache.incr_by(key, -cost_paise)
             balance_before = balance_after + cost_paise
@@ -186,15 +197,16 @@ class BalanceEngine:
             self._dirty_msisdns.add(msisdn)
 
             # Enqueue ledger row (flush-adjacent async path)
-            ledger_row = LedgerRow(
-                subscriber_id=sub_id_str,
-                amount_paise=-cost_paise,
-                cdr_id=cdr_id_str,
-                description=cdr.cdr_type,
-                balance_before=balance_before,
-                balance_after=balance_after,
+            self._ledger_queue.append(
+                LedgerRow(
+                    subscriber_id=sub_id_str,
+                    amount_paise=-cost_paise,
+                    cdr_id=cdr_id_str,
+                    description=cdr.cdr_type,
+                    balance_before=balance_before,
+                    balance_after=balance_after,
+                )
             )
-            self._ledger_queue.append(ledger_row)
 
             logger.debug(
                 "deduct: cdr_id=%s, msisdn[-4:]=%s, cost=%d, balance_before=%d, balance_after=%d",
@@ -232,31 +244,26 @@ class BalanceEngine:
             else:
                 logger.warning("flush: balance key missing for msisdn[-4:]=%s", msisdn[-4:])
 
-        # Upsert billing_wallet_balances + insert ledger rows via transaction
+        # Upsert billing_wallet_balances + insert ledger rows via one transaction
         async with self._db.transaction() as conn:
-            # Bulk upsert wallets
             for msisdn, balance_paise in balance_reads.items():
                 subscriber_id = self._msisdn_to_subscriber.get(msisdn)
                 if subscriber_id is None:
                     logger.warning("flush: subscriber_id missing for msisdn[-4:]=%s", msisdn[-4:])
                     continue
-                await conn.execute(
-                    _BALLED_UPSERT_SQL,
-                    subscriber_id,
-                    msisdn,
-                    balance_paise,
-                )
+                await conn.execute(_BALLED_UPSERT_SQL, (subscriber_id, msisdn, balance_paise))
 
-            # Batch insert ledger rows
             for row in ledger_rows:
                 await conn.execute(
                     _LEDGER_INSERT_SQL,
-                    row.subscriber_id,
-                    row.amount_paise,
-                    row.cdr_id,
-                    row.description,
-                    row.balance_before,
-                    row.balance_after,
+                    (
+                        row.subscriber_id,
+                        row.amount_paise,
+                        row.cdr_id,
+                        row.description,
+                        row.balance_before,
+                        row.balance_after,
+                    ),
                 )
 
         logger.info(
@@ -266,13 +273,17 @@ class BalanceEngine:
         )
 
     async def _flusher_loop(self) -> None:
-        """Background flusher loop: triggers on 2s or 5000 dirty keys (Task 4)."""
+        """Background flusher loop: triggers on 2s or 5000 dirty keys (Task 4).
+
+        Exits when ``_flusher_running`` is cleared (checked each inner tick) so
+        ``stop`` can shut it down deterministically without cancelling the task.
+        """
         self._flusher_running = True
         loop = asyncio.get_running_loop()
 
         while self._flusher_running:
             try:
-                # Wait for interval OR dirty threshold, whichever comes first
+                # Wait for interval OR dirty threshold, whichever comes first.
                 deadline = loop.time() + self._flush_interval
                 while loop.time() < deadline and self._flusher_running:
                     if len(self._dirty_msisdns) >= self._flush_dirty_threshold:
@@ -284,8 +295,6 @@ class BalanceEngine:
             except Exception:
                 logger.exception("flusher: exception in flush loop")
                 await asyncio.sleep(1)  # back off on error
-
-        self._flusher_stopped.set()
 
     async def run(self) -> None:
         """Start the flusher background task (call after warmup)."""
@@ -301,27 +310,32 @@ class BalanceEngine:
         )
 
     async def stop(self) -> None:
-        """Flush once more and stop the flusher (graceful shutdown)."""
+        """Stop the flusher loop and flush once more (graceful shutdown).
+
+        Clears ``_flusher_running`` so the loop exits on its next tick (no
+        cancellation needed), awaits its completion with a timeout backstop,
+        then performs a final drain flush.
+        """
         self._flusher_running = False
 
-        # Final flush to drain any remaining dirty keys + ledger rows
+        if self._flusher_task is not None:
+            try:
+                await asyncio.wait_for(self._flusher_task, timeout=5)
+            except TimeoutError:
+                logger.warning("stop: flusher did not exit within 5s, cancelling")
+                self._flusher_task.cancel()
+            except Exception:
+                logger.exception("stop: exception waiting for flusher exit")
+            self._flusher_task = None
+
+        # Final flush to drain any dirty keys / ledger rows that landed after the
+        # loop stopped (the loop skips its own final flush once _flusher_running
+        # is False).
         try:
             await self._flush()
         except Exception:
             logger.exception("stop: exception during final flush")
 
-        # Wait for flusher loop to exit
-        if self._flusher_task is not None:
-            self._flusher_task.cancel()
-            try:
-                await asyncio.wait_for(self._flusher_task, timeout=5)
-            except TimeoutError:
-                logger.warning("stop: flusher did not exit within 5s")
-            except Exception:
-                logger.exception("stop: exception waiting for flusher exit")
-            self._flusher_task = None
-
-        await self._flusher_stopped.wait()
         logger.info("flusher: stopped")
 
 

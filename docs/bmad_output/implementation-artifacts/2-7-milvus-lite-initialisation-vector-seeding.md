@@ -158,3 +158,18 @@ claude-sonnet-4-6
 | Date | Version | Description | Author |
 |------|---------|-------------|--------|
 | 2026-06-22 | 1.0 | Story 2.7 implementation complete: VectorStoreProtocol, MilvusAdapter, embedding client (LangChain AzureOpenAI), lifespan wiring, FAQ YAML, seed script, unit + integration tests | Claude Sonnet 4.6 |
+
+### Code Review Fixes (2026-06-23)
+
+Addressed delegated code-review findings (review `code-review-2026-06-23-stories-2.7-3.1.md`):
+
+- **#1 (CRITICAL)** — `seed_plan_vectors` SELECT no longer references nonexistent `plan_type`; corrected to 5-column SELECT (`id, plan_name, plan_code, price_paise, validity_days`); `plan_type` now derived from `plan_code` via new `_plan_type_from_code` helper. File: `scripts/seed_milvus.py`.
+- **#2 (HIGH)** — `seed_sop_chunks` `severity` placeholder `""[:64]` replaced with `""` plus explanatory comment (no severity source column in `sop_knowledge_chunks` yet). File: `scripts/seed_milvus.py`.
+- **#3 (HIGH)** — main `[project.dependencies]` `pymilvus[milvus-lite]` bumped `>=2.4` -> `>=2.5` (tox envs already `>=2.5`). File: `service_webapp/pyproject.toml`.
+- **#4 (HIGH)** — new seeder unit-test file covering `seed_plan_vectors` / `seed_faq_chunks` / `seed_sop_chunks` (row key sets, embedding dim, SQL omits nonexistent columns). File: `service_webapp/tests/unit/test_seed_milvus.py`.
+- **#5 (MEDIUM)** — `drop_and_create` idempotency unit-tested (drops when `has_collection` True; does not drop when False; always creates). File: `service_webapp/tests/unit/test_seed_milvus.py`.
+- **#6 (MEDIUM)** — `_build_schema` per-collection metadata fields asserted (faq: category/source_doc/plan_type; plan: plan_type/price/validity; sop: rule_id/severity/domain, plus pk/text/embedding/sparse). File: `service_webapp/tests/unit/test_seed_milvus.py`.
+- **#7 (MEDIUM)** — `client.flush([<name>])` added before each `get_collection_stats` read in all three seeders. File: `scripts/seed_milvus.py`.
+- **#8 (MEDIUM)** — `assert plan_count == 1000` relaxed to `>0` with informational log line; `faq_count >= 50` and `sop_count > 0` unchanged. File: `scripts/seed_milvus.py`.
+
+Out of scope (manual follow-up per review Disposition): #9-#14, #19.

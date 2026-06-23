@@ -4,7 +4,7 @@ baseline_commit: cf7ecad14fddcdaca6a98a9fc0a1780df68f8ba3
 
 # Story 2.3: Balance Deduction Engine — Valkey Write Buffer & Postgres Flush
 
-Status: ready-for-dev
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -122,8 +122,55 @@ The epic AC says: *"a Flyway migration (V5__billing_schema.sql) creates: wallet_
 
 ### Agent Model Used
 
+Claude (Sonnet-class) via `/bmad-dev-story` workflow.
+
 ### Debug Log References
+
+- **Bugs caught by inspection (tests not executed — see Verification Pending):**
+  1. `BalanceEngine` was a `@dataclass` with a hand-written `__init__`; a manual `__init__` on a dataclass silently skips the `field(default_factory=...)` defaults, so `_dirty_msisdns` / `_ledger_queue` / indices were never set → `AttributeError`. Fixed by making `BalanceEngine` a plain class that initialises all in-process state in `__init__`.
+  2. `stop()` cancelled the flusher task then `await self._flusher_stopped.wait()` — cancellation meant the loop's `.set()` could never run → hang. Rewrote `stop()` to clear `_flusher_running`, await the task with a timeout backstop, then do a final drain flush.
+  3. `transaction` on `DatabaseProtocol` / `Psycopg3AsyncAdapter` was decorated `@property @asynccontextmanager`, but the call site is `async with db.transaction() as conn` (a call). `@property` made `transaction()` non-callable. Removed `@property`; `transaction` is now a plain `@asynccontextmanager` method (mirrors `service_webapp`).
+  4. psycopg3 `execute(query, params=None)` takes a single `params` sequence; `_flush` (and the integration seed inserts/SELECTs) passed params as spread positional args → `TypeError`. Fixed to pass tuples.
+  5. Original unit tests used `await MagicMock()` (not awaitable) and `mock.transaction.call_args[0][0]` (broken after override). Rewrote both unit-test files with `FakeDB`/`FakeCache` fakes (real async context managers + recorded `execute` SQL/params).
 
 ### Completion Notes List
 
+**Implementation complete; test execution PENDING.**
+
+All seven tasks are implemented and the unit + integration tests are authored and reviewed by inspection. `ruff` + `pyrefly` (`uv tox -e lint`) pass. **However the pytest suite has NOT been executed in this environment**: the tox test venv build (psycopg[binary,pool], aiokafka, opentelemetry, fastapi, testcontainers) triggers repeated OOM crashes on this WSL2 host, and the user directed that tests not be run now. Task checkboxes are intentionally left **unchecked** and Status stays **in-progress** (not `review`) until `uv tox -e test` (units) and `uv tox -e test -- --run-slow` (integration) are run and green. Run those, then flip the boxes + Status to `review`.
+
+**Design decisions (ambiguity resolutions):**
+
+- **Rating mode = honour-incoming (confirmed with user).** The `CdrEvent` model makes `cost_paise` mandatory, so the CDR's `cost_paise` is authoritative (the simulator/producer pre-rates). `consumer/rating.py` provides the canonical plan-based rater `rate_cdr(cdr, PlanTariff)` (voice per-second, unlimited→0, SMS/data flat) as the **reference** contract the simulator (Story 2.8) must use to produce `cost_paise` — it is NOT invoked on the P95 hot path. This satisfies AC #7 (per-second + unlimited→0 rule is implemented) and Task 2 (honour incoming + documented).
+- **Rate source:** per-unit rates are explicit fields on `PlanTariff` (no plan-price derivation), since the user stated "there is no charge from here; CDR does the rating, simply reuse it". SMS/data use a simple flat per-unit default (complex tariffs deferred, per Dev Notes).
+- **`balance:{msisdn}` resolution:** CDRs carry `subscriber_id` but not `msisdn`. Warm-up builds an in-process `subscriber_id→msisdn` index (and the reverse `msisdn→subscriber_id` for flusher upserts) from `billing_wallet_balances`, so the hot path resolves msisdn with an O(1) dict lookup — no DB I/O on the P95 path. A CDR whose `subscriber_id` is missing from the index is logged (subscriber_id only, PII-safe) and skipped (CDR still forwards to enriched); documented as a degradation, not a crash.
+- **No new migration** (Schema Reconciliation honoured). Flush target = `billing_wallet_balances` (`ON CONFLICT (msisdn) DO UPDATE`); per-deduction forensic ledger = `billing_transactions` (`transaction_type='cdr_deduction'`, `amount_paise=-cost`, `reference_type='cdr'`, `reference_id=cdr_id`, before/after balances). The immutable `billing_audit_log` row + cross-pipeline `trace_id` are Story 2.4.
+- **Idempotency:** relies entirely on Story 2.2's `dedup:{cdr_id}` guard — `BatchProcessor` invokes `engine.deduct` only on first-sight events. No second dedup mechanism added (Dev Notes).
+- **P95 / observability:** `deduct` emits an OTEL span `balance.deduction` (cost, cdr_type, balance_after, masked msisdn[-4:]) as a child of the upstream CDR trace (attached by the batch processor). P95 timing is asserted structurally (span emitted), not as a CI perf benchmark.
+- **Testing convention note:** the repo moved to conftest-hook skip-by-default (`--run-slow`/`--run-integration`); the integration test is marked `slow`+`integration` so it skips under plain `pytest` (no container spin-up, low RAM). `psycopg[binary,pool]` (both extras) is required so importing `adapters.postgres` at collection succeeds.
+
 ### File List
+
+**New files:**
+- `cdr-pipeline/src/core/protocols/db.py` — `DatabaseProtocol` (`ping`, `transaction`, `close`).
+- `cdr-pipeline/src/adapters/postgres.py` — `Psycopg3AsyncAdapter` + `conninfo_from` (mirrors `service_webapp`).
+- `cdr-pipeline/src/consumer/rating.py` — `PlanTariff`, `rate_cdr` (reference plan-based rater).
+- `cdr-pipeline/src/consumer/startup.py` — `load_balances_from_postgres` + `BalanceWarmupState`.
+- `cdr-pipeline/src/consumer/balance_writer.py` — `BalanceEngine` (hot-path `deduct` + async flusher) + `LedgerRow`.
+- `cdr-pipeline/tests/unit/test_rating.py`
+- `cdr-pipeline/tests/unit/test_startup.py`
+- `cdr-pipeline/tests/unit/test_balance_writer.py`
+- `cdr-pipeline/tests/integration/test_balance_engine.py` (slow + integration; Postgres + Valkey testcontainers).
+
+**Modified files:**
+- `cdr-pipeline/src/core/protocols/cache.py` — added `incr_by`, `set_many`.
+- `cdr-pipeline/src/adapters/redis.py` — implemented `incr_by` (INCRBY) + pipelined `set_many` (warm-up bulk SET, no TTL, 5K chunks).
+- `cdr-pipeline/src/core/config.py` — `BalanceFlushSettings` (`interval_seconds=2.0`, `dirty_threshold=5000`) + `settings.balance_flush`.
+- `cdr-pipeline/src/main.py` — Postgres adapter, `engine.warmup()` before consumer loop, `balance_hook=engine.deduct`, flusher `run()`/`stop()`, graceful shutdown order.
+- `cdr-pipeline/pyproject.toml` — `psycopg[binary,pool]>=3.2` runtime + both tox env `deps`.
+
+## Change Log
+
+| Date | Change |
+| --- | --- |
+| 2026-06-23 | Story 2.3 implementation: balance writer hot path (INCRBY), plan-based rating reference, startup warm-up, async 2s/5K Postgres flusher + `billing_transactions` ledger, OTEL span, main.py wiring, unit + integration tests. Lint green; **test execution pending (OOM constraint, user-directed)**. |

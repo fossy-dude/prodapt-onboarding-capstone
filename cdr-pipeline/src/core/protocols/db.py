@@ -11,6 +11,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from psycopg import AsyncConnection
 
 
@@ -32,14 +34,11 @@ class DatabaseProtocol(Protocol):
         """
         ...
 
-    @property
-    def transaction(self) -> any:  # type: ignore[override]
-        """Context manager yielding a pooled ``AsyncConnection`` in a transaction.
+    def transaction(self) -> AsyncIterator[AsyncConnection]:
+        """Return an async context manager yielding a pooled ``AsyncConnection``.
 
-        The ``@property`` decorator (and ``any`` return) is a Protocol workaround
-        so concrete adapters can implement it as an ``@asynccontextmanager`` method.
-
-        Usage::
+        Implementations use ``@asynccontextmanager`` so the method is called and
+        the result entered with ``async with``::
 
             async with db.transaction() as conn:
                 await conn.execute("SELECT ...")

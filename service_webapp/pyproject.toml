@@ -2,6 +2,16 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# Flat src-layout: the importable packages (adapters, core, main, routers,
+# services) live directly under src/ and are imported at the top level
+# (pytest pythonpath=["src"]; `PYTHONPATH=src uvicorn main:app`). Hatchling's
+# default heuristic looks for a directory matching the project name
+# (service_webapp) and finds none — tell it explicitly what to ship, mapping
+# src/ to the wheel root so `core`, `adapters`, `main`, etc. stay top-level.
+[tool.hatch.build.targets.wheel]
+only-include = ["src"]
+sources = ["src"]
+
 [project]
 name = "service-webapp"
 version = "0.1.0"
@@ -14,7 +24,7 @@ dependencies = [
     "psycopg[async,pool]>=3.2",
     "valkey[asyncio]>=6",
     "aiokafka>=0.11",
-    "pymilvus[milvus-lite]>=2.4",
+    "pymilvus[milvus-lite]>=2.5",
     "copilotkit>=0.1",
     "pydantic-settings>=2.3",
     "langgraph>=0.2",
