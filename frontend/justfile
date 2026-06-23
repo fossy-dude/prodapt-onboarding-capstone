@@ -2,6 +2,7 @@
 
 # Lint TypeScript and React code (ESLint).
 lint:
+    @just typecheck
     npm run lint
 
 # Auto-fix linting issues.

@@ -185,7 +185,7 @@ describe("PaymentMethods", () => {
       });
 
       // CRITICAL SECURITY CHECK: the raw PAN must NOT be in the API request
-      const addCall = mockAddPaymentMethod.mock.calls[0][0];
+      const addCall = mockAddPaymentMethod.mock.calls[0]![0]!;
       const serializedPayload = JSON.stringify(addCall);
 
       expect(serializedPayload).not.toContain("4242424242424242");
@@ -290,7 +290,7 @@ describe("PaymentMethods", () => {
         expect(mockAddPaymentMethod).toHaveBeenCalled();
       });
 
-      const addCall = mockAddPaymentMethod.mock.calls[0][0];
+      const addCall = mockAddPaymentMethod.mock.calls[0]![0]!;
       expect(addCall.type).toBe("UPI");
       expect(addCall.token).toBe(upiId); // UPI ID stored as-is
       expect(addCall.display_label).toBe(upiId);
@@ -337,7 +337,7 @@ describe("PaymentMethods", () => {
       const setDefaultButtons = screen.getAllByRole("button", {
         name: "Set Default",
       });
-      await user.click(setDefaultButtons[0]);
+      await user.click(setDefaultButtons[0]!);
 
       await waitFor(() => {
         expect(mockSetDefaultPaymentMethod).toHaveBeenCalledWith("1");
@@ -372,7 +372,7 @@ describe("PaymentMethods", () => {
       });
 
       const deleteButtons = screen.getAllByRole("button", { name: "🗑️" });
-      await user.click(deleteButtons[0]);
+      await user.click(deleteButtons[0]!);
 
       await waitFor(() => {
         expect(mockDeletePaymentMethod).toHaveBeenCalledWith("1");
