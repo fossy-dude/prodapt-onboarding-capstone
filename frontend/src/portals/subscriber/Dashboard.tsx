@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { UsageRing } from "../../components/charts/UsageRing";
 import { useBalance, useRefreshBalance } from "../../hooks/useBalance";
 import { useUsage } from "../../hooks/useUsage";
+import { PlanDetailsCard } from "./PlanDetailsCard";
 
 function BalanceCard() {
   const { data, isLoading, isError } = useBalance();
@@ -146,6 +147,7 @@ function Dashboard() {
     <main className="max-w-2xl mx-auto px-4 py-8 flex flex-col gap-6">
       <h1 className="text-2xl font-bold text-neutral-900">Dashboard</h1>
       <BalanceCard />
+      <PlanDetailsCard />
       <UsageSection />
     </main>
   );
