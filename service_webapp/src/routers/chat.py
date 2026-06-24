@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from copilotkit import LangGraphAGUIAgent, CopilotKitRemoteEndpoint
+from copilotkit import CopilotKitRemoteEndpoint, LangGraphAGUIAgent
 from copilotkit.integrations.fastapi import add_fastapi_endpoint
 from langchain_openai import AzureChatOpenAI
 
@@ -96,14 +96,16 @@ def setup_copilotkit(
     )
     graph = build_support_graph(llm)
 
-    sdk = CopilotKitRemoteEndpoint(
-        agents=[
-            LangGraphAGUIAgent(
-                name=_SUPPORT_AGENT_NAME,
-                description=_SUPPORT_AGENT_DESCRIPTION,
-                graph=graph,
-            )
-        ]
-    )
+    # LangGraphAGUIAgent is a copilotkit Agent; the SDK stubs model the param as
+    # list[Agent] which pyrefly flags as a variance mismatch — this is the
+    # documented usage, so suppress the static-only error.
+    agents = [
+        LangGraphAGUIAgent(
+            name=_SUPPORT_AGENT_NAME,
+            description=_SUPPORT_AGENT_DESCRIPTION,
+            graph=graph,
+        )
+    ]
+    sdk = CopilotKitRemoteEndpoint(agents=agents)  # type: ignore[arg-type]
     add_fastapi_endpoint(app, sdk, CHAT_ENDPOINT_PREFIX)
     logger.info("CopilotKit runtime registered at %s/* (agent=%s)", CHAT_ENDPOINT_PREFIX, _SUPPORT_AGENT_NAME)

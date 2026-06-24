@@ -7,12 +7,22 @@ connectivity check is needed.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager
+
+    from psycopg import AsyncConnection
 
 
 @runtime_checkable
 class DatabaseProtocol(Protocol):
-    """Minimal database port: a connectivity check for the readiness probe."""
+    """Minimal database port: connectivity check + transactional connection.
+
+    The ``transaction`` seam is exercised by domain repositories (Story 3.x) and
+    the Support Agent tools (Story 5.4); it yields a pooled connection inside an
+    explicit, all-or-nothing transaction. Later stories extend this port further.
+    """
 
     async def ping(self) -> bool:
         """Return ``True`` if the database is reachable, ``False`` otherwise.
@@ -20,4 +30,8 @@ class DatabaseProtocol(Protocol):
         Must never raise — a down dependency yields ``False`` so ``/ready`` can
         report it cleanly instead of erroring.
         """
+        ...
+
+    def transaction(self) -> AbstractAsyncContextManager[AsyncConnection]:
+        """Yield a pooled connection inside an explicit transaction (commit/rollback)."""
         ...

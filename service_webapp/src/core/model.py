@@ -9,13 +9,18 @@ OpenAI model instances based on complexity requirements. This abstraction:
 
 The function returns ``deepeval.models.llms.azure_model.AzureOpenAIModel``
 instances configured from ``core.config.settings``.
+
+Note: ``deepeval`` is an eval-only dependency (installed only in the ``eval`` tox
+env). The top-level import below is suppressed for the missing-import check so
+this module type-checks in the lean ``lint``/``test`` envs; it is only ever
+imported (and thus executed) from ``evals/``.
 """
 
 from __future__ import annotations
 
 from enum import Enum
 
-from deepeval.models.llms.azure_model import AzureOpenAIModel
+from deepeval.models.llms.azure_model import AzureOpenAIModel  # pyrefly: ignore[missing-import]
 
 from core.config import settings
 

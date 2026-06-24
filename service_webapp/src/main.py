@@ -80,6 +80,7 @@ except ImportError:
     AzureOpenAI = None  # type: ignore[assignment]
 
 from agents.rag.retriever import HybridRetriever, set_retriever
+from agents.support.tools import set_support_adapters
 from core.observability.langfuse import get_langfuse_client
 
 if TYPE_CHECKING:
@@ -118,6 +119,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if getattr(app.state, "cache_adapter", None) is None:
         app.state.cache_adapter = ValkeyAdapter(settings.valkey_url)
         owned.append("cache_adapter")
+    # Re-bind the Support Agent tool singletons now that the real cache/DB adapters
+    # exist (create_app wires them to the possibly-None app.state values at build
+    # time; the lifespan owns the live instances). [Story 5.4]
+    set_support_adapters(app.state.cache_adapter, app.state.db_adapter)
     if getattr(app.state, "milvus_adapter", None) is None:
         try:
             _milvus = MilvusAdapter(settings.milvus_db_uri)

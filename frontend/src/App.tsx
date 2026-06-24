@@ -1,7 +1,10 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
+import { CopilotKit } from "@copilotkit/react-core";
+
 import { RoleGuard } from "./components/layout/RoleGuard";
 import { Login } from "./portals/auth/Login";
+import { Chatbot } from "./portals/subscriber/Chatbot";
 import { Dashboard } from "./portals/subscriber/Dashboard";
 import { NotificationPreferences } from "./portals/subscriber/NotificationPreferences";
 import { PaymentMethods } from "./portals/subscriber/PaymentMethods";
@@ -54,26 +57,31 @@ function App() {
         path="/subscriber/*"
         element={
           <RoleGuard allowedRoles={["subscriber"]}>
-            <Routes>
-              <Route path="dashboard" element={<Dashboard />} />
-              <Route path="activate" element={<SimActivation />} />
-              <Route path="history" element={<Transactions />} />
-              <Route path="plans" element={<Plans />} />
-              <Route path="recharge" element={<Recharge />} />
-              <Route path="profile" element={<Profile />} />
-              <Route
-                path="profile/notifications"
-                element={<NotificationPreferences />}
-              />
-              <Route
-                path="profile/payment-methods"
-                element={<PaymentMethods />}
-              />
-              <Route
-                path="*"
-                element={<PortalPlaceholder role="Subscriber" />}
-              />
-            </Routes>
+            <CopilotKit runtimeUrl="/api/chat">
+              <Routes>
+                <Route path="dashboard" element={<Dashboard />} />
+                <Route path="activate" element={<SimActivation />} />
+                <Route path="history" element={<Transactions />} />
+                <Route path="plans" element={<Plans />} />
+                <Route path="recharge" element={<Recharge />} />
+                <Route path="profile" element={<Profile />} />
+                <Route
+                  path="profile/notifications"
+                  element={<NotificationPreferences />}
+                />
+                <Route
+                  path="profile/payment-methods"
+                  element={<PaymentMethods />}
+                />
+                <Route
+                  path="*"
+                  element={<PortalPlaceholder role="Subscriber" />}
+                />
+              </Routes>
+              {/* Floating billing assistant — Story 5.4 (must sit inside the
+              CopilotKit provider so useCopilotReadable resolves). */}
+              <Chatbot />
+            </CopilotKit>
           </RoleGuard>
         }
       />

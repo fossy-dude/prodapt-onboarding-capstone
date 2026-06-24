@@ -126,7 +126,6 @@ async def support_agent_node(state: dict, *, llm: BaseChatModel) -> dict:
     response route to the ``tools`` node via :func:`_route_after_agent`.
     """
     session_id = state.get("session_id", "")
-    msisdn = state.get("msisdn", "")
 
     # AC #3: prepend Valkey-persisted prior turns so the agent has memory across
     # CopilotKit requests / frontend reloads. Degrades to no context if the cache
@@ -217,7 +216,10 @@ def build_support_graph(llm: BaseChatModel) -> CompiledStateGraph:
     async def _node(state: dict) -> dict:
         return await support_agent_node(state, llm=llm)
 
-    builder = StateGraph(SupportAgentState)
+    # CopilotKitState is a TypedDict; pyrefly's langgraph stubs don't recognise
+    # the CopilotKit-mixin TypedDict as a valid StateT bound at static-analysis
+    # time. Runtime is correct (CopilotKit's own examples construct it this way).
+    builder = StateGraph(SupportAgentState)  # type: ignore[bad-specialization]
     builder.add_node("support_agent_node", _node)
     builder.add_node("tools", ToolNode(SUPPORT_TOOLS))
     builder.set_entry_point("support_agent_node")
