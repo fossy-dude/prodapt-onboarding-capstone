@@ -259,8 +259,78 @@ async def get_usage_for_period(
     }
 
 
+async def get_active_plan_data_quota(
+    conn: AsyncConnection,
+    subscriber_id: str,
+) -> tuple[float, float] | None:
+    """Get active plan data quota and usage for DATA_NUDGE (Story 4.1, Task 4).
+
+    Returns (data_mb_used, data_limit_mb) or None if:
+    - No active subscription found
+    - Unlimited data plan (data_limit_mb = 0)
+
+    Parameters
+    ----------
+    conn : AsyncConnection
+        Postgres connection for raw SQL queries.
+    subscriber_id : str
+        Subscriber UUID string.
+
+    Returns
+    -------
+    tuple[float, float] | None
+        (data_mb_used, data_limit_mb) or None for no quota.
+    """
+    # Get active subscription with plan details
+    cur = await conn.execute(
+        """
+        SELECT
+            ps.id,
+            pp.data_limit_mb,
+            ps.start_date,
+            ps.end_date
+        FROM plans_subscriptions ps
+        JOIN plans_plans pp ON ps.plan_id = pp.id
+        WHERE ps.subscriber_id = %s::uuid
+          AND ps.status = 'active'
+        ORDER BY ps.created_at DESC
+        LIMIT 1
+        """,
+        (subscriber_id,),
+    )
+
+    row = await cur.fetchone()
+    if row is None:
+        return None
+
+    subscription_id, data_limit_mb, start_date, end_date = row
+
+    # Unlimited plan check (data_limit_mb = 0 or NULL)
+    if data_limit_mb is None or data_limit_mb == 0:
+        return None
+
+    # Sum data usage from billing_cdr_events for the plan window
+    cur = await conn.execute(
+        """
+        SELECT SUM(volume_mb)
+        FROM billing_cdr_events
+        WHERE subscriber_id = %s::uuid
+          AND cdr_type = 'data'
+          AND start_time >= %s
+          AND (start_time <= %s OR %s IS NULL)
+        """,
+        (subscriber_id, start_date, end_date, end_date),
+    )
+
+    usage_row = await cur.fetchone()
+    data_mb_used = float(usage_row[0]) if usage_row[0] is not None else 0.0
+
+    return (data_mb_used, data_limit_mb)
+
+
 __all__ = [
     "get_active_plan",
+    "get_active_plan_data_quota",
     "get_active_subscription",
     "get_msisdn_for_subscriber",
     "get_transactions_page",

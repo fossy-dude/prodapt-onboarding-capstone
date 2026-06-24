@@ -7,6 +7,7 @@ Models are organized by domain:
 - recharge.py: RechargeRequest, RechargeResponse (Story 3.5)
 - cdr.py: CDR-related models (Story 2.x)
 - envelope.py: EventEnvelope (Story 2.x)
+- notifications.py: Notification preference models (Story 4.2)
 """
 
 from __future__ import annotations
@@ -15,6 +16,11 @@ from __future__ import annotations
 from models.balance import UsageAllowance, UsagePeriod, UsageResponse, WalletBalanceResponse
 from models.envelope import EventEnvelope
 from models.failed_recharge import FailedRechargeItem
+from models.notifications import (
+    NotificationPreferencesResponse,
+    NotificationTypeLiteral,
+    PatchNotificationPreferenceRequest,
+)
 from models.plan import ActivePlanResponse, PlanCatalogueItem, PlanQuotas
 from models.recharge import RechargeRequest, RechargeResponse
 from models.transaction import TransactionItem
@@ -23,6 +29,9 @@ __all__ = [
     "ActivePlanResponse",
     "EventEnvelope",
     "FailedRechargeItem",
+    "NotificationPreferencesResponse",
+    "NotificationTypeLiteral",
+    "PatchNotificationPreferenceRequest",
     "PlanCatalogueItem",
     "PlanQuotas",
     "RechargeRequest",

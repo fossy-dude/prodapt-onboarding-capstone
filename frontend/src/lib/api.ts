@@ -613,4 +613,58 @@ export async function getReceipt(transactionId: string): Promise<Blob> {
   return data;
 }
 
+// ── Notification Preferences (Story 4.2) ────────────────────────────────────────
+
+export interface NotificationPreferenceItem {
+  readonly notification_type: string;
+  readonly is_enabled: boolean;
+}
+
+export interface NotificationPreferencesResponse {
+  readonly data: {
+    readonly preferences: readonly NotificationPreferenceItem[];
+  };
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+export interface PatchNotificationPreferenceRequest {
+  readonly notification_type: string;
+  readonly is_enabled: boolean;
+}
+
+export interface PatchNotificationPreferenceResponse {
+  readonly data: {
+    readonly notification_type: string;
+    readonly is_enabled: boolean;
+  };
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/**
+ * GET /subscriber/notification-preferences — get subscriber's notification preferences (Story 4.2).
+ * Returns all 4 notification types with current opt-in status.
+ */
+export async function getNotificationPreferences(): Promise<
+  readonly NotificationPreferenceItem[]
+> {
+  const { data } = await apiClient.get<NotificationPreferencesResponse>(
+    "/subscriber/notification-preferences",
+  );
+  return data.data.preferences;
+}
+
+/**
+ * PATCH /subscriber/notification-preferences — update a notification preference (Story 4.2).
+ * Persists the change and returns the updated state.
+ */
+export async function patchNotificationPreference(
+  payload: PatchNotificationPreferenceRequest,
+): Promise<{ readonly notification_type: string; readonly is_enabled: boolean }> {
+  const { data } = await apiClient.patch<PatchNotificationPreferenceResponse>(
+    "/subscriber/notification-preferences",
+    payload,
+  );
+  return data.data;
+}
+
 export { apiClient };

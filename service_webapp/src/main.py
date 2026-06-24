@@ -39,6 +39,7 @@ from routers.account import (
 )
 from routers.balance import router as balance_router
 from routers.health import router as health_router
+from routers.notifications import router as notifications_router
 from routers.recharge import router as recharge_router
 from routers.simulator import (
     connection_manager as _trace_connection_manager,
@@ -187,9 +188,191 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         notification_consumer_task = asyncio.create_task(_broadcast_notification_events())
 
+    notification_dispatcher_task: asyncio.Task | None = None
+    if getattr(app.state, "notification_dispatcher", None) is None:
+        brokers = [b.strip() for b in settings.kafka_brokers.split(",")]
+        _dconsumer = AIOKafkaConsumer(
+            "notification.events",
+            bootstrap_servers=brokers,
+            group_id="notification-dispatcher",
+            auto_offset_reset="latest",
+            value_deserializer=lambda v: json.loads(v.decode()),
+        )
+        app.state.notification_dispatcher = _dconsumer
+        owned.append("notification_dispatcher")
+
+        async def _dispatch_notification_events() -> None:
+            """Dispatch notifications based on subscriber preferences (Story 4.2).
+
+            Consumes notification.events and:
+            - Checks subscriber preferences
+            - Inserts to notifications_events if opted-in (status='simulated')
+            - Discards if opted-out (logs DEBUG)
+            - Never crashes on DB errors (logs ERROR, commits offset)
+            """
+            logger = logging.getLogger(__name__)
+            try:
+                await _dconsumer.start()
+                async for msg in _dconsumer:
+                    try:
+                        if msg.value is None:
+                            continue
+
+                        # Extract subscriber_id and notification_type from EventEnvelope
+                        payload = msg.value.get("payload", {})
+                        subscriber_id = payload.get("subscriber_id")
+                        notification_type = payload.get("notification_type")
+
+                        if not subscriber_id or not notification_type:
+                            logger.debug("Missing subscriber_id or notification_type in payload")
+                            await msg.commit()
+                            continue
+
+                        # Query subscriber preferences
+                        db = app.state.db_adapter
+                        async with db.transaction() as conn:
+                            from db.notifications.queries import get_preferences
+
+                            prefs = await get_preferences(conn, subscriber_id)
+
+                            # Build preference map
+                            pref_map = {row["notification_type"]: row["is_enabled"] for row in prefs}
+
+                            # Check if this type is enabled (default: True)
+                            is_enabled = pref_map.get(notification_type, True)
+
+                            if is_enabled:
+                                # Subscriber opted in - insert notification event
+                                from db.notifications.commands import insert_notification_event
+
+                                channel = payload.get("channel", "sms")
+                                trace_id = msg.value.get("trace_id", "unknown")
+
+                                await insert_notification_event(
+                                    db=conn,
+                                    subscriber_id=subscriber_id,
+                                    notification_type=notification_type,
+                                    channel=channel,
+                                    payload=payload,
+                                    trace_id=trace_id,
+                                )
+                                logger.debug(
+                                    "Dispatched notification: subscriber=%s type=%s channel=%s",
+                                    subscriber_id[-4:],
+                                    notification_type,
+                                    channel,
+                                )
+                            else:
+                                # Subscriber opted out - discard
+                                logger.debug(
+                                    "Notification opted out: subscriber=%s type=%s",
+                                    subscriber_id[-4:],
+                                    notification_type,
+                                )
+
+                        # Commit offset after successful processing
+                        await msg.commit()
+
+                    except Exception as exc:
+                        # Log ERROR but don't crash - commit offset and continue
+                        logger.error("Notification dispatch error: %s", exc, exc_info=True)
+                        try:
+                            await msg.commit()
+                        except Exception:
+                            pass  # Best-effort commit
+
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                logger.warning("Notification dispatcher error: %s", exc)
+            finally:
+                try:
+                    await _dconsumer.stop()
+                except Exception:
+                    pass
+
+        notification_dispatcher_task = asyncio.create_task(_dispatch_notification_events())
+
+    # Plan expiry reminder scheduler (Story 4.1, Task 5)
+    plan_expiry_scheduler = None
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        from services.notification_scheduler import run_plan_expiry_check
+
+        lead_days = 3  # default
+        try:
+            async with app.state.db_adapter.transaction() as conn:
+                cur = await conn.execute(
+                    "SELECT value FROM notification_threshold_config WHERE key = %s",
+                    ("plan_expiry_reminder_days",),
+                )
+                row = await cur.fetchone()
+                if row is not None:
+                    lead_days = int(row[0])
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "plan_expiry_scheduler: could not read lead_days from DB, using default 3: %s", exc
+            )
+
+        plan_expiry_scheduler = AsyncIOScheduler()
+        plan_expiry_scheduler.add_job(
+            run_plan_expiry_check,
+            trigger=CronTrigger(hour=2, minute=30, timezone="UTC"),
+            args=[app.state.db_adapter, app.state.kafka_producer, lead_days],
+            id="plan_expiry_reminder",
+            replace_existing=True,
+        )
+        plan_expiry_scheduler.start()
+        logging.getLogger(__name__).info("plan_expiry_scheduler: started (02:30 UTC daily, lead_days=%d)", lead_days)
+    except Exception as exc:
+        logging.getLogger(__name__).warning("plan_expiry_scheduler: failed to start: %s", exc)
+        plan_expiry_scheduler = None
+
+    data_nudge_consumer_task: asyncio.Task | None = None
+    if getattr(app.state, "notification_dispatcher", None) is not None:
+        logger = logging.getLogger(__name__)
+
+        async def _run_data_nudge_consumer() -> None:
+            """DATA_NUDGE consumer for data usage threshold notifications (Story 4.1, Task 4).
+
+            Consumes cdr.enriched.filtered, filters to data CDRs, checks quota,
+            publishes DATA_NUDGE events when below 10% threshold.
+            """
+            try:
+                from services.data_nudge_consumer import run_data_nudge_consumer
+
+                db = app.state.db_adapter
+                producer = app.state.kafka_producer
+
+                await run_data_nudge_consumer(db, producer)
+            except asyncio.CancelledError:
+                logger.info("DATA_NUDGE consumer cancelled")
+            except Exception as exc:
+                logger.warning("DATA_NUDGE consumer error: %s", exc)
+
+        data_nudge_consumer_task = asyncio.create_task(_run_data_nudge_consumer())
+
     try:
         yield
     finally:
+        if plan_expiry_scheduler is not None:
+            try:
+                plan_expiry_scheduler.shutdown(wait=False)
+            except Exception:
+                pass
+        if data_nudge_consumer_task is not None:
+            data_nudge_consumer_task.cancel()
+            try:
+                await data_nudge_consumer_task
+            except asyncio.CancelledError:
+                pass
+        if notification_dispatcher_task is not None:
+            notification_dispatcher_task.cancel()
+            try:
+                await notification_dispatcher_task
+            except asyncio.CancelledError:
+                pass
         if notification_consumer_task is not None:
             notification_consumer_task.cancel()
             try:
@@ -224,6 +407,7 @@ def create_app(
     kafka_producer: object | None = None,
     trace_consumer: object | None = None,
     notification_consumer: object | None = None,
+    notification_dispatcher: object | None = None,
 ) -> FastAPI:
     """Construct the FastAPI app.
 
@@ -240,6 +424,7 @@ def create_app(
     app.include_router(account_router)
     app.include_router(balance_router)
     app.include_router(recharge_router)
+    app.include_router(notifications_router)
     app.include_router(simulator_router)
     app.include_router(simulator_ws_router)
     app.state.db_adapter = db_adapter
@@ -252,6 +437,7 @@ def create_app(
     app.state.kafka_producer = kafka_producer
     app.state.trace_consumer = trace_consumer
     app.state.notification_consumer = notification_consumer
+    app.state.notification_dispatcher = notification_dispatcher
     return app
 
 

@@ -37,6 +37,7 @@ from consumer.startup import load_balances_from_postgres
 if TYPE_CHECKING:
     from core.protocols.cache import CacheProtocol
     from core.protocols.db import DatabaseProtocol
+    from consumer.notification_trigger import NotificationTrigger
     from models.cdr import CdrEvent
 
 logger = logging.getLogger("consumer.balance_writer")
@@ -152,11 +153,13 @@ class BalanceEngine:
         *,
         flush_interval: float = 2.0,
         flush_dirty_threshold: int = 5000,
+        notification_trigger: "NotificationTrigger | None" = None,
     ) -> None:
         self._cache: CacheProtocol = cache
         self._db: DatabaseProtocol = db
         self._flush_interval: float = flush_interval
         self._flush_dirty_threshold: int = flush_dirty_threshold
+        self._notification_trigger = notification_trigger
 
         # Warm-up indices (built by load_balances_from_postgres)
         self._subscriber_to_msisdn: dict[str, str] = {}
@@ -188,6 +191,16 @@ class BalanceEngine:
     def warmup_count(self) -> int:
         """Number of balance keys seeded by the last warm-up (0 before warm-up)."""
         return self._warmup_count
+
+    def set_notification_trigger(self, trigger: NotificationTrigger) -> None:
+        """Inject notification trigger after engine construction (Story 4.1).
+
+        Parameters
+        ----------
+        trigger : NotificationTrigger
+            Notification trigger instance to inject.
+        """
+        self._notification_trigger = trigger
 
     async def warmup(self) -> None:
         """Run Postgres → Valkey warm-up and build indices (Task 3, AC #5).
@@ -252,6 +265,27 @@ class BalanceEngine:
 
             span.set_attribute("balance.balance_after", balance_after)
             span.set_attribute("balance.msisdn_last4", msisdn[-4:])  # PII-safe
+
+            # Notification trigger: publish LOW_BALANCE or BALANCE_DEPLETED events
+            # Must use asyncio.create_task to keep hot path O(1) — no await.
+            if self._notification_trigger is not None:
+                # Extract trace_id from current OTEL span (32 hex chars)
+                span_context = span.get_span_context()
+                span_trace_id = format(span_context.trace_id, "032x")
+
+                # Fire-and-forget notification check (task exceptions logged by callback)
+                task = asyncio.create_task(
+                    self._notification_trigger.check_and_publish(
+                        msisdn=msisdn,
+                        subscriber_id=sub_id_str,
+                        balance_after=balance_after,
+                        trace_id=span_trace_id,
+                    )
+                )
+                # Surface task exceptions without blocking the hot path
+                task.add_done_callback(
+                    lambda t: t.exception() and logger.error("notification_trigger failed: %s", t.exception())
+                )
 
             # Overdraft signal (allow + signal policy): the deduction is NOT undone,
             # but a negative result is made visible so it can be reconciled.

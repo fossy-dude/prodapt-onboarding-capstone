@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { RoleGuard } from "./components/layout/RoleGuard";
 import { Login } from "./portals/auth/Login";
 import { Dashboard } from "./portals/subscriber/Dashboard";
+import { NotificationPreferences } from "./portals/subscriber/NotificationPreferences";
 import { PaymentMethods } from "./portals/subscriber/PaymentMethods";
 import { Plans } from "./portals/subscriber/Plans";
 import { Profile } from "./portals/subscriber/Profile";
@@ -60,6 +61,7 @@ function App() {
               <Route path="plans" element={<Plans />} />
               <Route path="recharge" element={<Recharge />} />
               <Route path="profile" element={<Profile />} />
+              <Route path="profile/notifications" element={<NotificationPreferences />} />
               <Route
                 path="profile/payment-methods"
                 element={<PaymentMethods />}

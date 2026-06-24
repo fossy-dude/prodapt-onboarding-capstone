@@ -1,4 +1,6 @@
-/caveman
+# Delegation
+- Use parallel agents wherever possible for effectively using context window and accomplishing goals quickly
+- Proactively delegate tasks like reading and summarizing from code/docs and answering one-off questions to sub-agents. This will keep your context clear. Frame clear tasks and expectations - and handover to sub-agents
 
 ## Testing
 

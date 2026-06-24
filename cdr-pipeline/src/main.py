@@ -40,6 +40,7 @@ from adapters.redis import ValkeyAdapter
 from consumer.balance_writer import BalanceEngine
 from consumer.batch_processor import BatchProcessor
 from consumer.control import WorkerController
+from consumer.notification_trigger import NotificationTrigger
 from core.auth import JWTValidator, _cognito_jwks_url
 from core.config import settings
 from core.errors import register_exception_handlers
@@ -155,6 +156,36 @@ async def _run() -> None:
     group = settings.kafka_consumer_groups.balance_updater
     logger.info("cdr consumer started (group=%s, topic=%s)", group, "cdr.raw")
     logger.info("management API starting on port %d", settings.management_api_port)
+
+    # Notification trigger (Story 4.1) — load threshold from DB, wire into engine
+    # Must be wired after producer.start() so Kafka producer is available.
+    logger.info("notification_trigger: loading low_balance_threshold_paise from DB...")
+    try:
+        async with db.transaction() as conn:
+            cur = await conn.execute(
+                "SELECT value FROM notification_threshold_config WHERE key = %s",
+                ("low_balance_threshold_paise",),
+            )
+            row = await cur.fetchone()
+            if row is None:
+                raise ValueError("low_balance_threshold_paise not found in notification_threshold_config")
+            threshold_paise = int(row[0])
+            logger.info("notification_trigger: threshold=%d paise (loaded from DB)", threshold_paise)
+
+        # Inject notification trigger into existing engine
+        engine.set_notification_trigger(
+            NotificationTrigger(
+                producer=producer,
+                low_balance_threshold_paise=threshold_paise,
+            )
+        )
+        logger.info("notification_trigger: wired into BalanceEngine")
+    except Exception as exc:
+        logger.warning(
+            "notification_trigger: failed to load threshold from DB, continuing without notifications: %s", exc
+        )
+        # Keep engine without notification trigger
+        pass
 
     mgmt_config = uvicorn.Config(
         management_app,

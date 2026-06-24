@@ -4,7 +4,7 @@ baseline_commit: b1dda60
 
 # Story 4.1: Notification Service — Low Balance, Depletion & Plan Expiry Alerts
 
-Status: ready-for-dev
+Status: in-progress
 
 ## Story
 
@@ -25,9 +25,9 @@ so that I can recharge proactively before service is interrupted.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Flyway migration — notification_threshold_config** (AC: #2, #5, #8)
-  - [ ] Create `service_webapp/db/migrations/V6__notification_threshold_config.sql`. Table DDL: `notification_threshold_config(id UUID DEFAULT gen_random_uuid() PRIMARY KEY, key VARCHAR(100) UNIQUE NOT NULL, value TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL, modified_at TIMESTAMPTZ DEFAULT NOW() NOT NULL)`. Apply the `set_modified_at()` trigger (already defined in V2). [Source: architecture.md:380–384; V2__modified_at_trigger.sql]
-  - [ ] Seed two rows: `(key='low_balance_threshold_paise', value='1000')` and `(key='plan_expiry_reminder_days', value='3')`. Use `INSERT ... ON CONFLICT DO NOTHING` so re-runs are idempotent. [Source: architecture.md:434–444]
+- [x] **Task 1: Flyway migration — notification_threshold_config** (AC: #2, #5, #8)
+  - [x] Create `service_webapp/db/migrations/V7__notification_threshold_config.sql`. Table DDL: `notification_threshold_config(id UUID DEFAULT gen_random_uuid() PRIMARY KEY, key VARCHAR(100) UNIQUE NOT NULL, value TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL, modified_at TIMESTAMPTZ DEFAULT NOW() NOT NULL)`. Apply the `set_modified_at()` trigger (already defined in V2). [Source: architecture.md:380–384; V2__modified_at_trigger.sql]
+  - [x] Seed two rows: `(key='low_balance_threshold_paise', value='1000')` and `(key='plan_expiry_reminder_days', value='3')`. Use `INSERT ... ON CONFLICT DO NOTHING` so re-runs are idempotent. [Source: architecture.md:434–444]
 
 - [ ] **Task 2: cdr-pipeline notification trigger module** (AC: #1, #3)
   - [ ] Create `cdr-pipeline/src/consumer/notification_trigger.py`. Define `NotificationTrigger` dataclass holding the `KafkaProducer` and the in-memory `low_balance_threshold_paise: int`. Expose `async def check_and_publish(self, msisdn: str, subscriber_id: str, balance_after: int, trace_id: str) -> None` — publishes LOW_BALANCE when `0 < balance_after < threshold`, BALANCE_DEPLETED when `balance_after <= 0`. Each publishes `EventEnvelope.new(event_type="notification.balance", payload={...}, trace_id=trace_id)` via `KafkaProducer.publish("notification.events", key=msisdn, envelope=...)`. [Source: cdr-pipeline/src/adapters/kafka.py; cdr-pipeline/src/models/envelope.py]
@@ -106,3 +106,37 @@ Already provisioned with 12 partitions, key=msisdn (ARCH-10, Story 2.1). No topi
 ### apscheduler version pin
 
 Add `apscheduler>=3.10,<4` to avoid picking up APScheduler 4.x which has a different async API. APScheduler 4.x dropped `AsyncIOScheduler` in favour of a new scheduler class.
+
+## Dev Agent Record
+
+### Implementation Plan
+
+**Task 1: Flyway migration — notification_threshold_config** ✅ (COMPLETED)
+- Created V7 migration (not V6, as V6 already exists from Story 3.7)
+- Implemented notification_threshold_config table with proper schema
+- Applied set_modified_at() trigger using existing V2 function
+- Seeded low_balance_threshold_paise=1000 and plan_expiry_reminder_days=3
+- Used INSERT ... ON CONFLICT DO NOTHING for idempotency
+- Created comprehensive integration tests (7 tests, all passing)
+- Fixed trigger naming convention (trg_notification_threshold_config_modified_at)
+- Fixed test to use explicit transaction boundaries for proper timestamp testing
+
+**Task 2: cdr-pipeline notification trigger module** (IN PROGRESS)
+- Next: Create NotificationTrigger dataclass in cdr-pipeline/src/consumer/notification_trigger.py
+- Implement LOW_BALANCE and BALANCE_DEPLETED event publishing
+- Add deduplication via _notified set
+- Cache threshold from DB at startup
+
+### Completion Notes
+
+**2025-01-09**: Task 1 completed successfully. All acceptance criteria #2, #5, #8 satisfied.
+
+## File List
+
+**New Files:**
+- service_webapp/db/migrations/V7__notification_threshold_config.sql
+- service_webapp/tests/integration/test_notification_threshold_config.py
+
+## Change Log
+
+**2025-01-09**: Task 1 completed - Flyway migration V7 with notification_threshold_config table and seed data. All integration tests passing (7/7).

@@ -58,3 +58,15 @@ class CacheProtocol(Protocol):
         Returns the new balance after increment.
         """
         ...
+
+    async def incr_with_expire(self, key: str, ttl_seconds: int) -> int:
+        """INCR ``key`` then set TTL; return new counter value (Story 4.3 rate limiting).
+
+        Used for sliding-window rate limiting: the caller passes the fully-formed
+        rate-limit key (``ratelimit:{msisdn}:{channel}:{minute_bucket}``) and the
+        method increments it atomically, then sets the TTL so Valkey auto-evicts
+        expired windows.
+
+        Returns the new counter value after increment.
+        """
+        ...

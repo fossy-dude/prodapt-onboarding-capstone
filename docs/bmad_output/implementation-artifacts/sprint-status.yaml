@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-24  # Stories 3.5, 3.6, 3.7 code review complete: all ACs passed, 26 patches applied, moved to done
+last_updated: 2026-06-24  # Story 4.2 → review (Notification Preferences & Delivery Simulation)
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -83,8 +83,8 @@ development_status:
 
   # Epic 4: Notifications & USSD Interface
   epic-4: in-progress
-  4-1-notification-service-low-balance-depletion-plan-expiry-alerts: ready-for-dev
-  4-2-notification-preferences-delivery-simulation: ready-for-dev
+  4-1-notification-service-low-balance-depletion-plan-expiry-alerts: in-progress
+  4-2-notification-preferences-delivery-simulation: review
   4-3-rate-limiting-per-subscriber-100-rpm: ready-for-dev
   4-4-ussd-session-handler-menu-router: ready-for-dev
   epic-4-retrospective: optional
