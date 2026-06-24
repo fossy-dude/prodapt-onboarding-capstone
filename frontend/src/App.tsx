@@ -6,6 +6,7 @@ import { Dashboard } from "./portals/subscriber/Dashboard";
 import { PaymentMethods } from "./portals/subscriber/PaymentMethods";
 import { Plans } from "./portals/subscriber/Plans";
 import { Profile } from "./portals/subscriber/Profile";
+import { Recharge } from "./portals/subscriber/Recharge";
 import { Transactions } from "./portals/subscriber/Transactions";
 import { CdrSimulator } from "./portals/simulator/CdrSimulator";
 import { NotificationPortal } from "./portals/simulator/NotificationPortal";
@@ -57,6 +58,7 @@ function App() {
               <Route path="activate" element={<SimActivation />} />
               <Route path="history" element={<Transactions />} />
               <Route path="plans" element={<Plans />} />
+              <Route path="recharge" element={<Recharge />} />
               <Route path="profile" element={<Profile />} />
               <Route
                 path="profile/payment-methods"

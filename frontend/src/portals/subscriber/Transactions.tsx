@@ -2,7 +2,9 @@ import { useState } from "react";
 
 import { Table, type TableColumn } from "../../components/ui/Table";
 import { useTransactions } from "../../hooks/useTransactions";
+import { getFailedRecharges, type FailedRechargeItem } from "../../lib/api";
 import type { TransactionItem } from "../../lib/api";
+import { useQuery } from "@tanstack/react-query";
 
 /** Friendly labels for raw stored transaction_type values (Story 3.3 variance:
  * the backend returns the writer's value, e.g. `cdr_deduction`). */
@@ -31,6 +33,13 @@ const COLUMNS: readonly TableColumn[] = [
   { key: "amount", header: "Amount" },
   { key: "balance", header: "Balance After" },
   { key: "cdr", header: "CDR Reference" },
+  { key: "date", header: "Date" },
+];
+
+const FAILED_COLUMNS: readonly TableColumn[] = [
+  { key: "plan", header: "Plan Attempted" },
+  { key: "amount", header: "Amount" },
+  { key: "reason", header: "Failure Reason" },
   { key: "date", header: "Date" },
 ];
 
@@ -89,7 +98,68 @@ function renderRow(txn: TransactionItem) {
   );
 }
 
+function renderFailedRow(item: FailedRechargeItem) {
+  return (
+    <tr key={item.transaction_id} className="border-b border-neutral-100">
+      <td className="py-2 pr-4 font-medium">{item.plan_attempted}</td>
+      <td className="py-2 pr-4 tabular-nums">{formatInr(item.amount_paise)}</td>
+      <td className="py-2 pr-4 text-neutral-600">
+        {item.failure_reason ?? "—"}
+      </td>
+      <td className="py-2 pr-4 text-neutral-500">
+        {formatDate(item.created_at)}
+      </td>
+    </tr>
+  );
+}
+
+function RefundEligibleView() {
+  const {
+    data: failedItems = [],
+    isLoading,
+    isError,
+  } = useQuery({
+    queryKey: ["failed-recharges"],
+    queryFn: getFailedRecharges,
+  });
+
+  return (
+    <div className="mt-4 space-y-4">
+      <div
+        role="note"
+        className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3"
+      >
+        <p className="text-sm text-amber-800">
+          Actual refund processing is handled by the operator&apos;s billing
+          team. Contact support for assistance.
+        </p>
+      </div>
+
+      <div className="rounded-xl bg-white shadow p-6">
+        {isLoading ? (
+          <div className="animate-pulse h-40" />
+        ) : isError ? (
+          <div className="rounded-lg bg-red-50 border border-red-200 p-4">
+            <p className="text-sm text-red-600">
+              Failed to load refund-eligible transactions.
+            </p>
+          </div>
+        ) : (
+          <Table
+            columns={FAILED_COLUMNS}
+            rows={failedItems as FailedRechargeItem[]}
+            renderRow={renderFailedRow}
+            emptyState="No refund-eligible transactions found. Failed recharges appear here."
+            caption="Refund-eligible failed recharges"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Transactions() {
+  const [showRefundEligible, setShowRefundEligible] = useState(false);
   const { items, hasNext, hasPrev, nextPage, prevPage, isLoading, isError } =
     useTransactions();
 
@@ -102,43 +172,74 @@ function Transactions() {
         Every charge, recharge, and refund on your account (newest first).
       </p>
 
-      <div className="mt-4 rounded-xl bg-white shadow p-6">
-        {isLoading ? (
-          <div className="animate-pulse h-40" />
-        ) : isError ? (
-          <div className="rounded-lg bg-red-50 border border-red-200 p-4">
-            <p className="text-sm text-red-600">Failed to load transactions.</p>
-          </div>
-        ) : (
-          <>
-            <Table
-              columns={COLUMNS}
-              rows={items}
-              renderRow={renderRow}
-              emptyState="No transactions yet."
-              caption="Transaction ledger (newest first)"
-            />
-            <div className="mt-4 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={prevPage}
-                disabled={!hasPrev}
-                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 disabled:text-neutral-300 disabled:hover:text-neutral-300"
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                onClick={nextPage}
-                disabled={!hasNext}
-                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 disabled:text-neutral-300 disabled:hover:text-neutral-300"
-              >
-                Next
-              </button>
-            </div>
-          </>
-        )}
+      <div className="mt-4 flex gap-2">
+        <button
+          type="button"
+          onClick={() => setShowRefundEligible(false)}
+          className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
+            !showRefundEligible
+              ? "bg-indigo-600 text-white"
+              : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+          }`}
+        >
+          All Transactions
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowRefundEligible(true)}
+          className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
+            showRefundEligible
+              ? "bg-amber-500 text-white"
+              : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+          }`}
+        >
+          Refund-eligible
+        </button>
       </div>
+
+      {showRefundEligible ? (
+        <RefundEligibleView />
+      ) : (
+        <div className="mt-4 rounded-xl bg-white shadow p-6">
+          {isLoading ? (
+            <div className="animate-pulse h-40" />
+          ) : isError ? (
+            <div className="rounded-lg bg-red-50 border border-red-200 p-4">
+              <p className="text-sm text-red-600">
+                Failed to load transactions.
+              </p>
+            </div>
+          ) : (
+            <>
+              <Table
+                columns={COLUMNS}
+                rows={items}
+                renderRow={renderRow}
+                emptyState="No transactions yet."
+                caption="Transaction ledger (newest first)"
+              />
+              <div className="mt-4 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={prevPage}
+                  disabled={!hasPrev}
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 disabled:text-neutral-300 disabled:hover:text-neutral-300"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  onClick={nextPage}
+                  disabled={!hasNext}
+                  className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 disabled:text-neutral-300 disabled:hover:text-neutral-300"
+                >
+                  Next
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </main>
   );
 }

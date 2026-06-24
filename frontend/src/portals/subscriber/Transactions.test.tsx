@@ -7,10 +7,11 @@ import { Transactions } from "./Transactions";
 
 vi.mock("../../lib/api", () => ({
   getTransactions: vi.fn(),
+  getFailedRecharges: vi.fn(),
 }));
 
-const { getTransactions } = await import("../../lib/api");
-import type { TransactionsPage } from "../../lib/api";
+const { getTransactions, getFailedRecharges } = await import("../../lib/api");
+import type { TransactionsPage, FailedRechargeItem } from "../../lib/api";
 
 const PAGE_1: TransactionsPage = {
   items: [
@@ -145,6 +146,89 @@ describe("Transactions", () => {
     await waitFor(() =>
       expect(
         screen.getByText("Failed to load transactions."),
+      ).toBeInTheDocument(),
+    );
+  });
+});
+
+describe("Transactions — Refund-eligible filter (Story 3.7)", () => {
+  const FAILED_ITEMS: readonly FailedRechargeItem[] = [
+    {
+      transaction_id: "f1",
+      plan_attempted: "Basic Plan",
+      amount_paise: 9900,
+      failure_reason: "Payment gateway timeout",
+      created_at: "2026-06-24T10:00:00Z",
+    },
+  ];
+
+  beforeEach(() => {
+    vi.mocked(getTransactions).mockReset();
+    vi.mocked(getTransactions).mockResolvedValue({
+      items: [],
+      nextCursor: null,
+    });
+    vi.mocked(getFailedRecharges).mockReset();
+    vi.mocked(getFailedRecharges).mockResolvedValue(FAILED_ITEMS);
+  });
+
+  it("shows Refund-eligible filter button (AC #1)", async () => {
+    renderTransactions();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Refund-eligible" }),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("clicking Refund-eligible calls getFailedRecharges and renders failed rows (AC #1, #2)", async () => {
+    renderTransactions();
+    const btn = await screen.findByRole("button", { name: "Refund-eligible" });
+    fireEvent.click(btn);
+
+    await waitFor(() =>
+      expect(screen.getByText("Basic Plan")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Payment gateway timeout")).toBeInTheDocument();
+    expect(vi.mocked(getFailedRecharges)).toHaveBeenCalled();
+  });
+
+  it("shows the refund banner when filter is active (AC #3)", async () => {
+    renderTransactions();
+    const btn = await screen.findByRole("button", { name: "Refund-eligible" });
+    fireEvent.click(btn);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          /Actual refund processing is handled by the operator's billing team/i,
+        ),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("does NOT render a Request Refund button anywhere (AC #4)", async () => {
+    renderTransactions();
+    const btn = await screen.findByRole("button", { name: "Refund-eligible" });
+    fireEvent.click(btn);
+
+    await waitFor(() =>
+      expect(screen.getByText("Basic Plan")).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByRole("button", { name: /request refund/i }),
+    ).toBeNull();
+  });
+
+  it("shows empty state when no failed recharges exist (MVP simulated-success, AC #1)", async () => {
+    vi.mocked(getFailedRecharges).mockResolvedValue([]);
+    renderTransactions();
+    const btn = await screen.findByRole("button", { name: "Refund-eligible" });
+    fireEvent.click(btn);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/No refund-eligible transactions found/i),
       ).toBeInTheDocument(),
     );
   });

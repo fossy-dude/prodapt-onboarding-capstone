@@ -483,6 +483,33 @@ export async function getTransactions(
   return { items: data.data, nextCursor: data.meta.next_cursor };
 }
 
+// ── Refund-eligible view (Story 3.7) ───────────────────────────────────────────
+
+/** One failed recharge row returned by GET /transactions?type=FAILED. */
+export interface FailedRechargeItem {
+  readonly transaction_id: string;
+  readonly plan_attempted: string;
+  readonly amount_paise: number;
+  readonly failure_reason: string | null;
+  readonly created_at: string;
+}
+
+interface FailedRechargesResponse {
+  readonly data: readonly FailedRechargeItem[];
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/** GET /subscriber/transactions?type=FAILED — refund-eligible failed recharges (Story 3.7). */
+export async function getFailedRecharges(): Promise<
+  readonly FailedRechargeItem[]
+> {
+  const { data } = await apiClient.get<FailedRechargesResponse>(
+    "/subscriber/transactions",
+    { params: { type: "FAILED" } },
+  );
+  return data.data;
+}
+
 // ── Plan details & catalogue (Story 3.4) ───────────────────────────────────────
 
 /** Bundled plan quotas (null means unlimited). */
@@ -535,6 +562,54 @@ interface PlansCatalogueResponse {
 export async function listPlans(): Promise<readonly PlanCatalogueItem[]> {
   const { data } = await apiClient.get<PlansCatalogueResponse>("/plans");
   return data.data;
+}
+
+// ── Recharge (Story 3.5) ───────────────────────────────────────────────────────
+
+export interface RechargeRequest {
+  readonly plan_id: string;
+  readonly payment_method_id: string;
+  readonly idempotency_key: string;
+}
+
+export interface RechargeResponse {
+  readonly transaction_id: string;
+  readonly new_balance_paise: number;
+  readonly plan_activation_timestamp: string;
+  readonly receipt_url: string;
+}
+
+interface RechargeResponseEnvelope {
+  readonly data: RechargeResponse;
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/**
+ * POST /subscriber/recharge — complete a recharge with idempotency (Story 3.5, AC #2, #3, #4, #5, #6).
+ * Client generates idempotency_key (UUIDv7) for duplicate protection.
+ */
+export async function createRecharge(
+  payload: RechargeRequest,
+): Promise<RechargeResponse> {
+  const { data } = await apiClient.post<RechargeResponseEnvelope>(
+    "/subscriber/recharge",
+    payload,
+  );
+  return data.data;
+}
+
+// ── PDF Receipt (Story 3.6) ────────────────────────────────────────────────────
+
+/**
+ * GET /subscriber/receipts/{transaction_id} — download PDF receipt as a Blob.
+ * Auth via Bearer interceptor. Caller triggers browser download.
+ */
+export async function getReceipt(transactionId: string): Promise<Blob> {
+  const { data } = await apiClient.get<Blob>(
+    `/subscriber/receipts/${transactionId}`,
+    { responseType: "blob" },
+  );
+  return data;
 }
 
 export { apiClient };

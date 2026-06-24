@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-23  # Epic 5 all stories → ready-for-dev
+last_updated: 2026-06-24  # Story 3.5 → review (recharge purchase plan selection simulated payment)
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -76,9 +76,9 @@ development_status:
   3-2-real-time-balance-display-usage-breakdown: review
   3-3-transaction-history-ledger: review
   3-4-plan-details-view-plan-catalogue: review
-  3-5-recharge-purchase-plan-selection-simulated-payment: in-progress
-  3-6-pdf-receipt-generation: ready-for-dev
-  3-7-refund-view: ready-for-dev
+  3-5-recharge-purchase-plan-selection-simulated-payment: review
+  3-6-pdf-receipt-generation: review
+  3-7-refund-view: review
   epic-3-retrospective: optional
 
   # Epic 4: Notifications & USSD Interface

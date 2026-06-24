@@ -58,6 +58,17 @@ class ValkeyAdapter(CacheProtocol):
         raw = await self._client.get(f"balance:{msisdn}")
         return int(raw) if raw is not None else None
 
+    async def incr_balance(self, msisdn: str, delta_paise: int) -> int:
+        """INCRBY ``balance:{msisdn} +delta_paise`` and return new value (Story 3.5).
+
+        Used for crediting wallet after recharge. The cdr-pipeline consumer uses
+        INCRBY with negative delta for deductions (Story 2-3). This mirrors the
+        deduction writer's INCRBY contract but for credits (positive delta).
+
+        Returns the new balance after increment.
+        """
+        return await self._client.incrby(f"balance:{msisdn}", delta_paise)
+
     async def close(self) -> None:
         """Close the underlying client (best-effort)."""
         try:

@@ -47,3 +47,14 @@ class CacheProtocol(Protocol):
         ``billing_wallet_balances.balance_paise`` in that case (architecture §1.7.3).
         """
         ...
+
+    async def incr_balance(self, msisdn: str, delta_paise: int) -> int:
+        """INCRBY ``balance:{msisdn} +delta_paise`` and return new value (Story 3.5).
+
+        Used for crediting wallet after recharge. The cdr-pipeline consumer uses
+        INCRBY with negative delta for deductions (Story 2-3). This mirrors the
+        deduction writer's INCRBY contract but for credits (positive delta).
+
+        Returns the new balance after increment.
+        """
+        ...

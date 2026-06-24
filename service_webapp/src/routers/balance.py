@@ -28,7 +28,9 @@ from db.billing.queries import (
     get_usage_for_period,
     get_wallet_balance_from_db,
 )
+from db.recharge.queries import get_failed_orders
 from models.balance import UsageAllowance, UsagePeriod, UsageResponse, WalletBalanceResponse
+from models.failed_recharge import FailedRechargeItem
 from models.plan import ActivePlanResponse, PlanQuotas
 from models.transaction import TransactionItem
 
@@ -171,20 +173,44 @@ async def get_transactions(
     request: Request,
     cursor: UUID | None = Query(default=None, description="Keyset cursor (last id of the prior page)."),
     page_size: int = Query(default=20, ge=1, le=100),
+    type: str | None = Query(
+        default=None, description="Filter type. 'FAILED' returns refund-eligible failed recharges."
+    ),
     jwt_payload: dict = require_role("subscriber"),
 ) -> JSONResponse:
-    """Return a paginated, immutable ledger of the subscriber's transactions (AC #1-#5).
+    """Return a paginated ledger or refund-eligible failed recharges (AC #1-#5, Story 3.7).
 
-    Rows come from the append-only ``billing_transactions`` table, newest first,
-    keyset-paginated by ``id`` (UUIDv7 time-monotonic). ``cdr_reference`` is
-    derived from ``reference_id`` where ``reference_type = 'cdr'`` (no such
-    column exists). ``transaction_type`` is the raw stored writer value.
+    Default (no ``type`` or ``type != 'FAILED'``): reads ``billing_transactions``
+    (append-only ledger, keyset-paginated). ``type=FAILED``: reads
+    ``recharge_orders WHERE status='failed'`` — a separate source with a different
+    response shape (``FailedRechargeItem``).
 
-    Owner assertion: ``subscriber_id`` is always the JWT ``sub`` (``_require_sub``),
-    so a subscriber can only ever read their own ledger.
+    Owner assertion: ``subscriber_id`` is always the JWT ``sub`` (``_require_sub``).
     """
     sub_id = _require_sub(jwt_payload)
     db = _db(request)
+
+    if type == "FAILED":
+        async with db.transaction() as conn:
+            failed_rows = await get_failed_orders(conn, sub_id)
+
+        items = [
+            FailedRechargeItem(
+                transaction_id=row["transaction_id"],
+                plan_attempted=row["plan_attempted"],
+                amount_paise=row["amount_paise"],
+                failure_reason=row["failure_reason"],
+                created_at=row["created_at"],
+            )
+            for row in failed_rows
+        ]
+        return JSONResponse(
+            status_code=200,
+            content=success_envelope(
+                [item.model_dump(mode="json") for item in items],
+                trace_id=_trace_id(request),
+            ),
+        )
 
     async with db.transaction() as conn:
         rows = await get_transactions_page(conn, UUID(sub_id), cursor, page_size)

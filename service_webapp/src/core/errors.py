@@ -87,6 +87,14 @@ class NotFoundError(DomainError):
     message = "Resource not found."
 
 
+class ConflictError(DomainError):
+    """Request conflicts with current state (409)."""
+
+    code = "CONFLICT"
+    http_status = 409
+    message = "Conflict."
+
+
 def _trace_id(request: Request) -> str:
     return getattr(request.state, "trace_id", "unknown")
 

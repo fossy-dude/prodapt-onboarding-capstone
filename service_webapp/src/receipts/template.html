@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      font-size: 12pt;
+      color: #1a1a1a;
+      margin: 0;
+      padding: 0;
+    }
+    .page {
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 32px;
+      border: 1px solid #ddd;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 2px solid #333;
+      padding-bottom: 16px;
+      margin-bottom: 24px;
+    }
+    .logo-block .logo-text {
+      font-size: 20pt;
+      font-weight: bold;
+      letter-spacing: 2px;
+    }
+    .logo-block .logo-sub {
+      font-size: 9pt;
+      color: #666;
+      margin-top: 2px;
+    }
+    .receipt-meta {
+      text-align: right;
+      font-size: 10pt;
+      color: #444;
+    }
+    .receipt-meta .receipt-number {
+      font-size: 14pt;
+      font-weight: bold;
+      color: #1a1a1a;
+    }
+    h2 {
+      font-size: 14pt;
+      margin: 0 0 12px 0;
+      color: #333;
+    }
+    .section {
+      margin-bottom: 20px;
+    }
+    table.details {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    table.details tr td {
+      padding: 6px 0;
+      vertical-align: top;
+    }
+    table.details tr td:first-child {
+      color: #555;
+      width: 45%;
+    }
+    table.details tr td:last-child {
+      font-weight: 500;
+    }
+    .amount-box {
+      background: #f5f5f5;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 14px 16px;
+      margin: 20px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .amount-box .label {
+      font-size: 11pt;
+      color: #333;
+    }
+    .amount-box .value {
+      font-size: 18pt;
+      font-weight: bold;
+    }
+    .footer {
+      border-top: 1px solid #ddd;
+      padding-top: 12px;
+      margin-top: 24px;
+      font-size: 9pt;
+      color: #777;
+      text-align: center;
+    }
+    .notice {
+      font-size: 9pt;
+      color: #888;
+      font-style: italic;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <div class="logo-block">
+      <div class="logo-text">SBOAI TELECOM</div>
+      <div class="logo-sub">Operator Billing Receipt</div>
+    </div>
+    <div class="receipt-meta">
+      <div class="receipt-number">{% if receipt_number %}{{ receipt_number }}{% else %}RECEIPT{% endif %}</div>
+      <div>{{ transaction_date }}</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Subscriber Details</h2>
+    <table class="details">
+      <tr>
+        <td>Name</td>
+        <td>{{ subscriber_name }}</td>
+      </tr>
+      <tr>
+        <td>Mobile (last 4)</td>
+        <td>XXXXXX{{ msisdn_last4 }}</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>Recharge Details</h2>
+    <table class="details">
+      <tr>
+        <td>Plan</td>
+        <td>{{ plan_name }}</td>
+      </tr>
+      <tr>
+        <td>Payment Method</td>
+        <td>{{ method_type_display }}{% if last_four %} ending {{ last_four }}{% endif %}</td>
+      </tr>
+      <tr>
+        <td>Transaction ID</td>
+        <td style="font-size:9pt; word-break:break-all;">{{ transaction_id }}</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="amount-box">
+    <span class="label">Amount Paid</span>
+    <span class="value">&#8377;{{ amount_inr }}</span>
+  </div>
+
+  <div class="notice">
+    This is a computer-generated receipt. No signature required.
+    Card numbers are never stored. Partial mobile number shown for privacy.
+  </div>
+
+  <div class="footer">
+    SBOAI Telecom &mdash; Automated Billing System &mdash; All amounts in Indian Rupees (INR)
+  </div>
+</div>
+</body>
+</html>
