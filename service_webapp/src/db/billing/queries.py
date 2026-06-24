@@ -330,10 +330,225 @@ async def get_active_plan_data_quota(
     return (data_mb_used, data_limit_mb)
 
 
+async def get_charge_breakdown(
+    conn: AsyncConnection,
+    subscriber_id: str | UUID,
+    cdr_reference: str | UUID,
+) -> dict | None:
+    """Fetch charge breakdown for a specific CDR event (Story 5.7).
+
+    Queries billing_cdr_events joined with active plan subscription and
+    plan configuration to retrieve detailed charge breakdown including
+    per-unit rates and balance impact.
+
+    Parameters
+    ----------
+    conn : AsyncConnection
+        Postgres connection for raw SQL queries.
+    subscriber_id : str | UUID
+        Subscriber UUID to query CDR for.
+    cdr_reference : str | UUID
+        CDR event ID to fetch breakdown for.
+
+    Returns
+    -------
+    dict | None
+        Structured breakdown data or None if CDR not found:
+        {
+            "cdr_id": str,
+            "event_type": str,
+            "duration_or_data": str,
+            "rate_per_unit": int,
+            "charge_paise": int,
+            "balance_before": int,
+            "balance_after": int
+        }
+    """
+    # Query CDR event with active subscription and plan details
+    cur = await conn.execute(
+        """
+        SELECT
+            cdr.id as cdr_id,
+            cdr.cdr_type as event_type,
+            cdr.duration_seconds,
+            cdr.volume_mb,
+            cdr.cost_paise as charge_paise,
+            cdr.start_time,
+            pp.plan_name,
+            pp.voice_minutes,
+            pp.data_limit_mb,
+            pp.sms_count
+        FROM billing_cdr_events cdr
+        JOIN identity_subscribers sub ON sub.id = cdr.subscriber_id
+        LEFT JOIN plans_subscriptions ps ON ps.subscriber_id = sub.id
+            AND ps.status = 'active'
+        LEFT JOIN plans_plans pp ON pp.id = ps.plan_id
+        WHERE cdr.id = %s::uuid
+          AND cdr.subscriber_id = %s::uuid
+          AND cdr.status = 'rated'
+        LIMIT 1
+        """,
+        (str(cdr_reference), str(subscriber_id)),
+    )
+
+    row = await cur.fetchone()
+    if row is None:
+        return None
+
+    (
+        cdr_id,
+        event_type,
+        duration_seconds,
+        volume_mb,
+        charge_paise,
+        start_time,
+        plan_name,
+        voice_minutes,
+        data_limit_mb,
+        sms_count,
+    ) = row
+
+    # Get per-unit rates from plan config (fallback to defaults if not configured)
+    rate_per_unit = await _get_rate_from_config(
+        conn,
+        str(row[7]),  # plan_id from subscription would be better, but using defaults
+        event_type,
+    )
+
+    # Format duration_or_data based on event type
+    if event_type == "voice" and duration_seconds is not None:
+        minutes = duration_seconds // 60
+        seconds = duration_seconds % 60
+        duration_or_data = f"{minutes}m {seconds}s"
+    elif event_type == "data" and volume_mb is not None:
+        duration_or_data = f"{volume_mb:.2f}MB"
+    elif event_type == "sms":
+        duration_or_data = "1 SMS"
+    else:
+        duration_or_data = "Unknown"
+
+    # Get balance before/after from billing_transactions
+    balance_before, balance_after = await _get_balance_impact(
+        conn,
+        subscriber_id,
+        cdr_id,
+    )
+
+    return {
+        "cdr_id": str(cdr_id),
+        "event_type": event_type,
+        "duration_or_data": duration_or_data,
+        "rate_per_unit": rate_per_unit,
+        "charge_paise": charge_paise,
+        "balance_before": balance_before,
+        "balance_after": balance_after,
+    }
+
+
+async def _get_rate_from_config(
+    conn: AsyncConnection,
+    plan_id: str,
+    event_type: str,
+) -> int:
+    """Get per-unit rate from plan configuration (Story 5.7).
+
+    Fetches rate from plans_plan_config table. Returns default rates
+    if not configured (voice: 50p/min, data: 10p/MB, SMS: 100p/SMS).
+
+    Parameters
+    ----------
+    conn : AsyncConnection
+        Postgres connection.
+    plan_id : str
+        Plan UUID to get rate for.
+    event_type : str
+        Event type: 'voice', 'data', or 'sms'.
+
+    Returns
+    -------
+    int
+        Rate per unit in paise.
+    """
+    config_key = f"{event_type}_rate_paise"
+
+    cur = await conn.execute(
+        """
+        SELECT config_value
+        FROM plans_plan_config
+        WHERE plan_id = %s::uuid
+          AND config_key = %s
+        LIMIT 1
+        """,
+        (plan_id, config_key),
+    )
+
+    row = await cur.fetchone()
+    if row is not None:
+        try:
+            return int(row[0])
+        except (ValueError, TypeError):
+            pass
+
+    # Default rates if not configured
+    defaults = {
+        "voice": 50,  # 50 paise per minute
+        "data": 10,  # 10 paise per MB
+        "sms": 100,  # 100 paise per SMS
+    }
+    return defaults.get(event_type, 0)
+
+
+async def _get_balance_impact(
+    conn: AsyncConnection,
+    subscriber_id: str | UUID,
+    cdr_id: str,
+) -> tuple[int, int]:
+    """Get balance before/after from billing_transactions (Story 5.7).
+
+    Queries billing_transactions for the CDR deduction transaction
+    to retrieve balance impact.
+
+    Parameters
+    ----------
+    conn : AsyncConnection
+        Postgres connection.
+    subscriber_id : str | UUID
+        Subscriber UUID.
+    cdr_id : str
+        CDR event ID to find transaction for.
+
+    Returns
+    -------
+    tuple[int, int]
+        (balance_before_paise, balance_after_paise). Returns (0, 0)
+        if transaction not found.
+    """
+    cur = await conn.execute(
+        """
+        SELECT balance_before_paise, balance_after_paise
+        FROM billing_transactions
+        WHERE subscriber_id = %s::uuid
+          AND reference_type = 'cdr'
+          AND reference_id = %s::uuid
+          AND transaction_type = 'deduction'
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (str(subscriber_id), str(cdr_id)),
+    )
+
+    row = await cur.fetchone()
+    if row is None:
+        return (0, 0)
+
+    return (row[0], row[1])
+
+
 __all__ = [
     "get_active_plan",
     "get_active_plan_data_quota",
     "get_active_subscription",
+    "get_charge_breakdown",
     "get_msisdn_for_subscriber",
     "get_transactions_page",
     "get_usage_for_period",

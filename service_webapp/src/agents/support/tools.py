@@ -27,16 +27,17 @@ only paise + a formatted INR string. The MSISDN is the caller's identity claim
 
 from __future__ import annotations
 
+import dataclasses
 import logging
-import sys
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 from uuid import UUID
 
 from langchain_core.tools import tool
 
 from agents.rag.retriever import rag_search
-from agents.support.identity import current_msisdn, current_subscriber_id
+from agents.support.identity import current_msisdn, current_session_id, current_subscriber_id
 from core.observability.langfuse import get_langfuse_client
 from core.security import mask_msisdn
 from db.billing.queries import get_active_plan, get_usage_for_period
@@ -45,13 +46,16 @@ from db.plans.queries import get_available_plans, get_payment_method_for_subscri
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from agents.rating.graph import ChargeBreakdown
     from core.protocols.cache import CacheProtocol
     from core.protocols.db import DatabaseProtocol
 
 __all__ = [
     "SUPPORT_TOOLS",
+    "charge_explain",
     "get_balance",
     "get_plan",
+    "get_support_db",
     "get_usage",
     "list_plans",
     "rag_search_tool",
@@ -83,6 +87,15 @@ def set_support_adapters(
 def get_support_cache() -> CacheProtocol | None:
     """Return the cache singleton (or ``None`` if not wired) — used by the graph node."""
     return _cache
+
+
+def get_support_db() -> DatabaseProtocol | None:
+    """Return the DB singleton (or ``None`` if not wired).
+
+    Used by the guardrail node for best-effort audit logging without forcing the
+    tools to be initialised.
+    """
+    return _db
 
 
 def _require_cache() -> CacheProtocol:
@@ -197,20 +210,118 @@ async def rag_search_tool(query: str) -> list[dict]:
     ]
 
 
+_MAX_PLANS = 20
+
+
+def _plan_to_card(p: dict) -> dict:
+    """Serialize a raw plan row into the chat-UI plan-card dict.
+
+    Extracted from the (former) triplicated list_plans branches so the shape is
+    defined once. Guards ``price_paise`` with ``int()`` so a corrupt non-int
+    value cannot crash the ``price_inr`` formatting.
+    """
+    price_paise = int(p["price_paise"])
+    return {
+        "plan_id": str(p["id"]),
+        "name": p["plan_name"],
+        "price_paise": price_paise,
+        "price_inr": f"₹{price_paise / 100:.2f}",
+        "data_limit_mb": p["data_limit_mb"],
+        "voice_minutes": p["voice_minutes"],
+        "sms_count": p["sms_count"],
+    }
+
+
+async def _run_list_plans(top_n: int) -> dict:
+    """Fetch the ``top_n`` cheapest active plans and serialize them.
+
+    Clamps ``top_n`` to ``[1, _MAX_PLANS]`` before querying.
+    """
+    clamped = max(1, min(int(top_n), _MAX_PLANS))
+    db = _require_db()
+    async with db.transaction() as conn:
+        raw_plans = await get_available_plans(conn, limit=clamped)
+    return {"plans": [_plan_to_card(p) for p in raw_plans]}
+
+
+async def _run_recharge_flow(plan_id: str) -> dict:
+    """Resolve the recharge deeplink for the authenticated subscriber.
+
+    Validates ``plan_id`` as a UUID, checks for a saved payment method (resolved
+    server-side via :func:`current_subscriber_id`), and returns either a
+    ``no_payment_method`` message or a ``deeplink`` URL whose query key is
+    ``plan_id``.
+    """
+    try:
+        plan_uuid = UUID(plan_id)
+    except (TypeError, ValueError):
+        return {
+            "status": "invalid_plan",
+            "url": None,
+            "message": "That plan id isn't valid. Please pick a plan from the list.",
+        }
+    db = _require_db()
+    async with db.transaction() as conn:
+        payment_method = await get_payment_method_for_subscriber(conn, current_subscriber_id())
+    if payment_method is None:
+        return {
+            "status": "no_payment_method",
+            "url": None,
+            "message": "You don't have a saved payment method. Please add one at Settings > Payment Methods.",
+        }
+    recharge_url = f"/subscriber/recharge?plan_id={quote(str(plan_uuid))}"
+    return {
+        "status": "deeplink",
+        "url": recharge_url,
+        "message": f"To complete your recharge, click here: {recharge_url}. Your saved payment method will be pre-selected.",
+    }
+
+
+async def _traced_tool(name: str, args: dict, core) -> dict:
+    """Run ``core()`` (a no-arg async returning a dict), traced as a LangFuse tool_call span.
+
+    Single implementation (no triplication): no-op when LangFuse is disabled, falls back
+    to untraced on span-open failure, and tags level=ERROR on a core() failure. Uses a
+    proper ``with`` context manager — never a hand-rolled __exit__ (cf. graph.py guidance).
+    """
+    client = get_langfuse_client()
+    if client is None:
+        return await core()
+    try:
+        cm = client.start_as_current_observation(name="tool_call", as_type="span", input={"tool": name, "args": args})
+    except Exception as exc:
+        logger.warning("LangFuse %s span open failed: %s", name, exc)
+        return await core()
+    with cm as observation:
+        try:
+            result = await core()
+        except Exception as exc:
+            try:
+                observation.update(level="ERROR", status_message=str(exc))
+            except Exception:
+                pass
+            raise
+        try:
+            observation.update(output=result)
+        except Exception as exc:
+            logger.warning("LangFuse %s span update failed: %s", name, exc)
+        return result
+
+
 @tool
-async def list_plans(subscriber_id: str, top_n: int = 3) -> dict:
+async def list_plans(top_n: int = 3) -> dict:
     """Return the top ``top_n`` cheapest active plans for the subscriber.
 
-    Queries ``plans_plans`` for active plans ordered by price ascending.
-    Returns a list of plan cards the chat UI renders as ``<PlanRecommendationCard>``
-    components. Each plan includes a formatted ``price_inr`` string for display.
+    Queries ``plans_plans`` for active plans ordered by price ascending. The
+    subscriber is resolved server-side (never supplied by the LLM — see
+    :mod:`agents.support.identity`). Returns a list of plan cards the chat UI
+    renders as ``<PlanRecommendationCard>`` components. Each plan includes a
+    formatted ``price_inr`` string for display.
 
     Parameters
     ----------
-    subscriber_id : str
-        Subscriber UUID (unused in the query but kept for tool signature consistency).
     top_n : int
-        Maximum number of plans to return (default: 3).
+        Maximum number of plans to return (default: 3; clamped to ``[1, 20]``).
 
     Returns
     -------
@@ -218,198 +329,129 @@ async def list_plans(subscriber_id: str, top_n: int = 3) -> dict:
         ``{"plans": [...]}`` where each plan has ``plan_id``, ``name``, ``price_paise``,
         ``price_inr``, ``data_limit_mb``, ``voice_minutes``, ``sms_count``.
     """
-    client = get_langfuse_client()
-    result: dict
-
-    if client is None:
-        # No tracing path
-        db = _require_db()
-        async with db.transaction() as conn:
-            raw_plans = await get_available_plans(conn, limit=top_n)
-
-        plans = []
-        for p in raw_plans:
-            price_paise = p["price_paise"]
-            plans.append(
-                {
-                    "plan_id": str(p["id"]),
-                    "name": p["plan_name"],
-                    "price_paise": price_paise,
-                    "price_inr": f"₹{price_paise / 100:.2f}",
-                    "data_limit_mb": p["data_limit_mb"],
-                    "voice_minutes": p["voice_minutes"],
-                    "sms_count": p["sms_count"],
-                }
-            )
-        result = {"plans": plans}
-    else:
-        # LangFuse tracing path (FR-72, Story 5.6 AC #5)
-        try:
-            observation_cm = client.start_as_current_observation(
-                name="tool_call",
-                as_type="span",
-                input={"tool": "list_plans", "args": {"subscriber_id": subscriber_id, "top_n": top_n}},
-            )
-            observation = observation_cm.__enter__()
-        except Exception as exc:
-            logger.warning("LangFuse list_plans span open failed: %s", exc)
-            # Fall back to untraced execution
-            db = _require_db()
-            async with db.transaction() as conn:
-                raw_plans = await get_available_plans(conn, limit=top_n)
-
-            plans = []
-            for p in raw_plans:
-                price_paise = p["price_paise"]
-                plans.append(
-                    {
-                        "plan_id": str(p["id"]),
-                        "name": p["plan_name"],
-                        "price_paise": price_paise,
-                        "price_inr": f"₹{price_paise / 100:.2f}",
-                        "data_limit_mb": p["data_limit_mb"],
-                        "voice_minutes": p["voice_minutes"],
-                        "sms_count": p["sms_count"],
-                    }
-                )
-            result = {"plans": plans}
-        else:
-            try:
-                db = _require_db()
-                async with db.transaction() as conn:
-                    raw_plans = await get_available_plans(conn, limit=top_n)
-
-                plans = []
-                for p in raw_plans:
-                    price_paise = p["price_paise"]
-                    plans.append(
-                        {
-                            "plan_id": str(p["id"]),
-                            "name": p["plan_name"],
-                            "price_paise": price_paise,
-                            "price_inr": f"₹{price_paise / 100:.2f}",
-                            "data_limit_mb": p["data_limit_mb"],
-                            "voice_minutes": p["voice_minutes"],
-                            "sms_count": p["sms_count"],
-                        }
-                    )
-                result = {"plans": plans}
-                try:
-                    observation.update(output={"plans": plans})
-                except Exception as exc:
-                    logger.warning("LangFuse list_plans span update failed: %s", exc)
-            finally:
-                try:
-                    observation_cm.__exit__(*sys.exc_info())
-                except Exception:
-                    pass
-
-    return result
+    return await _traced_tool("list_plans", {"top_n": top_n}, lambda: _run_list_plans(top_n))
 
 
 @tool
-async def recharge_flow(subscriber_id: str, plan_id: str) -> dict:
+async def recharge_flow(plan_id: str) -> dict:
     """Return a deeplink to the recharge portal for the selected plan.
 
-    Checks whether the subscriber has a saved payment method. If not, returns a
-    message prompting them to add one. If a payment method exists, returns a
-    deeplink URL to ``/subscriber/recharge?plan={plan_id}`` — the portal handles
-    the actual payment (architecture decision: deeplink, not direct API call).
+    Checks whether the subscriber has a saved payment method (resolved
+    server-side via :func:`current_subscriber_id` — never supplied by the LLM).
+    If not, returns a message prompting them to add one. If a payment method
+    exists, returns a deeplink URL to ``/subscriber/recharge?plan_id={plan_id}``
+    — the portal handles the actual payment (architecture decision: deeplink,
+    not direct API call).
+
+    Parameters
+    ----------
+    plan_id : str
+        Plan UUID string for the recharge target. Validated as a UUID; a
+        non-UUID value returns an ``invalid_plan`` status.
+
+    Returns
+    -------
+    dict
+        ``{"status": "deeplink" | "no_payment_method" | "invalid_plan",
+        "url": str | None, "message": str}``
+    """
+    return await _traced_tool("recharge_flow", {"plan_id": plan_id}, lambda: _run_recharge_flow(plan_id))
+
+
+async def _run_charge_explain(subscriber_id: str, cdr_reference: str) -> dict:
+    """Core charge_explain logic: invoke Rating Agent A2A and return breakdown.
+
+    This is an A2A (agent-to-agent) call — the Support Agent invokes the
+    Rating Agent's compiled LangGraph graph directly via ``await rating_graph.ainvoke()``
+    (not HTTP or Kafka). Both agents run in the same ``service_webapp`` FastAPI
+    process (architecture §1.6.1).
 
     Parameters
     ----------
     subscriber_id : str
         Subscriber UUID string.
-    plan_id : str
-        Plan UUID string for the recharge target.
+    cdr_reference : str
+        CDR event ID to fetch breakdown for.
 
     Returns
     -------
     dict
-        ``{"status": "deeplink" | "no_payment_method", "url": str | None, "message": str}``
+        ``{"found": bool, "breakdown": dict | None, "message": str}``
+        where ``breakdown`` is the ChargeBreakdown data when found.
     """
-    client = get_langfuse_client()
-    result: dict
+    # Import inside function to avoid circular import
+    from agents.rating.graph import rating_graph
 
-    if client is None:
-        # No tracing path
-        db = _require_db()
-        async with db.transaction() as conn:
-            payment_method = await get_payment_method_for_subscriber(conn, subscriber_id)
-
-        if payment_method is None:
-            result = {
-                "status": "no_payment_method",
-                "url": None,
-                "message": "You don't have a saved payment method. Please add one at Settings > Payment Methods.",
+    try:
+        # Invoke Rating Agent via A2A (same-process LangGraph call)
+        result = await rating_graph.ainvoke(
+            {
+                "subscriber_id": subscriber_id,
+                "cdr_reference": cdr_reference,
+                "trace_id": current_session_id() or "unknown",
+                "result": None,
             }
-        else:
-            recharge_url = f"/subscriber/recharge?plan={plan_id}"
-            result = {
-                "status": "deeplink",
-                "url": recharge_url,
-                "message": f"To complete your recharge, click here: {recharge_url}. Your saved payment method will be pre-selected.",
+        )
+
+        breakdown = result.get("result")
+        if breakdown is None:
+            return {
+                "found": False,
+                "breakdown": None,
+                "message": "I couldn't find a charge with that reference. Could you provide the date instead?",
             }
-    else:
-        # LangFuse tracing path (FR-72, Story 5.6 AC #5)
-        try:
-            observation_cm = client.start_as_current_observation(
-                name="tool_call",
-                as_type="span",
-                input={"tool": "recharge_flow", "args": {"subscriber_id": subscriber_id, "plan_id": plan_id}},
-            )
-            observation = observation_cm.__enter__()
-        except Exception as exc:
-            logger.warning("LangFuse recharge_flow span open failed: %s", exc)
-            # Fall back to untraced execution
-            db = _require_db()
-            async with db.transaction() as conn:
-                payment_method = await get_payment_method_for_subscriber(conn, subscriber_id)
 
-            if payment_method is None:
-                result = {
-                    "status": "no_payment_method",
-                    "url": None,
-                    "message": "You don't have a saved payment method. Please add one at Settings > Payment Methods.",
-                }
-            else:
-                recharge_url = f"/subscriber/recharge?plan={plan_id}"
-                result = {
-                    "status": "deeplink",
-                    "url": recharge_url,
-                    "message": f"To complete your recharge, click here: {recharge_url}. Your saved payment method will be pre-selected.",
-                }
-        else:
-            try:
-                db = _require_db()
-                async with db.transaction() as conn:
-                    payment_method = await get_payment_method_for_subscriber(conn, subscriber_id)
+        # Convert dataclass to dict for tool return
+        return {
+            "found": True,
+            "breakdown": dataclasses.asdict(breakdown),
+            "message": f"Found charge details for {breakdown.event_type} event",
+        }
 
-                if payment_method is None:
-                    result = {
-                        "status": "no_payment_method",
-                        "url": None,
-                        "message": "You don't have a saved payment method. Please add one at Settings > Payment Methods.",
-                    }
-                else:
-                    recharge_url = f"/subscriber/recharge?plan={plan_id}"
-                    result = {
-                        "status": "deeplink",
-                        "url": recharge_url,
-                        "message": f"To complete your recharge, click here: {recharge_url}. Your saved payment method will be pre-selected.",
-                    }
-                try:
-                    observation.update(output=result)
-                except Exception as exc:
-                    logger.warning("LangFuse recharge_flow span update failed: %s", exc)
-            finally:
-                try:
-                    observation_cm.__exit__(*sys.exc_info())
-                except Exception:
-                    pass
-
-    return result
+    except Exception:
+        logger.exception("charge_explain failed for subscriber=%s cdr=%s", subscriber_id, cdr_reference)
+        return {
+            "found": False,
+            "breakdown": None,
+            "message": "I encountered an error looking up that charge. Please try again later.",
+        }
 
 
-# Convenience tuple the supervisor node binds onto the LLM (FR-22, FR-23, FR-26, Story 5.6).
-SUPPORT_TOOLS = [get_balance, get_plan, get_usage, rag_search_tool, list_plans, recharge_flow]
+@tool
+async def charge_explain(subscriber_id: str, cdr_reference: str) -> dict:
+    """Fetch detailed charge breakdown for a specific CDR event (Story 5.7).
+
+    Invokes the Rating Agent (A2A) to query billing_audit_log and plan
+    configuration, returning a structured charge breakdown including
+    duration/data, rate per unit, charge amount, and balance impact.
+
+    The subscriber_id is resolved server-side from JWT (never supplied by
+    the LLM — see :mod:`agents.support.identity`).
+
+    Parameters
+    ----------
+    subscriber_id : str
+        Subscriber UUID string (validated server-side).
+    cdr_reference : str
+        CDR event UUID to fetch breakdown for.
+
+    Returns
+    -------
+    dict
+        ``{"found": bool, "breakdown": dict | None, "message": str}``
+        where ``breakdown`` contains:
+        ``{cdr_id, event_type, duration_or_data, rate_per_unit,
+        charge_paise, balance_before, balance_after}``
+    """
+    # Use current subscriber ID from context for security (ignore LLM-provided value)
+    actual_subscriber_id = current_subscriber_id()
+
+    return await _traced_tool(
+        "charge_explain",
+        {"subscriber_id": actual_subscriber_id, "cdr_reference": cdr_reference},
+        lambda: _run_charge_explain(actual_subscriber_id, cdr_reference),
+    )
+
+
+# Convenience tuple the supervisor node binds onto the LLM (FR-22, FR-23, FR-26, Story 5.6, Story 5.7).
+SUPPORT_TOOLS = [get_balance, get_plan, get_usage, rag_search_tool, list_plans, recharge_flow, charge_explain]

@@ -8,6 +8,7 @@ Tests that rejections are logged correctly to support_guardrail_rejections table
 from __future__ import annotations
 
 import hashlib
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -15,14 +16,33 @@ import pytest
 from agents.guardrails.validator import log_rejection
 
 
+def _fake_db(conn: MagicMock) -> MagicMock:
+    """Build a fake DB adapter whose ``transaction()`` yields ``conn``.
+
+    ``log_rejection`` calls ``db.transaction()`` (async ctx mgr) and runs
+    ``conn.execute(sql, params)`` on the yielded connection — it never calls a
+    top-level ``db.execute``. A fresh async context manager is returned on each
+    call so the same conn can be reused across multiple ``log_rejection`` calls.
+    """
+
+    @asynccontextmanager
+    async def _txn():
+        yield conn
+
+    db = MagicMock()
+    db.transaction = MagicMock(side_effect=_txn)
+    return db
+
+
 class TestLogRejection:
     """Test guardrail rejection logging function."""
 
     @pytest.mark.asyncio
     async def test_log_rejection_stores_correct_fields(self):
-        """Should insert session_id, reason, and message_hash into support_guardrail_rejections."""
-        db = MagicMock()
-        db.execute = AsyncMock()
+        """Should insert session_id, reason, and message_hash via transaction().conn.execute."""
+        conn = MagicMock()
+        conn.execute = AsyncMock()
+        db = _fake_db(conn)
 
         session_id = "123e4567-e89b-12d3-a456-426614174000"
         reason = "TOO_LONG"
@@ -30,9 +50,9 @@ class TestLogRejection:
 
         await log_rejection(db, session_id, reason, raw_message)
 
-        # Verify execute was called with correct SQL and parameters
-        db.execute.assert_called_once()
-        call_args = db.execute.call_args
+        # Verify the connection's execute was called with correct SQL and params
+        conn.execute.assert_called_once()
+        call_args = conn.execute.call_args
 
         sql = call_args.args[0]  # First arg is the SQL query
         params = call_args.args[1]  # Second arg is the parameters tuple
@@ -49,10 +69,23 @@ class TestLogRejection:
         assert len(params[2]) == 64  # message_hash (SHA-256 hex = 64 chars)
 
     @pytest.mark.asyncio
+    async def test_log_rejection_uses_transaction_context(self):
+        """Should call conn.execute inside db.transaction() (not db.execute)."""
+        conn = MagicMock()
+        conn.execute = AsyncMock()
+        db = _fake_db(conn)
+
+        await log_rejection(db, "session-1", "TOO_LONG", "msg")
+
+        db.transaction.assert_called_once()
+        conn.execute.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_log_rejection_computes_correct_sha256_hash(self):
         """Should compute SHA-256 hash of raw message, not store raw message."""
-        db = MagicMock()
-        db.execute = AsyncMock()
+        conn = MagicMock()
+        conn.execute = AsyncMock()
+        db = _fake_db(conn)
 
         session_id = "123e4567-e89b-12d3-a456-426614174000"
         reason = "PROMPT_INJECTION"
@@ -63,8 +96,7 @@ class TestLogRejection:
         # Compute expected SHA-256 hash
         expected_hash = hashlib.sha256(raw_message.encode()).hexdigest()
 
-        # Get the actual hash from the call
-        call_args = db.execute.call_args
+        call_args = conn.execute.call_args
         params = call_args.args[1]  # Parameters tuple
         actual_hash = params[2]  # Third parameter is message_hash
 
@@ -73,8 +105,9 @@ class TestLogRejection:
     @pytest.mark.asyncio
     async def test_log_rejection_does_not_store_raw_message(self):
         """Should NOT store raw message content (PII protection per ARCH-32)."""
-        db = MagicMock()
-        db.execute = AsyncMock()
+        conn = MagicMock()
+        conn.execute = AsyncMock()
+        db = _fake_db(conn)
 
         session_id = "123e4567-e89b-12d3-a456-426614174000"
         reason = "OFF_TOPIC"
@@ -82,8 +115,7 @@ class TestLogRejection:
 
         await log_rejection(db, session_id, reason, raw_message)
 
-        # Get the call parameters
-        call_args = db.execute.call_args
+        call_args = conn.execute.call_args
         params = call_args.args[1]  # Parameters tuple
         message_hash_param = params[2]  # Third parameter is message_hash
 
@@ -96,8 +128,9 @@ class TestLogRejection:
     @pytest.mark.asyncio
     async def test_log_rejection_all_reason_types(self):
         """Should handle all three rejection reason types."""
-        db = MagicMock()
-        db.execute = AsyncMock()
+        conn = MagicMock()
+        conn.execute = AsyncMock()
+        db = _fake_db(conn)
 
         session_id = "123e4567-e89b-12d3-a456-426614174000"
         raw_message = "test message"
@@ -106,7 +139,7 @@ class TestLogRejection:
             await log_rejection(db, session_id, reason, raw_message)
 
             # Verify each call stored the correct reason
-            call_args = db.execute.call_args
+            call_args = conn.execute.call_args
             params = call_args.args[1]  # Parameters tuple
             actual_reason = params[1]  # Second parameter is rejection_reason
             assert actual_reason == reason
@@ -114,8 +147,9 @@ class TestLogRejection:
     @pytest.mark.asyncio
     async def test_log_rejection_empty_message(self):
         """Should handle empty message (hash of empty string)."""
-        db = MagicMock()
-        db.execute = AsyncMock()
+        conn = MagicMock()
+        conn.execute = AsyncMock()
+        db = _fake_db(conn)
 
         session_id = "123e4567-e89b-12d3-a456-426614174000"
         reason = "OFF_TOPIC"
@@ -123,10 +157,9 @@ class TestLogRejection:
 
         await log_rejection(db, session_id, reason, raw_message)
 
-        # SHA-256 of empty string is: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
         expected_hash = hashlib.sha256(raw_message.encode()).hexdigest()
 
-        call_args = db.execute.call_args
+        call_args = conn.execute.call_args
         params = call_args.args[1]  # Parameters tuple
         actual_hash = params[2]  # Third parameter is message_hash
 
@@ -135,19 +168,19 @@ class TestLogRejection:
     @pytest.mark.asyncio
     async def test_log_rejection_unicode_message(self):
         """Should handle Unicode characters correctly."""
-        db = MagicMock()
-        db.execute = AsyncMock()
+        conn = MagicMock()
+        conn.execute = AsyncMock()
+        db = _fake_db(conn)
 
         session_id = "123e4567-e89b-12d3-a456-426614174000"
         reason = "OFF_TOPIC"
-        raw_message = "我的余额是多少？ẞ"  # Chinese and German characters
+        raw_message = "我的余额是多少？ẞ"  # noqa: RUF001 — Chinese + German chars are the point of the test
 
         await log_rejection(db, session_id, reason, raw_message)
 
-        # SHA-256 should handle Unicode correctly
         expected_hash = hashlib.sha256(raw_message.encode()).hexdigest()
 
-        call_args = db.execute.call_args
+        call_args = conn.execute.call_args
         params = call_args.args[1]  # Parameters tuple
         actual_hash = params[2]  # Third parameter is message_hash
 
@@ -156,8 +189,9 @@ class TestLogRejection:
     @pytest.mark.asyncio
     async def test_log_rejection_long_message(self):
         """Should hash very long messages efficiently."""
-        db = MagicMock()
-        db.execute = AsyncMock()
+        conn = MagicMock()
+        conn.execute = AsyncMock()
+        db = _fake_db(conn)
 
         session_id = "123e4567-e89b-12d3-a456-426614174000"
         reason = "TOO_LONG"
@@ -166,7 +200,7 @@ class TestLogRejection:
         await log_rejection(db, session_id, reason, raw_message)
 
         # Hash should still be 64 characters regardless of input length
-        call_args = db.execute.call_args
+        call_args = conn.execute.call_args
         params = call_args.args[1]  # Parameters tuple
         actual_hash = params[2]  # Third parameter is message_hash
 
@@ -174,9 +208,10 @@ class TestLogRejection:
 
     @pytest.mark.asyncio
     async def test_log_rejection_uses_placeholders(self):
-        """Should use parameterized queries ($1, $2, $3) for SQL injection safety."""
-        db = MagicMock()
-        db.execute = AsyncMock()
+        """Should use parameterized queries (%s) for SQL injection safety."""
+        conn = MagicMock()
+        conn.execute = AsyncMock()
+        db = _fake_db(conn)
 
         session_id = "123e4567-e89b-12d3-a456-426614174000"
         reason = "PROMPT_INJECTION"
@@ -184,8 +219,7 @@ class TestLogRejection:
 
         await log_rejection(db, session_id, reason, raw_message)
 
-        # Get the SQL query
-        call_args = db.execute.call_args
+        call_args = conn.execute.call_args
         sql = call_args.args[0]
         params = call_args.args[1]  # Parameters tuple
 

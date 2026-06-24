@@ -39,7 +39,7 @@ from langgraph.prebuilt import ToolNode
 from agents.guardrails.validator import log_rejection
 from agents.support.context import load_context, save_turn
 from agents.support.identity import current_msisdn, current_session_id
-from agents.support.tools import SUPPORT_TOOLS, get_support_cache
+from agents.support.tools import SUPPORT_TOOLS, get_support_cache, get_support_db
 from core.config import settings
 from core.observability.langfuse import get_langfuse_client, set_trace_usage
 from core.security import mask_msisdn
@@ -113,9 +113,14 @@ async def guardrail_node(state: dict) -> dict:
     if not messages:
         return {"rejected": False}
 
-    # Extract the latest message content (assume HumanMessage for user input)
+    # Only validate genuine user turns; skip tool results / assistant messages.
     latest_message = messages[-1]
+    if not isinstance(latest_message, HumanMessage):
+        return {"rejected": False}
     message_content = getattr(latest_message, "content", "")
+    if isinstance(message_content, list):
+        # Multimodal content blocks — concatenate the text parts.
+        message_content = " ".join(block.get("text", "") for block in message_content if isinstance(block, dict))
     if not isinstance(message_content, str):
         message_content = str(message_content)
 
@@ -132,11 +137,17 @@ async def guardrail_node(state: dict) -> dict:
         rejection_message = result.response_message or "I cannot process this request."
         updated_messages = messages + [AIMessage(content=rejection_message)]
 
-        # Log rejection to audit table (if DB connection available)
-        # Note: Database logging will be wired in Task 5 via main.py
+        # AC #4: persist the rejection (SHA-256 hash only) for audit. Best-effort —
+        # a logging failure must never break the user-facing rejection.
         session_id = current_session_id()
-        if session_id:
-            logger.info("Guardrail rejection: session_id=%s reason=%s", session_id, result.rejection_reason)
+        db = get_support_db()
+        if session_id and db is not None:
+            try:
+                await log_rejection(db, session_id, result.rejection_reason, message_content)
+            except Exception as exc:
+                logger.warning("guardrail_node: log_rejection failed: %s", exc)
+        elif session_id:
+            logger.info("Guardrail rejection (no DB wired): reason=%s", result.rejection_reason)
 
         return {
             "messages": updated_messages,

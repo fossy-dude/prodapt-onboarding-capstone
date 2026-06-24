@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from agents.support.identity import support_context
 from agents.support.tools import SUPPORT_TOOLS, set_support_adapters
 
 _SUBSCRIBER_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -134,7 +135,7 @@ async def test_list_plans_returns_top_3_cheapest_plans():
     set_support_adapters(cache=FakeCache(), db=db)
 
     tool = _get_list_plans_tool()
-    result = await tool.ainvoke({"subscriber_id": _SUBSCRIBER_ID, "top_n": 3})
+    result = await tool.ainvoke({"top_n": 3})
 
     assert "plans" in result
     plans = result["plans"]
@@ -166,7 +167,7 @@ async def test_list_plans_default_top_n_is_3():
     set_support_adapters(cache=FakeCache(), db=db)
 
     tool = _get_list_plans_tool()
-    result = await tool.ainvoke({"subscriber_id": _SUBSCRIBER_ID})
+    result = await tool.ainvoke({})
 
     assert len(result["plans"]) == 3
 
@@ -178,7 +179,7 @@ async def test_list_plans_respects_top_n_parameter():
     set_support_adapters(cache=FakeCache(), db=db)
 
     tool = _get_list_plans_tool()
-    result = await tool.ainvoke({"subscriber_id": _SUBSCRIBER_ID, "top_n": 5})
+    result = await tool.ainvoke({"top_n": 5})
 
     assert len(result["plans"]) == 5
 
@@ -190,7 +191,7 @@ async def test_list_plans_returns_empty_when_no_plans():
     set_support_adapters(cache=FakeCache(), db=db)
 
     tool = _get_list_plans_tool()
-    result = await tool.ainvoke({"subscriber_id": _SUBSCRIBER_ID, "top_n": 3})
+    result = await tool.ainvoke({"top_n": 3})
 
     assert "plans" in result
     assert len(result["plans"]) == 0
@@ -211,7 +212,7 @@ async def test_list_plans_handles_null_unlimited_quotas():
     set_support_adapters(cache=FakeCache(), db=db)
 
     tool = _get_list_plans_tool()
-    result = await tool.ainvoke({"subscriber_id": _SUBSCRIBER_ID, "top_n": 3})
+    result = await tool.ainvoke({"top_n": 3})
 
     assert len(result["plans"]) == 1
     plan = result["plans"][0]
@@ -232,7 +233,8 @@ async def test_recharge_flow_no_payment_method_returns_error_status():
     set_support_adapters(cache=FakeCache(), db=db)
 
     tool = _get_recharge_flow_tool()
-    result = await tool.ainvoke({"subscriber_id": _SUBSCRIBER_ID, "plan_id": _PLAN_ID})
+    with support_context(subscriber_id=_SUBSCRIBER_ID, msisdn=None, session_id=""):
+        result = await tool.ainvoke({"plan_id": _PLAN_ID})
 
     assert result["status"] == "no_payment_method"
     assert result["url"] is None
@@ -248,29 +250,46 @@ async def test_recharge_flow_with_payment_method_returns_deeplink():
     set_support_adapters(cache=FakeCache(), db=db)
 
     tool = _get_recharge_flow_tool()
-    result = await tool.ainvoke({"subscriber_id": _SUBSCRIBER_ID, "plan_id": _PLAN_ID})
+    with support_context(subscriber_id=_SUBSCRIBER_ID, msisdn=None, session_id=""):
+        result = await tool.ainvoke({"plan_id": _PLAN_ID})
 
     assert result["status"] == "deeplink"
-    assert result["url"] == f"/subscriber/recharge?plan={_PLAN_ID}"
+    assert result["url"] == f"/subscriber/recharge?plan_id={_PLAN_ID}"
     assert "complete your recharge" in result["message"].lower()
     assert "pre-selected" in result["message"].lower()
-    assert f"/subscriber/recharge?plan={_PLAN_ID}" in result["message"]
+    assert f"/subscriber/recharge?plan_id={_PLAN_ID}" in result["message"]
 
 
 @pytest.mark.asyncio
 async def test_recharge_flow_includes_correct_plan_id_in_deeplink():
     """Deeplink includes the correct plan_id parameter."""
-    custom_plan_id = "cccccccc-cccc-4cccc-8cccccccccccc"
+    custom_plan_id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
     payment_row = ("upi", None)  # UPI method with no last_four
     db = FakeDb(plans_rows=[], payment_row=payment_row)
     set_support_adapters(cache=FakeCache(), db=db)
 
     tool = _get_recharge_flow_tool()
-    result = await tool.ainvoke({"subscriber_id": _SUBSCRIBER_ID, "plan_id": custom_plan_id})
+    with support_context(subscriber_id=_SUBSCRIBER_ID, msisdn=None, session_id=""):
+        result = await tool.ainvoke({"plan_id": custom_plan_id})
 
     assert result["status"] == "deeplink"
-    assert result["url"] == f"/subscriber/recharge?plan={custom_plan_id}"
+    assert result["url"] == f"/subscriber/recharge?plan_id={custom_plan_id}"
     assert custom_plan_id in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_recharge_flow_invalid_plan_id_returns_invalid_plan():
+    """A non-UUID plan_id returns invalid_plan status (no DB hit)."""
+    db = FakeDb(plans_rows=[], payment_row=("card", "4242"))
+    set_support_adapters(cache=FakeCache(), db=db)
+
+    tool = _get_recharge_flow_tool()
+    with support_context(subscriber_id=_SUBSCRIBER_ID, msisdn=None, session_id=""):
+        result = await tool.ainvoke({"plan_id": "not-a-uuid"})
+
+    assert result["status"] == "invalid_plan"
+    assert result["url"] is None
+    assert "pick a plan" in result["message"].lower()
 
 
 @pytest.mark.asyncio
@@ -282,10 +301,11 @@ async def test_recharge_flow_handles_different_payment_method_types():
         set_support_adapters(cache=FakeCache(), db=db)
 
         tool = _get_recharge_flow_tool()
-        result = await tool.ainvoke({"subscriber_id": _SUBSCRIBER_ID, "plan_id": _PLAN_ID})
+        with support_context(subscriber_id=_SUBSCRIBER_ID, msisdn=None, session_id=""):
+            result = await tool.ainvoke({"plan_id": _PLAN_ID})
 
         assert result["status"] == "deeplink"
-        assert result["url"] == f"/subscriber/recharge?plan={_PLAN_ID}"
+        assert result["url"] == f"/subscriber/recharge?plan_id={_PLAN_ID}"
 
 
 @pytest.mark.asyncio
@@ -296,7 +316,8 @@ async def test_recharge_flow_upi_without_last_four():
     set_support_adapters(cache=FakeCache(), db=db)
 
     tool = _get_recharge_flow_tool()
-    result = await tool.ainvoke({"subscriber_id": _SUBSCRIBER_ID, "plan_id": _PLAN_ID})
+    with support_context(subscriber_id=_SUBSCRIBER_ID, msisdn=None, session_id=""):
+        result = await tool.ainvoke({"plan_id": _PLAN_ID})
 
     assert result["status"] == "deeplink"
     assert result["url"] is not None
@@ -312,7 +333,7 @@ async def test_list_plans_raises_runtime_error_when_db_not_initialized():
 
     tool = _get_list_plans_tool()
     with pytest.raises(RuntimeError, match="Support tools not initialised"):
-        await tool.ainvoke({"subscriber_id": _SUBSCRIBER_ID, "top_n": 3})
+        await tool.ainvoke({"top_n": 3})
 
 
 @pytest.mark.asyncio
@@ -321,5 +342,6 @@ async def test_recharge_flow_raises_runtime_error_when_db_not_initialized():
     set_support_adapters(cache=None, db=None)
 
     tool = _get_recharge_flow_tool()
-    with pytest.raises(RuntimeError, match="Support tools not initialised"):
-        await tool.ainvoke({"subscriber_id": _SUBSCRIBER_ID, "plan_id": _PLAN_ID})
+    with support_context(subscriber_id=_SUBSCRIBER_ID, msisdn=None, session_id=""):
+        with pytest.raises(RuntimeError, match="Support tools not initialised"):
+            await tool.ainvoke({"plan_id": _PLAN_ID})

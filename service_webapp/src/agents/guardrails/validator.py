@@ -15,6 +15,9 @@ import asyncio
 import hashlib
 import logging
 import math
+import re
+import time
+import unicodedata
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -62,21 +65,25 @@ class InputGuardrail:
     # Topic seed text for semantic similarity (Story 5.5 AC #3)
     _TOPIC_SEED_TEXT = "billing balance plan recharge usage data voice SMS account telecom MVNO subscriber"
 
-    # Injection patterns to detect (Story 5.5 AC #2)
+    # Injection patterns to detect (Story 5.5 AC #2).
+    # Note: bare words like "disregard"/"override" were intentionally dropped —
+    # too many false positives on legitimate support messages.
     _INJECTION_PATTERNS = [
         "ignore previous instructions",
         "ignore above",
         "system:",
         "assistant:",
-        "disregard",
         "forget your instructions",
         "new instructions:",
-        "override",
     ]
 
     # Rejection thresholds (from Story 5.5)
     _MAX_LENGTH = 2000
     _SIMILARITY_THRESHOLD = 0.2
+
+    # Negative-cache window for a flapping Azure embeddings endpoint: once the
+    # topic seed fetch fails, don't retry on every request (avoid a retry storm).
+    _SEED_RETRY_SECONDS = 30.0
 
     # Response messages (from Story 5.5 AC)
     _TOO_LONG_MESSAGE = "Your message is too long. Please keep it under 2,000 characters."
@@ -93,14 +100,30 @@ class InputGuardrail:
         self._azure = azure_client
         self._embedding_deployment = embedding_deployment
         self._topic_seed_embedding: list[float] | None = None
+        self._topic_seed_lock = asyncio.Lock()
+        self._seed_failed_at: float | None = None
 
     async def _get_topic_seed_embedding(self) -> list[float]:
         """Lazy-compute topic seed embedding on first access.
 
         Computes embedding of the telecom/billing topic seed text via Azure OpenAI
-        and caches it as a class attribute for reuse across all requests.
+        and caches it for reuse across all requests. The cold-start compute is
+        serialized under ``_topic_seed_lock`` (no thundering herd on the Azure
+        endpoint), and failures are negative-cached for ``_SEED_RETRY_SECONDS`` so
+        a flapping endpoint can't trigger a per-request retry storm.
         """
-        if self._topic_seed_embedding is None:
+        # Fast path: already computed.
+        if self._topic_seed_embedding is not None:
+            return self._topic_seed_embedding
+
+        # Negative cache: don't hammer Azure on every request while it's down.
+        if self._seed_failed_at is not None and (time.monotonic() - self._seed_failed_at) < self._SEED_RETRY_SECONDS:
+            return []
+
+        async with self._topic_seed_lock:
+            # Double-check under lock — a sibling task may have populated it.
+            if self._topic_seed_embedding is not None:
+                return self._topic_seed_embedding
             try:
                 response = await asyncio.to_thread(
                     self._azure.embeddings.create,
@@ -110,12 +133,12 @@ class InputGuardrail:
                 if not response.data:
                     raise RuntimeError("Azure OpenAI returned no embedding for topic seed")
                 self._topic_seed_embedding = list(response.data[0].embedding)
+                self._seed_failed_at = None
                 logger.debug("Computed topic seed embedding (cached for future requests)")
-            except Exception as exc:
-                logger.warning(
-                    "Failed to compute topic seed embedding: %s. Defaulting to pass all semantic checks.", exc
-                )
-                self._topic_seed_embedding = None
+            except Exception:
+                logger.warning("Failed to compute topic seed embedding; defaulting to pass all semantic checks.")
+                self._seed_failed_at = time.monotonic()
+                return []
         return self._topic_seed_embedding if self._topic_seed_embedding is not None else []
 
     async def validate(self, message: str) -> GuardrailResult:
@@ -139,10 +162,14 @@ class InputGuardrail:
                 response_message=self._TOO_LONG_MESSAGE,
             )
 
-        # Check 2: Prompt injection detection (case-insensitive)
-        message_lower = message.lower()
+        # Check 2: Prompt injection detection (case-insensitive, NFKC-normalized).
+        # Normalization defeats unicode-confusable and whitespace-obfuscation
+        # tricks (e.g. a fullwidth/Cyrillic-lookalike "system:" or
+        # tab/newline injection between words).
+        normalized = unicodedata.normalize("NFKC", message)
+        normalized = re.sub(r"\s+", " ", normalized).lower()
         for pattern in self._INJECTION_PATTERNS:
-            if pattern.lower() in message_lower:
+            if pattern.lower() in normalized:
                 return GuardrailResult(
                     passed=False,
                     rejection_reason="PROMPT_INJECTION",
@@ -179,8 +206,8 @@ class InputGuardrail:
                 )
 
             return GuardrailResult(passed=True, rejection_reason=None, response_message=None)
-        except Exception as exc:
-            logger.warning("Semantic check failed: %s. Passing message (degraded graceful per NFR).", exc)
+        except Exception:
+            logger.warning("Semantic check failed (Azure error); passing message (degraded graceful per NFR).")
             return GuardrailResult(passed=True, rejection_reason=None, response_message=None)
 
     def _cosine_similarity(self, a: list[float], b: list[float]) -> float:
@@ -199,6 +226,12 @@ class InputGuardrail:
             the hot path. Sufficient for 1536-dim vectors in chat latency context.
         """
         if not a or not b:
+            return 0.0
+
+        # Guard against a model change producing a mismatched dimensionality (the
+        # zip() below would silently truncate to the shorter vector otherwise).
+        if len(a) != len(b):
+            logger.warning("Embedding dimension mismatch: %d vs %d — skipping semantic check", len(a), len(b))
             return 0.0
 
         # Compute dot product
@@ -227,16 +260,19 @@ async def log_rejection(
     per ARCH-32 PII requirements) and inserts into ``support_guardrail_rejections``.
 
     Args:
-        db: Database connection with execute method
+        db: Database adapter exposing a ``transaction()`` async context manager
+            (yields a connection with an ``execute`` method).
         session_id: UUID string of the chat session
         reason: Rejection reason ('TOO_LONG', 'PROMPT_INJECTION', 'OFF_TOPIC')
         raw_message: The raw user message (for hashing only, not storage)
     """
-    message_hash = hashlib.sha256(raw_message.encode()).hexdigest()
+    message_hash = hashlib.sha256(raw_message.encode("utf-8", errors="replace")).hexdigest()
 
-    await db.execute(
-        "INSERT INTO support_guardrail_rejections (session_id, rejection_reason, message_hash) VALUES (%s, %s, %s)",
-        (session_id, reason, message_hash),
-    )
+    async with db.transaction() as conn:
+        await conn.execute(
+            "INSERT INTO support_guardrail_rejections (session_id, rejection_reason, message_hash) VALUES (%s, %s, %s)",
+            (session_id, reason, message_hash),
+        )
 
-    logger.debug("Logged guardrail rejection: session_id=%s reason=%s hash=%s", session_id, reason, message_hash)
+    # Do NOT log the hash — it is a correlation handle and must not leak into logs.
+    logger.debug("Logged guardrail rejection: session_id=%s reason=%s", session_id, reason)

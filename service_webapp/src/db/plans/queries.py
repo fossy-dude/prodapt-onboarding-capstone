@@ -52,7 +52,7 @@ async def get_available_plans(conn: AsyncConnection, limit: int = 5) -> list[dic
         SELECT id, plan_name, price_paise, data_limit_mb, voice_minutes, sms_count
           FROM plans_plans
          WHERE is_active = TRUE
-         ORDER BY price_paise ASC
+         ORDER BY price_paise ASC, id ASC
          LIMIT %s
         """,
         (limit,),
