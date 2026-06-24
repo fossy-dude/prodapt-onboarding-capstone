@@ -10,6 +10,23 @@ uv_tox := "uvx --with tox-uv tox"
 default:
     @just --list
 
+# Check that every named environment variable is non-empty.
+# Accumulates all missing names before exiting so callers see the full error list at once.
+[private]
+_check-env *vars:
+    #!/usr/bin/env bash
+    vars="{{vars}}"
+    [[ -z "$vars" ]] && exit 0
+    missing=()
+    for var in $vars; do
+        [[ -z "${!var:-}" ]] && missing+=("$var")
+    done
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "ERROR: The following required environment variables are not set (check service_webapp/.env):"
+        printf '  - %s\n' "${missing[@]}"
+        exit 1
+    fi
+
 # Run tests via tox
 test:
     {{uv_tox}} -e test
@@ -17,6 +34,12 @@ test:
 # Run integration tests (opt-in; integration/slow are skipped by default)
 test-integration:
     {{uv_tox}} -e test -- --run-integration
+
+# Run the chatbot eval suite (LLM-as-Judge + DeepEval) over evals/ fixtures.
+# Requires AZURE_OPENAI_* env vars; exits non-zero if thresholds are not met.
+# (Story 5.2; AC #6) — eval tests are excluded from the standard `test` gate.
+eval:
+    {{uv_tox}} -e eval
 
 # Lint code (ruff lint + ruff format check + pyrefly type check)
 lint:
@@ -29,3 +52,29 @@ tox:
 # Auto-format code (ruff format)
 format:
     uvx ruff format
+
+# Seed Milvus Lite vector store with plans/FAQ/SOP embeddings (Story 2.7; AC #4-7).
+# Run `just seed` at the project root first — plans_plans and sop_knowledge_chunks must be populated.
+# All required vars (AZURE_OPENAI_*, DB__*, VALKEY_URL, KAFKA_BROKERS) are sourced from
+# service_webapp/.env via dotenv-load. MILVUS_DB_URI is computed from justfile_directory()
+# to override the container path stored in .env.
+seed-milvus:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just _check-env AZURE_OPENAI_API_KEY AZURE_OPENAI_ENDPOINT AZURE_OPENAI_API_VERSION \
+        DB__HOST DB__PORT DB__NAME DB__USER DB__PASSWORD \
+        VALKEY_URL KAFKA_BROKERS
+    SCRIPTS="{{ justfile_directory() }}/../scripts"
+    LOCAL_MILVUS_URI="{{ justfile_directory() }}/../data/milvus/sboai.db"
+    mkdir -p "$(dirname "${LOCAL_MILVUS_URI}")"
+    echo "[seed-milvus] Seeding Milvus Lite at ${LOCAL_MILVUS_URI} ..."
+    MILVUS_DB_URI="${LOCAL_MILVUS_URI}" \
+    PYTHONPATH="{{ justfile_directory() }}/src" \
+    uv run --no-project \
+        --with "psycopg[binary]>=3.2" \
+        --with "pydantic-settings>=2.3" \
+        --with "pymilvus[milvus-lite]>=2.5" \
+        --with "langchain-openai>=0.2" \
+        --with "pyyaml>=6" \
+        python3 "${SCRIPTS}/seed_milvus.py"
+    echo "[seed-milvus] Done."

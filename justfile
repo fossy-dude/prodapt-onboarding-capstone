@@ -145,7 +145,7 @@ seed:
 # Override AZURE_OPENAI_API_KEY / AZURE_OPENAI_ENDPOINT / MILVUS_DB_URI in environment
 # before running if the .env values are placeholders.
 seed-milvus:
-    bash scripts/seed_milvus.sh
+    just -d service_webapp -f service_webapp/justfile seed-milvus
 
 # ── Dev servers ──────────────────────────────────────────────────────────────────
 
@@ -188,6 +188,11 @@ test-integration:
 # Run CDR pipeline integration tests (opt-in).
 test-cdr-integration:
     cd cdr-pipeline && {{uv_tox}} -e test -- --run-integration
+
+# Run the chatbot eval suite (LLM-as-Judge + DeepEval). Requires AZURE_OPENAI_*
+# env vars; exits non-zero if quality thresholds are not met. (Story 5.2)
+eval:
+    just -d service_webapp -f service_webapp/justfile eval
 
 # Run frontend unit tests (Vitest).
 test-fe:

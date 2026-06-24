@@ -138,7 +138,7 @@ def seed_plan_vectors(client: MilvusClient, model: AzureOpenAIEmbeddings, conn: 
         for i, r in enumerate(rows)
     ]
     client.upsert(collection_name="plan_vectors", data=data)
-    client.flush(["plan_vectors"])  # flush so row_count reflects the upsert
+    client.flush("plan_vectors")  # flush so row_count reflects the upsert
     count = client.get_collection_stats("plan_vectors")["row_count"]
     logger.info("plan_vectors: %d rows", count)
     return count
@@ -164,7 +164,7 @@ def seed_faq_chunks(client: MilvusClient, model: AzureOpenAIEmbeddings) -> int:
         for i, e in enumerate(entries)
     ]
     client.upsert(collection_name="faq_chunks", data=data)
-    client.flush(["faq_chunks"])  # flush so row_count reflects the upsert
+    client.flush("faq_chunks")  # flush so row_count reflects the upsert
     count = client.get_collection_stats("faq_chunks")["row_count"]
     logger.info("faq_chunks: %d rows", count)
     return count
@@ -192,7 +192,7 @@ def seed_sop_chunks(client: MilvusClient, model: AzureOpenAIEmbeddings, conn: ps
         for i, r in enumerate(rows)
     ]
     client.upsert(collection_name="sop_chunks", data=data)
-    client.flush(["sop_chunks"])  # flush so row_count reflects the upsert
+    client.flush("sop_chunks")  # flush so row_count reflects the upsert
     count = client.get_collection_stats("sop_chunks")["row_count"]
     logger.info("sop_chunks: %d rows", count)
     return count
