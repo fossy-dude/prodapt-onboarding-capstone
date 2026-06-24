@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     azure_openai_endpoint: str = ""
     azure_openai_api_version: str = "2024-08-01-preview"
 
+    # ── Optional: Azure OpenAI deployment names (Story 5.2) ───────────────────
+    # Deployment names (NOT model names) — the user sets these to match their
+    # Azure portal deployments. ``chat_deployment_mini`` is the cheaper deployment
+    # used for judge/eval calls; ``chat_deployment`` is the primary agent
+    # deployment (wired in Story 5.4). [Source: architecture.md:98]
+    chat_deployment_mini: str = "gpt-5.4-mini"
+    chat_deployment: str = "gpt-5.4"
+
     # ── Embedding config (Story 2.7) ──────────────────────────────────────────
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536

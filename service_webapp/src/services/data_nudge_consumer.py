@@ -13,7 +13,7 @@ import asyncio
 import logging
 
 from aiokafka import AIOKafkaConsumer
-from uuid_extensions import uuid7  # noqa: F401 — used via EventEnvelope.new()
+from uuid_extensions import uuid7
 
 logger = logging.getLogger("services.data_nudge_consumer")
 

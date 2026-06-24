@@ -197,6 +197,10 @@ unfixable = []
 # inside fixtures/tests — this controls when the eager ``settings = Settings()`` singleton
 # runs relative to pytest-env populating the required env vars (Story 1.4).
 "tests/*" = ["D100", "D101", "D102", "D103", "D104", "D105", "PLC0415"]
+# evals/ is a test-like tree outside src/: deepeval/openai/core imports are deferred
+# inside test bodies so the module collects in the lean test/lint envs that lack those
+# deps (Story 5.2). Same D/PLC0415 relaxations as tests/.
+"evals/*" = ["D100", "D101", "D102", "D103", "D104", "D105", "PLC0415"]
 
 
 [tool.ruff.lint.flake8-pytest-style]
@@ -414,5 +418,7 @@ passenv = [
     "AZURE_OPENAI_ENDPOINT",
     "AZURE_OPENAI_API_VERSION",
     "OPENAI_API_VERSION",
+    "CHAT_DEPLOYMENT_MINI",
+    "CHAT_DEPLOYMENT",
 ]
 

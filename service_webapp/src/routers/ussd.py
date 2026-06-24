@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from uuid import UUID as _UUID
 
 from fastapi import APIRouter, Request
@@ -365,10 +365,10 @@ async def _handle_plan(
         # Convert start_date to timezone-aware datetime for get_usage_for_period
         start_date = sub["start_date"]
         if isinstance(start_date, datetime):
-            start_dt = start_date.replace(tzinfo=timezone.utc) if start_date.tzinfo is None else start_date
+            start_dt = start_date.replace(tzinfo=UTC) if start_date.tzinfo is None else start_date
         else:
             # date object -> convert to datetime at midnight UTC
-            start_dt = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
+            start_dt = datetime(start_date.year, start_date.month, start_date.day, tzinfo=UTC)
 
         usage = await get_usage_for_period(conn, _UUID(subscriber_id), start_dt, sub["end_date"])
 
