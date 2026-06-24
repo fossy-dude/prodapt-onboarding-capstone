@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_BYPASS_PATHS = frozenset({"/health", "/ready", "/api/v1/ussd/callback"})
+_BYPASS_PATHS = frozenset({"/health", "/ready", "/api/v1/ussd/callback", "/docs", "/redoc", "/openapi.json"})
 
 
 def _resolve_channel(path: str) -> str:
@@ -113,29 +113,35 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         msisdn = _extract_msisdn(request.headers.get("Authorization", ""))
         channel = _resolve_channel(path)
 
-        if msisdn is None:
-            return await call_next(request)
-
         if not self._settings.rate_limiting_enabled:
             response = await call_next(request)
             response.headers["X-RateLimit-Limit"] = str(self._rpm_limit)
             response.headers["X-RateLimit-Channel"] = channel
             return response
 
-        cache = request.app.state.cache_adapter
+        # Enabled mode: rate limit only authenticated requests
+        if msisdn is None:
+            return await call_next(request)
+
+        try:
+            cache = request.app.state.cache_adapter
+        except AttributeError:
+            logger.warning("RateLimitMiddleware: cache_adapter not available, skipping rate limit")
+            return await call_next(request)
+
         minute_bucket = int(time.time()) // 60
         key = f"ratelimit:{msisdn}:{channel}:{minute_bucket}"
         count = await cache.incr_with_expire(key, 60)
 
         if count > self._rpm_limit:
-            retry_after = 60 - (int(time.time()) % 60)
+            retry_after = max(1, 60 - (int(time.time()) % 60))
             return JSONResponse(
                 status_code=429,
                 headers={"Retry-After": str(retry_after)},
                 content={
                     "error": {
                         "code": "RATE_LIMIT_EXCEEDED",
-                        "message": f"100 RPM limit reached. Try again in {retry_after}s",
+                        "message": f"{self._rpm_limit} RPM limit reached. Try again in {retry_after}s",
                     }
                 },
             )

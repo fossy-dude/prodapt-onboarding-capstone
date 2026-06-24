@@ -45,7 +45,6 @@ async def insert_notification_event(
     notification_type: str,
     channel: str,
     payload: dict,
-    trace_id: str,
 ) -> None:
     """Insert a simulated notification event.
 
@@ -57,7 +56,6 @@ async def insert_notification_event(
         notification_type: Type of notification
         channel: Notification channel
         payload: Event payload (will be serialized to JSONB)
-        trace_id: Trace ID for distributed tracing
     """
     sql = """
         INSERT INTO notifications_events (
@@ -70,7 +68,7 @@ async def insert_notification_event(
     """
 
     payload_json = json.dumps(payload)
-    await db.execute(sql, (subscriber_id, notification_type, channel, payload_json, trace_id))
+    await db.execute(sql, (subscriber_id, notification_type, channel, payload_json))
 
 
 __all__ = ["insert_notification_event", "upsert_preference"]

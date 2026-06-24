@@ -114,6 +114,20 @@ def _conninfo() -> str:
     )
 
 
+def _admin_conninfo() -> str:
+    """Connection string using elevated credentials for truncation of append-only tables.
+
+    billing_cdr_events/billing_transactions/billing_audit_log have DELETE revoked from
+    sboai_app (V5 migration). Seed resets require a superuser connection. Falls back to
+    the regular app user if SEED_ADMIN_USER is not set (useful in test environments where
+    V5 hasn't run).
+    """
+    db = settings.db
+    user = os.getenv("SEED_ADMIN_USER", db.user)
+    password = os.getenv("SEED_ADMIN_PASSWORD", db.password.get_secret_value())
+    return f"host={db.host} port={db.port} dbname={db.name} user={user} password={password}"
+
+
 def _rand_msisdn(used: set[str]) -> str:
     while True:
         prefix = random.choice(["6", "7", "8", "9"])
@@ -158,13 +172,16 @@ def _load_plans(conn: psycopg.Connection) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["id", "price_paise"])
 
 
-def _truncate_generated(conn: psycopg.Connection) -> None:
-    # sboai_app has DELETE but not TRUNCATE; UUID PKs have no sequences to reset.
-    with conn.cursor() as cur:
-        cur.execute("DELETE FROM billing_cdr_events")
-        cur.execute("DELETE FROM billing_wallet_balances")
-        cur.execute("DELETE FROM identity_subscribers")
-    conn.commit()
+def _truncate_generated() -> None:
+    # billing_cdr_events has DELETE revoked from sboai_app (V5 append-only grants).
+    # Use the admin connection so the seed script can reset data across all tables.
+    # UUID PKs have no sequences to reset, so DELETE is equivalent to TRUNCATE here.
+    with psycopg.connect(_admin_conninfo(), autocommit=False) as admin_conn:
+        with admin_conn.cursor() as cur:
+            cur.execute("DELETE FROM billing_cdr_events")
+            cur.execute("DELETE FROM billing_wallet_balances")
+            cur.execute("DELETE FROM identity_subscribers")
+        admin_conn.commit()
     log.info("Truncated generated tables")
 
 
@@ -638,7 +655,7 @@ def main() -> None:
         _seed_plans(conn)
 
         log.info("Truncating generated tables ...")
-        _truncate_generated(conn)
+        _truncate_generated()
 
         log.info("Loading plans ...")
         plans_df = _load_plans(conn)

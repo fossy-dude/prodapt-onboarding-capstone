@@ -274,6 +274,13 @@ class BalanceEngine:
                 span_trace_id = format(span_context.trace_id, "032x")
 
                 # Fire-and-forget notification check (task exceptions logged by callback)
+                def _on_notification_done(task: asyncio.Task) -> None:
+                    if task.cancelled():
+                        return
+                    exc = task.exception()
+                    if exc:
+                        logger.error("notification_trigger failed: %s", exc)
+
                 task = asyncio.create_task(
                     self._notification_trigger.check_and_publish(
                         msisdn=msisdn,
@@ -282,10 +289,7 @@ class BalanceEngine:
                         trace_id=span_trace_id,
                     )
                 )
-                # Surface task exceptions without blocking the hot path
-                task.add_done_callback(
-                    lambda t: t.exception() and logger.error("notification_trigger failed: %s", t.exception())
-                )
+                task.add_done_callback(_on_notification_done)
 
             # Overdraft signal (allow + signal policy): the deduction is NOT undone,
             # but a negative result is made visible so it can be reconciled.

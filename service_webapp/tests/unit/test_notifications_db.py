@@ -98,7 +98,6 @@ class TestInsertNotificationEvent:
     async def test_insert_notification_event_with_valid_payload(self):
         """Should insert notification event with simulated status."""
         subscriber_id = str(uuid4())
-        trace_id = str(uuid4())
         payload = {"balance_paise": 1000, "threshold_paise": 5000}
         db = MagicMock()
         db.execute = AsyncMock()
@@ -109,7 +108,6 @@ class TestInsertNotificationEvent:
             notification_type="LOW_BALANCE",
             channel="push",
             payload=payload,
-            trace_id=trace_id,
         )
 
         db.execute.assert_called_once()
@@ -119,10 +117,9 @@ class TestInsertNotificationEvent:
         assert "'simulated'" in call_args[0][0]
 
     @pytest.mark.asyncio
-    async def test_insert_notification_event_includes_trace_id(self):
-        """Should include trace_id in the notification event."""
+    async def test_insert_notification_event_includes_payload(self):
+        """Should include serialized payload in the notification event."""
         subscriber_id = str(uuid4())
-        trace_id = str(uuid4())
         payload = {"message": "Test notification"}
         db = MagicMock()
         db.execute = AsyncMock()
@@ -133,10 +130,9 @@ class TestInsertNotificationEvent:
             notification_type="DATA_NUDGE",
             channel="sms",
             payload=payload,
-            trace_id=trace_id,
         )
 
         db.execute.assert_called_once()
         call_args = db.execute.call_args
-        # Check that trace_id is included in the SQL call
-        assert trace_id in call_args[0][1]
+        # Check that the payload JSON is included in the SQL params
+        assert "Test notification" in call_args[0][1][3]

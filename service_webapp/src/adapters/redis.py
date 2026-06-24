@@ -70,18 +70,17 @@ class ValkeyAdapter(CacheProtocol):
         return await self._client.incrby(f"balance:{msisdn}", delta_paise)
 
     async def incr_with_expire(self, key: str, ttl_seconds: int) -> int:
-        """INCR key then EXPIRE key ttl_seconds; return new counter value (Story 4.3).
+        """Atomically INCR key and set TTL if key is new; return new counter value.
 
-        Two round-trips are acceptable for the MVP stub (rate limiting disabled by
-        default). Target State: replace with a single-round-trip Lua script:
-        # TODO(target-state): eval "local c=redis.call('INCR',KEYS[1])
-        #   redis.call('EXPIRE',KEYS[1],ARGV[1]) return c" 1 key ttl
+        Uses a Lua script so INCR and EXPIRE are executed atomically in a single
+        round-trip. The TTL is only set on the first increment (NX semantics) to
+        avoid resetting the window on every request.
         """
-        async with self._client.pipeline(transaction=False) as pipe:
-            pipe.incr(key)
-            pipe.expire(key, ttl_seconds)
-            results = await pipe.execute()
-        return int(results[0])
+        lua_script = (
+            "local c = redis.call('INCR', KEYS[1])\nif c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end\nreturn c"
+        )
+        result = await self._client.eval(lua_script, 1, key, ttl_seconds)
+        return int(result)
 
     async def hset(self, key: str, mapping: dict[str, str], *, ex: int | None = None) -> None:
         """HSET ``key`` from mapping; optionally EXPIRE after ``ex`` seconds (Story 4.4)."""

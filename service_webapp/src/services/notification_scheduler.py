@@ -14,21 +14,29 @@ from typing import TYPE_CHECKING
 logger = logging.getLogger("services.notification_scheduler")
 
 
-async def run_plan_expiry_check(db, producer, lead_days: int) -> None:
+async def run_plan_expiry_check(db, producer) -> None:
     """Query expiring plans and publish PLAN_EXPIRY_REMINDER events.
 
-    Finds subscribers with active plans expiring within lead_days from now,
-    and publishes a PLAN_EXPIRY_REMINDER notification event for each.
-
-    Parameters
-    ----------
-    db :
-        Postgres database adapter with transaction() context manager.
-    producer :
-        Kafka producer (AIOKafkaProducer) for publishing notification events.
-    lead_days : int
-        Days before expiry to send reminder (from notification_threshold_config).
+    Reads lead_days from notification_threshold_config at each run so that
+    config changes take effect without a service restart.
     """
+    lead_days = 3  # fallback default
+    try:
+        async with db.transaction() as conn:
+            cur = await conn.execute(
+                "SELECT value FROM notification_threshold_config WHERE key = %s",
+                ("plan_expiry_reminder_days",),
+            )
+            row = await cur.fetchone()
+            if row is not None:
+                lead_days = int(row[0])
+    except Exception as exc:
+        logger.warning("run_plan_expiry_check: could not read lead_days (using default %d): %s", lead_days, exc)
+
+    from uuid_extensions import uuid7
+
+    batch_trace_id = str(uuid7())
+
     today = date.today()
     published_count = 0
 
@@ -56,8 +64,6 @@ async def run_plan_expiry_check(db, producer, lead_days: int) -> None:
     from datetime import datetime
     from uuid import UUID
 
-    from uuid_extensions import uuid7
-
     for subscriber_id, msisdn, end_date in rows:
         try:
             days_remaining = (end_date - today).days
@@ -67,7 +73,7 @@ async def run_plan_expiry_check(db, producer, lead_days: int) -> None:
             payload = {
                 "event_type": "notification.plan",
                 "event_id": str(uuid7()),
-                "trace_id": "0" * 32,
+                "trace_id": batch_trace_id,
                 "timestamp": datetime.now(UTC).isoformat(),
                 "payload": {
                     "type": "PLAN_EXPIRY_REMINDER",

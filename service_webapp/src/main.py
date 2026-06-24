@@ -223,7 +223,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                         # Extract subscriber_id and notification_type from EventEnvelope
                         payload = msg.value.get("payload", {})
                         subscriber_id = payload.get("subscriber_id")
-                        notification_type = payload.get("notification_type")
+                        notification_type = payload.get("type")
 
                         if not subscriber_id or not notification_type:
                             logger.debug("Missing subscriber_id or notification_type in payload")
@@ -255,12 +255,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                                     subscriber_id=subscriber_id,
                                     notification_type=notification_type,
                                     channel=channel,
-                                    payload=payload,
-                                    trace_id=trace_id,
+                                    payload=msg.value,
                                 )
                                 logger.debug(
                                     "Dispatched notification: subscriber=%s type=%s channel=%s",
-                                    subscriber_id[-4:],
+                                    payload.get("msisdn_last4", subscriber_id[-4:]),
                                     notification_type,
                                     channel,
                                 )
@@ -268,7 +267,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                                 # Subscriber opted out - discard
                                 logger.debug(
                                     "Notification opted out: subscriber=%s type=%s",
-                                    subscriber_id[-4:],
+                                    payload.get("msisdn_last4", subscriber_id[-4:]),
                                     notification_type,
                                 )
 
@@ -306,31 +305,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         from services.notification_scheduler import run_plan_expiry_check
 
-        lead_days = 3  # default
-        try:
-            async with app.state.db_adapter.transaction() as conn:
-                cur = await conn.execute(
-                    "SELECT value FROM notification_threshold_config WHERE key = %s",
-                    ("plan_expiry_reminder_days",),
-                )
-                row = await cur.fetchone()
-                if row is not None:
-                    lead_days = int(row[0])
-        except Exception as exc:
-            logging.getLogger(__name__).warning(
-                "plan_expiry_scheduler: could not read lead_days from DB, using default 3: %s", exc
-            )
-
         plan_expiry_scheduler = AsyncIOScheduler()
         plan_expiry_scheduler.add_job(
             run_plan_expiry_check,
             trigger=CronTrigger(hour=2, minute=30, timezone="UTC"),
-            args=[app.state.db_adapter, app.state.kafka_producer, lead_days],
+            args=[app.state.db_adapter, app.state.kafka_producer],
             id="plan_expiry_reminder",
             replace_existing=True,
         )
         plan_expiry_scheduler.start()
-        logging.getLogger(__name__).info("plan_expiry_scheduler: started (02:30 UTC daily, lead_days=%d)", lead_days)
+        logging.getLogger(__name__).info("plan_expiry_scheduler: started (02:30 UTC daily)")
     except Exception as exc:
         logging.getLogger(__name__).warning("plan_expiry_scheduler: failed to start: %s", exc)
         plan_expiry_scheduler = None

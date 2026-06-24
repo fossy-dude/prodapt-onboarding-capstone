@@ -50,7 +50,7 @@ async def test_run_plan_expiry_check_publishes_for_expiring_subscribers(
         return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock(return_value=None))
     )
 
-    await run_plan_expiry_check(mock_db, mock_producer, lead_days=3)
+    await run_plan_expiry_check(mock_db, mock_producer)
 
     assert mock_producer.send_and_wait.call_count == 2
 
@@ -85,7 +85,7 @@ async def test_run_plan_expiry_check_no_calls_when_no_subscribers(mock_db: Magic
         return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock(return_value=None))
     )
 
-    await run_plan_expiry_check(mock_db, mock_producer, lead_days=3)
+    await run_plan_expiry_check(mock_db, mock_producer)
 
     assert mock_producer.send_and_wait.call_count == 0
 
@@ -105,7 +105,7 @@ async def test_run_plan_expiry_check_includes_days_remaining(mock_db: MagicMock,
         return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock(return_value=None))
     )
 
-    await run_plan_expiry_check(mock_db, mock_producer, lead_days=3)
+    await run_plan_expiry_check(mock_db, mock_producer)
 
     payload = mock_producer.send_and_wait.call_args.kwargs["value"]["payload"]
     assert payload["days_remaining"] == 1
@@ -126,7 +126,7 @@ async def test_run_plan_expiry_check_event_keyed_by_msisdn(mock_db: MagicMock, m
         return_value=AsyncMock(__aenter__=AsyncMock(return_value=mock_conn), __aexit__=AsyncMock(return_value=None))
     )
 
-    await run_plan_expiry_check(mock_db, mock_producer, lead_days=3)
+    await run_plan_expiry_check(mock_db, mock_producer)
 
     call_kwargs = mock_producer.send_and_wait.call_args.kwargs
     assert call_kwargs["key"] == b"9876543210"

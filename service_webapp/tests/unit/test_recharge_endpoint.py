@@ -61,9 +61,10 @@ def _plan_row(
     data_limit_mb: int | None = 10240,
     voice_minutes: int | None = 600,
     sms_count: int | None = 100,
+    is_active: bool = True,
 ) -> tuple:
-    """7-column row matching the get_active_plans SELECT order."""
-    return (uuid4(), name, price_paise, validity_days, data_limit_mb, voice_minutes, sms_count)
+    """8-column row matching the get_active_plans SELECT order."""
+    return (uuid4(), name, price_paise, validity_days, data_limit_mb, voice_minutes, sms_count, is_active)
 
 
 def _sub_payload(groups: list[str] | None = None) -> dict:

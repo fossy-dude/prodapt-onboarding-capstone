@@ -6,7 +6,7 @@
 
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 set dotenv-load := true
-set dotenv-path := "service_webapp/.env"
+set dotenv-path := "docker/.env"
 
 # tox is run through `uv` via the tox-uv plugin (it provides `uv-venv-runner`).
 # NOTE: architecture.md §1.12.2 documents `uv tox`, but that is not a real `uv`
@@ -17,6 +17,23 @@ uv_tox := "uvx --with tox-uv tox"
 # Default: print the recipe list so `just` with no args is helpful, not cryptic.
 default:
     @just --list
+
+# Check that every named environment variable is non-empty.
+# Accumulates all missing names before exiting so callers see the full error list at once.
+[private]
+_check-env *vars:
+    #!/usr/bin/env bash
+    vars="{{vars}}"
+    [[ -z "$vars" ]] && exit 0
+    missing=()
+    for var in $vars; do
+        [[ -z "${!var:-}" ]] && missing+=("$var")
+    done
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "ERROR: The following required environment variables are not set (check docker/.env):"
+        printf '  - %s\n' "${missing[@]}"
+        exit 1
+    fi
 
 # ── Dependencies / infrastructure (Podman) ───────────────────────────────────────
 
@@ -86,13 +103,12 @@ restart svc:
 migrate:
     #!/usr/bin/env bash
     set -euo pipefail
-    FW_USER=$(grep '^POSTGRES_FLYWAY_USERNAME=' docker/.env | cut -d= -f2)
-    FW_PASS=$(grep '^POSTGRES_FLYWAY_PASSWORD=' docker/.env | cut -d= -f2)
+    just _check-env POSTGRES_FLYWAY_USERNAME POSTGRES_FLYWAY_PASSWORD
     podman run --rm \
         --network host \
         -e FLYWAY_URL=jdbc:postgresql://localhost:5432/sboai \
-        -e "FLYWAY_USER=${FW_USER}" \
-        -e "FLYWAY_PASSWORD=${FW_PASS}" \
+        -e "FLYWAY_USER=${POSTGRES_FLYWAY_USERNAME}" \
+        -e "FLYWAY_PASSWORD=${POSTGRES_FLYWAY_PASSWORD}" \
         -e FLYWAY_SCHEMAS=public \
         -e FLYWAY_CONNECT_RETRIES=10 \
         -e FLYWAY_LOCATIONS=filesystem:/flyway/sql \
@@ -109,25 +125,17 @@ migrate:
 seed:
     #!/usr/bin/env bash
     set -euo pipefail
-    APP_PASS=$(grep '^POSTGRES_APP_PASSWORD=' docker/.env | cut -d= -f2)
-    export DB__HOST=localhost
-    export DB__PORT=5432
-    export DB__NAME=sboai
-    export DB__USER=sboai_app
-    export DB__PASSWORD="${APP_PASS}"
-    export VALKEY_URL=redis://localhost:6379
-    export KAFKA_BROKERS=localhost:9092
+    just _check-env DB__HOST DB__PORT DB__NAME DB__USER DB__PASSWORD SEED_ADMIN_USER SEED_ADMIN_PASSWORD VALKEY_URL KAFKA_BROKERS
     SCRIPTS="{{ justfile_directory() }}/scripts"
-    export PYTHONPATH="{{ justfile_directory() }}/service_webapp/src"
     # --no-project: skip editable install (project uses package=skip in tox; not a buildable package).
     # project deps (psycopg, pydantic-settings) pulled via --with; seed-only deps (numpy/pandas/faker) also via --with.
     echo "[seed] Seeding plans + subscribers + CDRs ..."
-    uv run --no-project \
+    PYTHONPATH="{{ justfile_directory() }}/service_webapp/src" uv run --no-project \
         --with "psycopg[binary]>=3.2" --with "pydantic-settings>=2.3" \
         --with "numpy>=1.26" --with "pandas>=2.0" --with "faker>=26" \
         python3 "${SCRIPTS}/generate_synthetic_data.py"
     echo "[seed] Seeding SOP knowledge base ..."
-    uv run --no-project \
+    PYTHONPATH="{{ justfile_directory() }}/service_webapp/src" uv run --no-project \
         --with "psycopg[binary]>=3.2" --with "pydantic-settings>=2.3" \
         python3 "${SCRIPTS}/sop_generator.py"
     echo "[seed] Done. Fraud demo report: scripts/fraud_report.json"

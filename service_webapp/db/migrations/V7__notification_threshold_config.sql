@@ -23,7 +23,8 @@ CREATE TRIGGER trg_notification_threshold_config_modified_at
 INSERT INTO notification_threshold_config (key, value)
 VALUES
     ('low_balance_threshold_paise', '1000'),
-    ('plan_expiry_reminder_days', '3')
+    ('plan_expiry_reminder_days', '3'),
+    ('rate_limit_rpm', '100')
 ON CONFLICT (key) DO NOTHING;
 
 -- Add comment for documentation

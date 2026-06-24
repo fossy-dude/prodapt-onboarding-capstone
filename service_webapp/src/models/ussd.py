@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 UssdMenuState = Literal[
     "root",
@@ -21,8 +21,8 @@ class UssdCallbackRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    msisdn: str
-    session_id: str
+    msisdn: str = Field(min_length=1)
+    session_id: str = Field(min_length=1)
     button_pressed: str = ""
     ussd_string: str = ""
 

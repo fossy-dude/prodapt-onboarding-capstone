@@ -11,7 +11,6 @@ import logging
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
 
 from core.auth import require_role
 from core.responses import success_envelope
@@ -104,22 +103,6 @@ async def patch_notification_preference(
     """
     subscriber_id = _require_sub(jwt_payload)
     db = _db(request)
-
-    # Validate notification_type (Pydantic does this, but double-check)
-    if payload.notification_type not in _ALL_NOTIFICATION_TYPES:
-        from fastapi import status
-        from pydantic import ValidationError
-
-        raise ValidationError.from_exception_data(
-            "PatchNotificationPreferenceRequest",
-            [
-                {
-                    "type": "literal_error",
-                    "loc": ("notification_type",),
-                    "msg": f"Notification type must be one of {_ALL_NOTIFICATION_TYPES}",
-                }
-            ],
-        )
 
     async with db.transaction() as conn:
         await upsert_preference(

@@ -249,7 +249,7 @@ async def test_balance_option_reads_valkey():
     app = _make_app(cache=cache)
     resp = await _post(app, _req(button="1"))
     assert resp.status_code == 200
-    assert "Rs.123.45" in resp.text
+    assert "₹123.45" in resp.text
     assert "0. Back" in resp.text
 
 
@@ -263,7 +263,7 @@ async def test_balance_falls_back_to_db_on_cold_cache():
     app = _make_app(db=_FakeDb(conn))
     resp = await _post(app, _req(button="1"))
     assert resp.status_code == 200
-    assert "Rs.99.00" in resp.text
+    assert "₹99.00" in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +277,7 @@ async def test_plan_option_returns_plan_details():
     end_date = datetime(2026, 12, 31, tzinfo=UTC)
     conn = _FakeConn(
         subscriber_row=(uuid.UUID(_SUB_ID), _MSISDN),
-        plan_sub_row=("UltraData", end_date, 10240, 300, 100),
+        plan_sub_row=("UltraData", end_date, 10240, 300, 100, datetime(2026, 1, 1, tzinfo=UTC)),
     )
     app = _make_app(db=_FakeDb(conn))
     resp = await _post(app, _req(button="2"))

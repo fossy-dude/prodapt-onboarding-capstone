@@ -21,7 +21,8 @@ async def get_active_subscription(conn: AsyncConnection, subscriber_id: str) -> 
             ps.end_date,
             pp.data_limit_mb,
             pp.voice_minutes,
-            pp.sms_count
+            pp.sms_count,
+            ps.start_date
           FROM plans_subscriptions ps
           JOIN plans_plans pp ON pp.id = ps.plan_id
          WHERE ps.subscriber_id = %s::uuid
@@ -40,6 +41,7 @@ async def get_active_subscription(conn: AsyncConnection, subscriber_id: str) -> 
         "data_limit_mb": row[2],
         "voice_minutes": row[3],
         "sms_count": row[4],
+        "start_date": row[5],
     }
 
 

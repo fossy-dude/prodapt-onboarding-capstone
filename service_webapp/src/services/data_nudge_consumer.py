@@ -10,12 +10,14 @@ Runs as a background task alongside the notification_consumer_task.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 
 from aiokafka import AIOKafkaConsumer
+from uuid_extensions import uuid7  # noqa: F401 — used via EventEnvelope.new()
 
 logger = logging.getLogger("services.data_nudge_consumer")
+
+_data_nudge_notified: set[str] = set()
 
 
 async def run_data_nudge_consumer(db, producer) -> None:
@@ -32,6 +34,8 @@ async def run_data_nudge_consumer(db, producer) -> None:
     producer : Kafka producer
         Kafka producer for publishing notification events.
     """
+    import json
+
     from core.config import settings
     from db.billing.queries import get_active_plan_data_quota
 
@@ -83,21 +87,21 @@ async def run_data_nudge_consumer(db, producer) -> None:
 
                         # Check if below 10% threshold
                         if data_limit_mb > 0:
-                            pct_remaining = (data_limit_mb - data_mb_used) / data_limit_mb
+                            pct_remaining = max(0.0, (data_limit_mb - data_mb_used) / data_limit_mb)
                             if pct_remaining < 0.10:
-                                # Publish DATA_NUDGE event
+                                # Dedup: only fire once per subscriber per process lifetime
+                                if subscriber_id_str in _data_nudge_notified:
+                                    continue
+                                _data_nudge_notified.add(subscriber_id_str)
+
+                                # Build notification envelope
                                 msisdn = payload.get("from_number", "")[-4:] if payload.get("from_number") else ""
 
-                                from datetime import UTC, datetime
-                                from uuid import UUID
+                                from models.envelope import EventEnvelope
 
-                                # Build notification payload
-                                notification_payload = {
-                                    "event_type": "notification.balance",
-                                    "event_id": str(UUID(int=0)),  # Placeholder - should use uuid7()
-                                    "trace_id": envelope.get("trace_id", "0" * 32),
-                                    "timestamp": datetime.now(UTC).isoformat(),
-                                    "payload": {
+                                notification_envelope = EventEnvelope.new(
+                                    event_type="notification.balance",
+                                    payload={
                                         "type": "DATA_NUDGE",
                                         "subscriber_id": subscriber_id_str,
                                         "msisdn_last4": msisdn,
@@ -105,13 +109,13 @@ async def run_data_nudge_consumer(db, producer) -> None:
                                         "data_limit_mb": data_limit_mb,
                                         "pct_remaining": round(pct_remaining, 3),
                                     },
-                                }
+                                    trace_id=envelope.get("trace_id", "0" * 32),
+                                )
 
-                                # Publish via producer (assuming send() method)
-                                await producer.send_and_wait(
-                                    "notification.events",
-                                    value=notification_payload,
-                                    key=payload.get("from_number", "unknown").encode(),
+                                await producer.publish(
+                                    topic="notification.events",
+                                    key=payload.get("from_number", "unknown"),
+                                    envelope=notification_envelope,
                                 )
 
                                 logger.info(

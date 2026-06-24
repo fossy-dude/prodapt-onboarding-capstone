@@ -122,22 +122,28 @@ export function NotificationPreferences() {
 
   // Mutation for updating preferences
   const updateMutation = useMutation({
-    mutationFn: async ({
-      notification_type,
-      is_enabled,
-    }: {
-      readonly notification_type: string;
-      readonly is_enabled: boolean;
-    }) => {
-      const response = await patchNotificationPreference({ notification_type, is_enabled });
-      return response;
+    mutationFn: (variables: { notification_type: string; is_enabled: boolean }) =>
+      patchNotificationPreference(variables),
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey: ["notification-preferences"] });
+      const previous = queryClient.getQueryData(["notification-preferences"]);
+      queryClient.setQueryData(["notification-preferences"], (old: NotificationPreferenceItem[] | undefined) => {
+        if (!old) return old;
+        return old.map((p) =>
+          p.notification_type === variables.notification_type
+            ? { ...p, is_enabled: variables.is_enabled }
+            : p
+        );
+      });
+      return { previous };
     },
-    onSuccess: async () => {
-      try {
-        await queryClient.invalidateQueries({ queryKey: ["notification-preferences"] });
-      } catch (err) {
-        console.error("Failed to invalidate notification preferences query:", err);
+    onError: (_err: unknown, _variables: unknown, context: { previous: unknown } | undefined) => {
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(["notification-preferences"], context.previous);
       }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["notification-preferences"] });
     },
   });
 

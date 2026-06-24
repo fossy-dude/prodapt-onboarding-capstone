@@ -63,7 +63,6 @@ async def test_dispatcher_inserts_notification_event_when_opted_in():
         notification_type="LOW_BALANCE",
         channel="push",
         payload={"balance_paise": 1000},
-        trace_id=str(uuid4()),
     )
 
     assert insert_called, "insert_notification_event should have been called"

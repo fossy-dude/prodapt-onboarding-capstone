@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime, timezone
+from uuid import UUID as _UUID
 
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
+from db.billing.queries import get_usage_for_period
 from db.identity.queries import get_subscriber_by_msisdn
 from db.notifications.commands import upsert_preference
 from db.notifications.queries import get_preferences
@@ -134,20 +137,25 @@ async def ussd_callback(req: UssdCallbackRequest, request: Request) -> Response:
     session: dict[str, str] = await cache.hgetall(session_key)
     menu_state = session.get("menu_state", "root")
 
+    # Cross-check: if session has an msisdn, it must match the request msisdn
+    if "msisdn" in session and session["msisdn"] != req.msisdn:
+        await cache.delete(session_key)
+        return _plain("Session invalid.\n0. Exit")
+
     # Look up subscriber by MSISDN
     async with db.transaction() as conn:
         subscriber = await get_subscriber_by_msisdn(conn, req.msisdn)
 
     if subscriber is None:
-        # AC #10: unknown MSISDN
-        await cache.hset(session_key, {"menu_state": "root"}, ex=_SESSION_TTL)
+        # AC #10: unknown MSISDN — do not create a ghost session
         return _plain("Unknown subscriber.\n0. Exit")
 
     subscriber_id = subscriber["id"]
 
-    # Store subscriber_id in session on first request
+    # Store subscriber_id and msisdn in session on first request
     if "subscriber_id" not in session:
         session["subscriber_id"] = subscriber_id
+        session["msisdn"] = req.msisdn
     else:
         subscriber_id = session["subscriber_id"]
 
@@ -163,11 +171,17 @@ async def ussd_callback(req: UssdCallbackRequest, request: Request) -> Response:
     )
 
     if updated_state is None:
-        # Session terminated (Exit at root)
-        await cache.delete(session_key)
+        try:
+            await cache.delete(session_key)
+        except Exception:
+            logger.warning("USSD session delete failed for session_key=%s", session_key)
     else:
         updated_state["subscriber_id"] = subscriber_id
-        await cache.hset(session_key, updated_state, ex=_SESSION_TTL)
+        updated_state["msisdn"] = req.msisdn
+        try:
+            await cache.hset(session_key, updated_state, ex=_SESSION_TTL)
+        except Exception:
+            logger.warning("USSD session save failed for session_key=%s", session_key)
 
     return _plain(text)
 
@@ -241,7 +255,7 @@ async def _dispatch(
             if plan is None:
                 return await _handle_recharge_select(subscriber_id, db)
             price_inr = plan["price_paise"] / 100
-            text = f"{plan['plan_name']} - Rs.{price_inr:.2f}\nPress 1 to confirm\n0. Back"
+            text = f"{plan['plan_name']} - ₹{price_inr:.2f}\nPress 1 to confirm\n0. Back"
             return text, {
                 "menu_state": "recharge_confirm",
                 "plan_ids": plan_ids_str,
@@ -262,6 +276,7 @@ async def _dispatch(
                 subscriber_id=subscriber_id,
                 msisdn=msisdn,
                 plan_id=selected_plan_id,
+                session_key=session_key,
                 db=db,
                 cache=cache,
             )
@@ -274,7 +289,7 @@ async def _dispatch(
                 plan = await _get_plan_by_id(conn, selected_plan_id)
             if plan:
                 price_inr = plan["price_paise"] / 100
-                text = f"{plan['plan_name']} - Rs.{price_inr:.2f}\nPress 1 to confirm\n0. Back"
+                text = f"{plan['plan_name']} - ₹{price_inr:.2f}\nPress 1 to confirm\n0. Back"
                 return text, {
                     "menu_state": "recharge_confirm",
                     "plan_ids": plan_ids_str,
@@ -333,7 +348,7 @@ async def _handle_balance(
             row = await cur.fetchone()
             paise = row[0] if row else 0
     inr = paise / 100
-    text = f"Your balance is Rs.{inr:.2f}\n0. Back"
+    text = f"Your balance is ₹{inr:.2f}\n0. Back"
     return text, {"menu_state": "balance"}
 
 
@@ -341,19 +356,40 @@ async def _handle_plan(
     subscriber_id: str,
     db,
 ) -> tuple[str, dict[str, str]]:
-    """Fetch active subscription and format plan text."""
+    """Fetch active subscription and format plan text with remaining usage."""
     async with db.transaction() as conn:
         sub = await get_active_subscription(conn, subscriber_id)
+        if sub is None:
+            return "No active plan.\n0. Back", {"menu_state": "plan"}
 
-    if sub is None:
-        return "No active plan.\n0. Back", {"menu_state": "plan"}
+        # Convert start_date to timezone-aware datetime for get_usage_for_period
+        start_date = sub["start_date"]
+        if isinstance(start_date, datetime):
+            start_dt = start_date.replace(tzinfo=timezone.utc) if start_date.tzinfo is None else start_date
+        else:
+            # date object -> convert to datetime at midnight UTC
+            start_dt = datetime(start_date.year, start_date.month, start_date.day, tzinfo=timezone.utc)
+
+        usage = await get_usage_for_period(conn, _UUID(subscriber_id), start_dt, sub["end_date"])
 
     end_date = sub["end_date"]
     expiry_str = end_date.strftime("%d %b %Y") if end_date else "N/A"
 
-    data = f"{sub['data_limit_mb']} MB" if sub["data_limit_mb"] else "Unlimited"
-    voice = f"{sub['voice_minutes']} min" if sub["voice_minutes"] else "Unlimited"
-    sms = f"{sub['sms_count']}" if sub["sms_count"] else "Unlimited"
+    # Show remaining, not limit
+    data_limit = sub["data_limit_mb"] or 0
+    data_used = usage["data_mb_used"]
+    data_remaining = max(0.0, data_limit - data_used)
+    data = f"{data_remaining:.0f}/{data_limit} MB" if data_limit else "Unlimited"
+
+    voice_limit = sub["voice_minutes"] or 0
+    voice_used = usage["voice_minutes_used"]
+    voice_remaining = max(0.0, voice_limit - voice_used)
+    voice = f"{voice_remaining:.0f}/{voice_limit} min" if voice_limit else "Unlimited"
+
+    sms_limit = sub["sms_count"] or 0
+    sms_used = usage["sms_count_used"]
+    sms_remaining = max(0, sms_limit - sms_used)
+    sms = f"{sms_remaining}/{sms_limit}" if sms_limit else "Unlimited"
 
     text = f"Plan: {sub['plan_name']}\nExpires: {expiry_str}\nData: {data}\nVoice: {voice}\nSMS: {sms}\n0. Back"
     return text, {"menu_state": "plan"}
@@ -374,7 +410,7 @@ async def _handle_recharge_select(
     plan_ids = []
     for i, plan in enumerate(plans, start=1):
         price_inr = plan["price_paise"] / 100
-        lines.append(f"{i}. {plan['plan_name']} Rs.{price_inr:.0f}")
+        lines.append(f"{i}. {plan['plan_name']} ₹{price_inr:.0f}")
         plan_ids.append(plan["id"])
     lines.append("0. Back")
 
@@ -399,6 +435,7 @@ async def _handle_recharge_confirm(
     subscriber_id: str,
     msisdn: str,
     plan_id: str,
+    session_key: str,
     db,
     cache,
 ) -> tuple[str, dict[str, str]]:
@@ -413,7 +450,7 @@ async def _handle_recharge_confirm(
         return "No saved payment method.\n0. Back", {"menu_state": "root"}
 
     try:
-        idempotency_key = f"ussd-{subscriber_id}-{plan_id}-{uuid.uuid4()}"
+        idempotency_key = f"ussd-{subscriber_id}-{plan_id}-{session_key}"
         async with db.transaction() as conn:
             order = await create_recharge_order(
                 conn=conn,
@@ -431,14 +468,15 @@ async def _handle_recharge_confirm(
                 subscriber_id=uuid.UUID(subscriber_id),
                 amount_paise=order["amount_paise"],
             )
-
+        if result is None or "new_balance_paise" not in result:
+            return "Recharge failed.\n0. Back", {"menu_state": "root"}
+        new_balance_inr = result["new_balance_paise"] / 100
         await cache.incr_balance(msisdn, order["amount_paise"])
     except Exception:
         logger.exception("USSD recharge failed subscriber_id=%s plan_id=%s", subscriber_id, plan_id)
         return "Recharge failed.\n0. Back", {"menu_state": "root"}
 
-    new_balance_inr = result["new_balance_paise"] / 100
-    return f"Recharge successful.\nBalance: Rs.{new_balance_inr:.2f}\n0. Back", {"menu_state": "root"}
+    return f"Recharge successful.\nBalance: ₹{new_balance_inr:.2f}\n0. Back", {"menu_state": "root"}
 
 
 __all__ = ["router"]
