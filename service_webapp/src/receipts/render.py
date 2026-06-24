@@ -62,8 +62,7 @@ def render_receipt_pdf(
     """
     try:
         # type: ignore[misc] — WeasyPrint excluded from tox test env
-        # noqa: PLC0415 — WeasyPrint excluded from tox test env
-        from weasyprint import HTML
+        from weasyprint import HTML  # noqa: PLC0415
     except ImportError as exc:
         raise ImportError("WeasyPrint is required for PDF rendering but is not installed") from exc
 

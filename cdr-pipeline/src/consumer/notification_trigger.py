@@ -21,6 +21,8 @@ from uuid import UUID
 from opentelemetry import trace
 from uuid_extensions import uuid7
 
+from models.envelope import EventEnvelope
+
 if TYPE_CHECKING:
     from core.protocols.broker import MessageBrokerProtocol
 
@@ -151,8 +153,6 @@ class NotificationTrigger:
         trace_id: str,
     ) -> None:
         """Publish LOW_BALANCE notification event to Kafka."""
-        from models.envelope import EventEnvelope
-
         envelope = EventEnvelope.new(
             event_type="notification.balance",
             payload={
@@ -173,8 +173,6 @@ class NotificationTrigger:
 
     async def _publish_balance_depleted(self, msisdn: str, subscriber_id: str, trace_id: str) -> None:
         """Publish BALANCE_DEPLETED notification event to Kafka."""
-        from models.envelope import EventEnvelope
-
         envelope = EventEnvelope.new(
             event_type="notification.balance",
             payload={

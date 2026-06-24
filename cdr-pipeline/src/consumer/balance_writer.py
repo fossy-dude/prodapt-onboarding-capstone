@@ -35,9 +35,9 @@ from opentelemetry import metrics, trace
 from consumer.startup import load_balances_from_postgres
 
 if TYPE_CHECKING:
+    from consumer.notification_trigger import NotificationTrigger
     from core.protocols.cache import CacheProtocol
     from core.protocols.db import DatabaseProtocol
-    from consumer.notification_trigger import NotificationTrigger
     from models.cdr import CdrEvent
 
 logger = logging.getLogger("consumer.balance_writer")
@@ -153,7 +153,7 @@ class BalanceEngine:
         *,
         flush_interval: float = 2.0,
         flush_dirty_threshold: int = 5000,
-        notification_trigger: "NotificationTrigger | None" = None,
+        notification_trigger: NotificationTrigger | None = None,
     ) -> None:
         self._cache: CacheProtocol = cache
         self._db: DatabaseProtocol = db

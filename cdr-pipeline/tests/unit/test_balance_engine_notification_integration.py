@@ -123,8 +123,9 @@ async def test_deduct_calls_notification_trigger_when_wired(
     engine._msisdn_to_subscriber = {"9876543210": "00000000-0000-0000-0000-000000000003"}
 
     # Create a mock CDR - use VoiceCdr (concrete type)
-    from models.cdr import VoiceCdr
     from uuid import UUID
+
+    from models.cdr import VoiceCdr
 
     cdr = VoiceCdr(
         cdr_id=UUID("00000000-0000-0000-0000-000000000001"),
@@ -172,8 +173,9 @@ async def test_deduct_skips_notification_trigger_when_none(
     engine._msisdn_to_subscriber = {"9876543210": "00000000-0000-0000-0000-000000000003"}
 
     # Create a mock CDR - use VoiceCdr (concrete type)
-    from models.cdr import VoiceCdr
     from uuid import UUID
+
+    from models.cdr import VoiceCdr
 
     cdr = VoiceCdr(
         cdr_id=UUID("00000000-0000-0000-0000-000000000001"),
@@ -229,8 +231,9 @@ async def test_deduct_uses_asyncio_create_task_for_fire_and_forget(
         engine._subscriber_to_msisdn = {"00000000-0000-0000-0000-000000000003": "9876543210"}
         engine._msisdn_to_subscriber = {"9876543210": "00000000-0000-0000-0000-000000000003"}
 
-        from models.cdr import VoiceCdr
         from uuid import UUID
+
+        from models.cdr import VoiceCdr
 
         cdr = VoiceCdr(
             cdr_id=UUID("00000000-0000-0000-0000-000000000001"),
