@@ -102,7 +102,9 @@ function PlanDetailsCard() {
         </p>
         {days !== null && (
           <span className="text-xs text-neutral-400">
-            {days} {days === 1 ? "day" : "days"} left
+            {days < 0
+              ? "Expired"
+              : `${days} ${days === 1 ? "day" : "days"} left`}
           </span>
         )}
       </div>

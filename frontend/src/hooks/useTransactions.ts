@@ -60,6 +60,7 @@ function useTransactions() {
     pageIndex,
     isLoading: query.isLoading,
     isError: query.isError,
+    isFetching: query.isFetching,
   };
 }
 

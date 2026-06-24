@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
@@ -32,9 +33,12 @@ from db.recharge.queries import get_failed_orders
 from models.balance import UsageAllowance, UsagePeriod, UsageResponse, WalletBalanceResponse
 from models.failed_recharge import FailedRechargeItem
 from models.plan import ActivePlanResponse, PlanQuotas
-from models.transaction import TransactionItem
+from models.transaction import TransactionItem, canonical_transaction_type
 
 logger = logging.getLogger(__name__)
+
+# IST is the subscriber-facing timezone for plan expiry (AC #1/#2, FR-11).
+_IST = ZoneInfo("Asia/Kolkata")
 
 router = APIRouter(prefix="/api/v1/subscriber", tags=["balance"])
 
@@ -226,7 +230,7 @@ async def get_transactions(
     items = [
         TransactionItem(
             id=row["id"],
-            transaction_type=row["transaction_type"],
+            transaction_type=canonical_transaction_type(row["transaction_type"]),
             amount_paise=row["amount_paise"],
             balance_after_paise=row["balance_after_paise"],
             cdr_reference=_cdr_ref(row),
@@ -256,9 +260,10 @@ async def get_plan(
     """Return the subscriber's active plan details (AC #1, #2).
 
     Returns the plan's name, validity expiry (``end_date``), nominal validity
-    days, and bundled quotas (allowances). ``days_remaining`` is the countdown to
-    ``end_date``. Used-vs-allowance is NOT aggregated here — the frontend composes
-    it from GET /usage (Story 3.2).
+    days, and bundled quotas (allowances). ``days_remaining`` is the IST-anchored
+    countdown to ``end_date`` (negative once expired; the UI renders "Expired").
+    Used-vs-allowance is NOT aggregated here — the frontend composes it from
+    GET /usage (Story 3.2).
 
     Owner assertion: ``subscriber_id`` is the JWT ``sub`` (``_require_sub``).
     """
@@ -272,7 +277,7 @@ async def get_plan(
         raise NotFoundError("No active plan subscription found.")
 
     end_date = plan["end_date"]
-    days_remaining = (end_date - datetime.now(UTC)).days if end_date is not None else None
+    days_remaining = (end_date.astimezone(_IST) - datetime.now(_IST)).days if end_date is not None else None
 
     data_limit_mb = plan["data_limit_mb"]
     data_gb = round(data_limit_mb / 1024, 2) if data_limit_mb is not None else None

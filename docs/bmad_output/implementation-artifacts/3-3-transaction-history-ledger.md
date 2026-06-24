@@ -4,7 +4,7 @@ baseline_commit: a90c558
 
 # Story 3.3: Transaction History Ledger
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -161,3 +161,25 @@ Delivered by this story's worktree (`work/story-3.3`):
   Vitest/RTL tests delivered in this worktree. `transaction_type` returned as the
   raw writer value (`cdr_deduction`); `cdr_reference` derived from
   `reference_type='cdr'`. Story status → review.
+
+## Review Findings
+
+> Code review 2026-06-24 (GLM-5.2). The three adversarial subagent layers (Blind
+> Hunter, Edge Case Hunter, Acceptance Auditor) failed twice on a persistent GLM
+> gateway 529 overload (0 tokens executed). Findings below are from the
+> reviewer's own code-grounded analysis (every impl/test/schema file read). A
+> re-run of the adversarial layers is scheduled (cron 51fdd744, ~12:17); any new
+> findings will be merged here.
+>
+> **All findings below RESOLVED 2026-06-24** — patches applied, backend unit
+> tests green (23 passed incl. 2 new), ruff + pyrefly clean on changed files.
+
+### decision-needed (resolved)
+
+- [x] [Review][Decision] **F1 — Keyset cursor predicate diverges from the sort key; rows can be skipped across pages** [db/billing/queries.py:`get_transactions_page`] — RESOLVED: chose option (B) simplify to id-only keyset — `ORDER BY id DESC` + `id < cursor` in both branches (cursor contract unchanged). Verified by new `test_transactions_keyset_walk_no_skip_or_duplicate` + `test_transactions_sql_orders_by_id_desc`.
+- [x] [Review][Decision] **F4 — `transaction_type` returned as an opaque raw string; unknown values leak to subscribers** [models/transaction.py; routers/balance.py] — RESOLVED: chose option (A) normalize in backend — added `TRANSACTION_TYPE_CANONICAL` + `canonical_transaction_type()` in `models/transaction.py`; `get_transactions` maps raw→canonical (`charge|recharge|refund`, AC #1); unknown values pass through unchanged. Frontend `formatType` already covers the canonical keys.
+
+### patch (applied)
+
+- [x] [Review][Patch] **F2 — No test walks multiple pages or executes the real SQL; the F1 skip bug and any duplicate/missing are invisible to CI** [tests/unit/test_transactions_endpoint.py] — APPLIED: `_FakeConn` now emulates the `id < cursor` predicate + `ORDER BY id DESC`; added `test_transactions_keyset_walk_no_skip_or_duplicate` (full walk, no skip/dup) and `test_transactions_sql_orders_by_id_desc` (SQL assertion); updated `test_transactions_desc_order_preserved` to id-DESC and the two type/cdr assertions for F4 normalization.
+- [x] [Review][Patch] **F5 — `useTransactions` rapid "Next" clicks can desync `pageIndex` from the cursor stack** [hooks/useTransactions.ts; Transactions.tsx] — APPLIED: hook now exposes `isFetching`; the Next button is `disabled={!hasNext || isFetching}` so a second click during a fetch is a no-op.

@@ -36,7 +36,14 @@ class _FakeCursor:
 
 
 class _FakeConn:
-    """Returns scripted ``billing_transactions`` rows; records executed params."""
+    """Returns scripted ``billing_transactions`` rows; records executed params.
+
+    Emulates the keyset predicate (``id < cursor``) and ``ORDER BY id DESC`` of
+    ``get_transactions_page`` so multi-page walks can be exercised without a real
+    DB. NOTE: this validates the endpoint's *pagination logic* (cursor forwarding,
+    has_more, next_cursor); SQL-level ordering/predicate correctness under
+    concurrent writers still requires the (opt-in) integration suite.
+    """
 
     def __init__(self, rows: list[tuple]) -> None:
         self._rows = rows
@@ -46,7 +53,16 @@ class _FakeConn:
     async def execute(self, sql: str, params=None):
         self.executed_sql = sql
         self.executed_params = tuple(params or ())
-        return _FakeCursor(self._rows)
+        if not self.executed_params:
+            return _FakeCursor(list(self._rows))
+        rows = list(self._rows)
+        # Params shape: first page -> (sub, limit); cursor page -> (sub, cursor, limit).
+        if len(self.executed_params) >= 3:
+            cursor = UUID(str(self.executed_params[1]))
+            rows = [r for r in rows if r[0] < cursor]
+        rows = sorted(rows, key=lambda r: r[0], reverse=True)  # ORDER BY id DESC
+        limit = self.executed_params[-1]
+        return _FakeCursor(rows[:limit])
 
 
 class FakeDb:
@@ -113,7 +129,7 @@ async def test_transactions_returns_items_with_required_fields():
         r = await ac.get("/api/v1/subscriber/transactions", headers={"Authorization": "Bearer tok"})
     assert r.status_code == 200
     item = r.json()["data"][0]
-    assert item["transaction_type"] == "cdr_deduction"
+    assert item["transaction_type"] == "charge"  # raw 'cdr_deduction' normalised (F4)
     assert item["amount_paise"] == 500
     assert item["balance_after_paise"] == 49500
     assert item["cdr_reference"] == str(cdr)
@@ -124,20 +140,16 @@ async def test_transactions_returns_items_with_required_fields():
 
 @pytest.mark.asyncio
 async def test_transactions_desc_order_preserved():
-    """AC #2: newest first (created_at DESC). The query orders; the endpoint must not reshuffle."""
-    rows = [
-        _row(created_at=_NOW + timedelta(minutes=10)),
-        _row(created_at=_NOW + timedelta(minutes=5)),
-        _row(created_at=_NOW),
-    ]
+    """AC #2: newest first. The ledger is ordered by id DESC (UUIDv7 ~ created_at)."""
+    rows = [_row(), _row(), _row()]
     db = FakeDb(rows=rows)
     app = _make_app(db=db)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         r = await ac.get("/api/v1/subscriber/transactions", headers={"Authorization": "Bearer tok"})
     assert r.status_code == 200
-    created = [i["created_at"] for i in r.json()["data"]]
-    assert created == sorted(created, reverse=True)
+    ids = [i["id"] for i in r.json()["data"]]
+    assert ids == sorted(ids, reverse=True)  # id DESC
 
 
 @pytest.mark.asyncio
@@ -202,7 +214,7 @@ async def test_transactions_cdr_reference_null_for_non_cdr():
     items = r.json()["data"]
     by_type = {i["transaction_type"]: i for i in items}
     assert by_type["recharge"]["cdr_reference"] is None
-    assert by_type["cdr_deduction"]["cdr_reference"] is not None
+    assert by_type["charge"]["cdr_reference"] is not None  # raw 'cdr_deduction' normalised (F4)
 
 
 @pytest.mark.asyncio
@@ -252,3 +264,41 @@ async def test_transactions_wrong_role_403():
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         r = await ac.get("/api/v1/subscriber/transactions", headers={"Authorization": "Bearer tok"})
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_transactions_keyset_walk_no_skip_or_duplicate():
+    """AC #3: walking every page returns each row exactly once (keyset correctness)."""
+    total = 5
+    rows = [_row() for _ in range(total)]
+    db = FakeDb(rows=rows)
+    app = _make_app(db=db)
+    transport = ASGITransport(app=app)
+    seen: list[str] = []
+    cursor: str | None = None
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        for _ in range(20):  # safety cap
+            url = "/api/v1/subscriber/transactions?page_size=2"
+            if cursor is not None:
+                url += f"&cursor={cursor}"
+            r = await ac.get(url, headers={"Authorization": "Bearer tok"})
+            assert r.status_code == 200
+            body = r.json()
+            seen.extend(item["id"] for item in body["data"])
+            cursor = body["meta"]["next_cursor"]
+            if cursor is None:
+                break
+    assert len(seen) == total  # no rows skipped
+    assert len(set(seen)) == total  # no duplicates
+
+
+@pytest.mark.asyncio
+async def test_transactions_sql_orders_by_id_desc():
+    """AC #2/#3: the keyset query orders by id DESC (aligned with the id < cursor predicate)."""
+    db = FakeDb(rows=[_row()])
+    app = _make_app(db=db)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        await ac.get("/api/v1/subscriber/transactions", headers={"Authorization": "Bearer tok"})
+    assert db.conn is not None
+    assert "ORDER BY id DESC" in db.conn.executed_sql

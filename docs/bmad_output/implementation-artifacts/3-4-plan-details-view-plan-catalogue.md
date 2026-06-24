@@ -4,7 +4,7 @@ baseline_commit: a90c558
 
 # Story 3.4: Plan Details View & Plan Catalogue
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -140,3 +140,19 @@ Frontend (frontend):
 ## Change Log
 
 - 2026-06-23: Implemented Story 3.4 — `GET /api/v1/plans` catalogue endpoint (recharge router), PlanDetails card on the Dashboard (validity expiry in IST, quotas, remaining allowances, ≤3-day amber badge), Plans catalogue page (validity filter, price/data sort, Current Plan badge), hooks `useActivePlan`/`usePlans`, and full backend + frontend test coverage. Backend `/plan` + Pydantic models were provided by the shared foundation (commit a90c558).
+
+## Review Findings
+
+> Code review 2026-06-24 (GLM-5.2). The three adversarial subagent layers failed
+> twice on a persistent GLM gateway 529 overload (0 tokens executed). Findings
+> below are from the reviewer's own code-grounded analysis. A re-run of the
+> adversarial layers is scheduled (cron 51fdd744, ~12:17); any new findings will
+> be merged here.
+>
+> **All findings below RESOLVED 2026-06-24** — patches applied, backend unit
+> tests green, ruff + pyrefly clean on changed files.
+
+### patch (applied)
+
+- [x] [Review][Patch] **F3 — `days_remaining` computed in UTC but AC #1/#2 are IST-anchored; off-by-one near expiry + negative countdown for expired plans** [routers/balance.py:`get_plan`; PlanDetailsCard.tsx] — APPLIED: `days_remaining` now computed in IST via `_IST = ZoneInfo("Asia/Kolkata")` (`end_date.astimezone(_IST) - datetime.now(_IST)`); `PlanDetailsCard` renders "Expired" when `days < 0`. The `test_plan_days_remaining_countdown` tolerance still holds.
+- [x] [Review][Patch] **F9 — `get_active_plan` / `get_active_subscription` tie-break on `start_date` only — identical start_date is non-deterministic** [db/billing/queries.py] — APPLIED: both queries now `ORDER BY ps.start_date DESC, ps.id DESC` (also improves `/usage`, Story 3.2).

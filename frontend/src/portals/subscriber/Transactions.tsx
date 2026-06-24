@@ -160,8 +160,16 @@ function RefundEligibleView() {
 
 function Transactions() {
   const [showRefundEligible, setShowRefundEligible] = useState(false);
-  const { items, hasNext, hasPrev, nextPage, prevPage, isLoading, isError } =
-    useTransactions();
+  const {
+    items,
+    hasNext,
+    hasPrev,
+    nextPage,
+    prevPage,
+    isLoading,
+    isError,
+    isFetching,
+  } = useTransactions();
 
   return (
     <main className="max-w-3xl mx-auto px-4 py-8">
@@ -230,7 +238,7 @@ function Transactions() {
                 <button
                   type="button"
                   onClick={nextPage}
-                  disabled={!hasNext}
+                  disabled={!hasNext || isFetching}
                   className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 disabled:text-neutral-300 disabled:hover:text-neutral-300"
                 >
                   Next

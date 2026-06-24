@@ -69,8 +69,12 @@ async def get_transactions_page(
     """Return one page of ``billing_transactions`` (newest first), keyset-paginated.
 
     Fetches ``page_size + 1`` rows so the caller can detect whether a next page
-    exists. UUIDv7 ids are time-monotonic, so keyset paging on ``id`` mirrors
-    ``ORDER BY created_at DESC, id DESC`` (Story 3.3 cursor contract).
+    exists. UUIDv7 ids are time-monotonic, so the ledger is ordered and
+    keyset-paged purely on ``id`` (``ORDER BY id DESC`` + ``id < cursor``).
+    Keeping the sort key and the keyset predicate on the same column guarantees
+    no row is skipped or duplicated across pages (created_at comes from NOW(),
+    frozen at transaction begin, and can disagree with the uuid_generate_v7()
+    insert timestamp under concurrent writers) — Story 3.3 cursor contract.
 
     Raw ``reference_type`` / ``reference_id`` are returned; the endpoint derives
     ``cdr_reference`` (``reference_id`` where ``reference_type = 'cdr'``) — there is
@@ -84,7 +88,7 @@ async def get_transactions_page(
                    reference_type, reference_id, description, created_at
               FROM billing_transactions
              WHERE subscriber_id = %s::uuid
-             ORDER BY created_at DESC, id DESC
+             ORDER BY id DESC
              LIMIT %s
             """,
             (str(subscriber_id), limit),
@@ -97,7 +101,7 @@ async def get_transactions_page(
               FROM billing_transactions
              WHERE subscriber_id = %s::uuid
                AND id < %s::uuid
-             ORDER BY created_at DESC, id DESC
+             ORDER BY id DESC
              LIMIT %s
             """,
             (str(subscriber_id), str(cursor), limit),
@@ -137,7 +141,7 @@ async def get_active_subscription(
           JOIN plans_plans pp ON pp.id = ps.plan_id
          WHERE ps.subscriber_id = %s::uuid
            AND ps.status = 'active'
-         ORDER BY ps.start_date DESC
+         ORDER BY ps.start_date DESC, ps.id DESC
          LIMIT 1
         """,
         (str(subscriber_id),),
@@ -179,7 +183,7 @@ async def get_active_plan(
           JOIN plans_plans pp ON pp.id = ps.plan_id
          WHERE ps.subscriber_id = %s::uuid
            AND ps.status = 'active'
-         ORDER BY ps.start_date DESC
+         ORDER BY ps.start_date DESC, ps.id DESC
          LIMIT 1
         """,
         (str(subscriber_id),),
