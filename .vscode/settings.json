@@ -1,4 +1,7 @@
 {
     "remote.autoForwardPortsFallback": 0,
     "python.terminal.useEnvFile": true,
+    "conventionalCommits.scopes": [
+        "planning"
+    ],
 }

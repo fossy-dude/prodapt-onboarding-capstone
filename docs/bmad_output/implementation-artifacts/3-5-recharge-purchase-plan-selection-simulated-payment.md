@@ -1,6 +1,10 @@
 # Story 3.5: Recharge Purchase — Plan Selection & Simulated Payment
 
-Status: ready-for-dev
+---
+baseline_commit: 96b6fd2690bc94ade935cc706c211a4cb5587323
+---
+
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
