@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-24  # Story 5.3 → in-progress (RAG Pipeline — Milvus Hybrid Search)
+last_updated: 2026-06-24  # Story 5.3 → review (RAG Pipeline — Milvus Hybrid Search)
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -93,7 +93,7 @@ development_status:
   epic-5: in-progress
   5-1-ux-brief-chatbot-interface-ag-ui-stream-flows: review
   5-2-eval-harness-llm-as-judge-deepeval-scaffolding: review
-  5-3-rag-pipeline-milvus-hybrid-search: in-progress
+  5-3-rag-pipeline-milvus-hybrid-search: review
   5-4-copilotkit-runtime-support-agent-graph: ready-for-dev
   5-5-input-validation-guardrails: ready-for-dev
   5-6-recharge-via-chatbot-multi-agent-tool-calls: ready-for-dev

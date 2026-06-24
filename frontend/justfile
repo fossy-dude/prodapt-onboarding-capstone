@@ -40,4 +40,5 @@ preview:
 
 # Start development server.
 dev:
+    @[ -d frontend/node_modules ] || (cd frontend && npm ci && echo "Dependencies installed")
     npm run dev

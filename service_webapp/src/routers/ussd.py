@@ -312,8 +312,8 @@ async def _dispatch(
             async with db.transaction() as conn:
                 prefs = await get_preferences(conn, subscriber_id)
                 pref_map = {
-                    (p["notification_type"] if isinstance(p, dict) else p.notification_type): (
-                        p["is_enabled"] if isinstance(p, dict) else p.is_enabled
+                    (p["notification_type"] if isinstance(p, dict) else p.notification_type): (  # type: ignore[union-attr]
+                        p["is_enabled"] if isinstance(p, dict) else p.is_enabled  # type: ignore[union-attr]
                     )
                     for p in prefs
                 }

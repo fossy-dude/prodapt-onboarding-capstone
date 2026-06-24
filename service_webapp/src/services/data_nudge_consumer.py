@@ -69,10 +69,10 @@ async def run_data_nudge_consumer(db, producer) -> None:
                         envelope = record.value
 
                         # Filter to data CDRs only
-                        if envelope.get("payload", {}).get("cdr_type") != "data":
+                        if envelope is None or envelope.get("payload", {}).get("cdr_type") != "data":  # type: ignore[union-attr]
                             continue
 
-                        payload = envelope.get("payload", {})
+                        payload = envelope.get("payload", {}) if envelope else {}  # type: ignore[union-attr]
                         subscriber_id_str = payload.get("subscriber_id")
                         if not subscriber_id_str:
                             continue
@@ -107,7 +107,7 @@ async def run_data_nudge_consumer(db, producer) -> None:
                                         "data_limit_mb": data_limit_mb,
                                         "pct_remaining": round(pct_remaining, 3),
                                     },
-                                    trace_id=envelope.get("trace_id", "0" * 32),
+                                    trace_id=envelope.get("trace_id", "0" * 32) if envelope else "0" * 32,  # type: ignore[union-attr]
                                 )
 
                                 await producer.publish(

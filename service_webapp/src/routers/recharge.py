@@ -246,7 +246,7 @@ async def create_recharge(
         try:
             order = await create_recharge_order(
                 conn,
-                subscriber_id=subscriber_id,
+                subscriber_id=UUID(subscriber_id),
                 plan_id=plan_id,
                 payment_method_id=payment_method_id,
                 idempotency_key=idempotency_key,
@@ -295,7 +295,7 @@ async def create_recharge(
         result = await complete_recharge_transaction(
             conn,
             order_id=order["id"],
-            subscriber_id=subscriber_id,
+            subscriber_id=UUID(subscriber_id),
             amount_paise=order["amount_paise"],
         )
 

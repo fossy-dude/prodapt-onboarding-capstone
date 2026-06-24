@@ -1,4 +1,4 @@
-"""Unit tests for the hybrid RAG retriever (Story 5.3; AC #1–#5).
+"""Unit tests for the hybrid RAG retriever (Story 5.3; AC #1-#5).
 
 The Azure OpenAI client and the pymilvus ``MilvusClient`` are mocked so the RRF
 fusion logic is exercised deterministically without network or Milvus Lite.
@@ -16,6 +16,11 @@ from agents.rag.retriever import HybridRetriever, RagChunk
 def _hit(chunk_id: str, text: str, **metadata: object) -> dict:
     """Build a pymilvus-shaped search hit (pk in ``id``, fields in ``entity``)."""
     return {"id": chunk_id, "entity": {"text": text, **metadata}}
+
+
+def _results(*hits: dict) -> list:
+    """Wrap hits as pymilvus does: one inner list per query vector (we send 1)."""
+    return [list(hits)]
 
 
 @pytest.fixture
@@ -59,10 +64,10 @@ async def test_search_returns_chunks_sorted_by_rrf_desc(azure_mock: MagicMock, m
     # the 0.03 threshold). D appears rank-1 dense / rank-2 sparse on plan_vectors.
     # X appears in only one list → below threshold, dropped.
     milvus_search_mock.side_effect = [
-        [_hit("A", "a text"), _hit("B", "b text")],  # faq dense
-        [_hit("A", "a text"), _hit("B", "b text")],  # faq sparse
-        [_hit("D", "d text", plan_type="unlimited")],  # plan dense
-        [_hit("X", "x text"), _hit("D", "d text")],  # plan sparse
+        _results(_hit("A", "a text"), _hit("B", "b text")),  # faq dense
+        _results(_hit("A", "a text"), _hit("B", "b text")),  # faq sparse
+        _results(_hit("D", "d text", plan_type="unlimited")),  # plan dense
+        _results(_hit("X", "x text"), _hit("D", "d text")),  # plan sparse
     ]
     retriever = _build(azure_mock)
 
@@ -79,10 +84,10 @@ async def test_search_returns_chunks_sorted_by_rrf_desc(azure_mock: MagicMock, m
 
 async def test_search_respects_top_k(azure_mock: MagicMock, milvus_search_mock: MagicMock) -> None:
     milvus_search_mock.side_effect = [
-        [_hit("A", "a"), _hit("B", "b"), _hit("C", "c")],  # faq dense
-        [_hit("A", "a"), _hit("B", "b"), _hit("C", "c")],  # faq sparse
-        [],  # plan dense
-        [],  # plan sparse
+        _results(_hit("A", "a"), _hit("B", "b"), _hit("C", "c")),  # faq dense
+        _results(_hit("A", "a"), _hit("B", "b"), _hit("C", "c")),  # faq sparse
+        _results(),  # plan dense
+        _results(),  # plan sparse
     ]
     retriever = _build(azure_mock)
 
@@ -96,10 +101,10 @@ async def test_search_returns_empty_when_all_below_threshold(
 ) -> None:
     # Each chunk appears in only ONE list → RRF ≈ 1/61 ≈ 0.016 < 0.03 → dropped.
     milvus_search_mock.side_effect = [
-        [_hit("A", "a text")],  # faq dense
-        [],  # faq sparse
-        [_hit("D", "d text")],  # plan dense
-        [],  # plan sparse
+        _results(_hit("A", "a text")),  # faq dense
+        _results(),  # faq sparse
+        _results(_hit("D", "d text")),  # plan dense
+        _results(),  # plan sparse
     ]
     retriever = _build(azure_mock)
 
@@ -114,10 +119,10 @@ async def test_search_populates_metadata_from_scalar_fields(
     azure_mock: MagicMock, milvus_search_mock: MagicMock
 ) -> None:
     milvus_search_mock.side_effect = [
-        [_hit("A", "a text", category="billing", source_doc="faq.yaml", plan_type="prepaid")],  # faq dense
-        [_hit("A", "a text", category="billing", source_doc="faq.yaml", plan_type="prepaid")],  # faq sparse
-        [],  # plan dense
-        [],  # plan sparse
+        _results(_hit("A", "a text", category="billing", source_doc="faq.yaml", plan_type="prepaid")),  # faq dense
+        _results(_hit("A", "a text", category="billing", source_doc="faq.yaml", plan_type="prepaid")),  # faq sparse
+        _results(),  # plan dense
+        _results(),  # plan sparse
     ]
     retriever = _build(azure_mock)
 
@@ -133,7 +138,7 @@ async def test_search_populates_metadata_from_scalar_fields(
 async def test_search_uses_correct_anns_fields_and_collections(
     azure_mock: MagicMock, milvus_search_mock: MagicMock
 ) -> None:
-    milvus_search_mock.side_effect = [[], [], [], []]
+    milvus_search_mock.side_effect = [_results(), _results(), _results(), _results()]
     retriever = _build(azure_mock)
 
     await retriever.search("query", top_k=3)
@@ -162,10 +167,10 @@ async def test_search_records_langfuse_span_with_correct_shape(
     langfuse.start_as_current_observation.return_value = observation_cm
 
     milvus_search_mock.side_effect = [
-        [_hit("A", "a text")],  # faq dense
-        [_hit("A", "a text")],  # faq sparse  → A survives threshold
-        [],  # plan dense
-        [],  # plan sparse
+        _results(_hit("A", "a text")),  # faq dense
+        _results(_hit("A", "a text")),  # faq sparse  → A survives threshold
+        _results(),  # plan dense
+        _results(),  # plan sparse
     ]
     retriever = _build(azure_mock, langfuse=langfuse)
 
@@ -187,7 +192,7 @@ async def test_search_records_langfuse_span_with_correct_shape(
 async def test_search_without_langfuse_does_not_touch_observability(
     azure_mock: MagicMock, milvus_search_mock: MagicMock
 ) -> None:
-    milvus_search_mock.side_effect = [[_hit("A", "a")], [_hit("A", "a")], [], []]
+    milvus_search_mock.side_effect = [_results(_hit("A", "a")), _results(_hit("A", "a")), _results(), _results()]
     retriever = _build(azure_mock, langfuse=None)  # disabled path
 
     results = await retriever.search("query")
@@ -200,7 +205,7 @@ async def test_search_falls_back_when_langfuse_span_open_fails(
 ) -> None:
     langfuse = MagicMock()
     langfuse.start_as_current_observation.side_effect = RuntimeError("langfuse down")
-    milvus_search_mock.side_effect = [[_hit("A", "a")], [_hit("A", "a")], [], []]
+    milvus_search_mock.side_effect = [_results(_hit("A", "a")), _results(_hit("A", "a")), _results(), _results()]
     retriever = _build(azure_mock, langfuse=langfuse)
 
     results = await retriever.search("query")  # must not raise

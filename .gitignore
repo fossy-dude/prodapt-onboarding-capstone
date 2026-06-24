@@ -239,3 +239,4 @@ coverage/
 
 docker/data
 data/
+.deepeval/

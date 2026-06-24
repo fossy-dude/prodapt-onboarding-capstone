@@ -148,28 +148,22 @@ seed-milvus:
     just -d service_webapp -f service_webapp/justfile seed-milvus
 
 # ── Dev servers ──────────────────────────────────────────────────────────────────
+# Run the backend dev server via service_webapp/justfile.
+run-dev-backend:
+    just -d service_webapp -f service_webapp/justfile dev
 
-# Run the backend dev server (FastAPI/uvicorn) with hot reload.
-# PYTHONPATH=src is required so ``src.main`` resolves AND the app's top-level
-# internal imports (``core``/``routers``/``adapters``) match the [tool.pytest]
-# pythonpath=["src"] layout. cwd stays at service_webapp/ so config's
-# ``env_file=".env"`` still loads service_webapp/.env. (Story 1.4.)
-backend:
-    cd service_webapp && PYTHONPATH=src uvicorn src.main:app --reload --port 8000
-
-# Run the frontend dev server (Vite).
-frontend:
-    @[ -d frontend/node_modules ] || (cd frontend && npm ci && echo "Dependencies installed")
-    cd frontend && npm run dev
+# Run the frontend dev server via frontend/justfile.
+run-dev-frontend:
+    just -d frontend -f frontend/justfile dev
 
 # Run the CDR pipeline consumer (Story 2.2). Consumer + management API on port 8001 (Story 2.5).
-cdr:
+run-dev-cdr:
     @[ -f cdr-pipeline/src/__init__.py ] || (touch cdr-pipeline/src/__init__.py && echo "Created src/__init__.py")
     cd cdr-pipeline && PYTHONPATH=src python -m main
 
 # Run the CDR management API standalone (Story 2.5). Admin endpoints on port 8001.
 # Requires COGNITO_USER_POOL_ID and COGNITO_CLIENT_ID set in environment or .env.
-cdr-admin:
+run-dev-cdr-admin:
     @echo "→ CDR management API: http://localhost:8001/api/v1/admin/dlq"
     cd cdr-pipeline && PYTHONPATH=src python -m main
 

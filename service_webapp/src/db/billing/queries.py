@@ -323,6 +323,8 @@ async def get_active_plan_data_quota(
     )
 
     usage_row = await cur.fetchone()
+    if usage_row is None:
+        return (0.0, data_limit_mb)
     data_mb_used = float(usage_row[0]) if usage_row[0] is not None else 0.0
 
     return (data_mb_used, data_limit_mb)

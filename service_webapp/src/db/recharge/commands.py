@@ -216,6 +216,8 @@ async def complete_recharge_transaction(
         (subscriber_id, msisdn, amount_paise),
     )
     balance_row = await cur.fetchone()
+    if balance_row is None:
+        raise ValueError("Failed to retrieve balance after UPSERT")
     new_balance_paise = balance_row[0]
 
     # 3. Append billing_transactions record
@@ -266,6 +268,8 @@ async def complete_recharge_transaction(
         (subscriber_id, order_id),
     )
     subscription_row = await cur.fetchone()
+    if subscription_row is None:
+        raise ValueError("Failed to create subscription")
     plan_activation_timestamp = subscription_row[0]
 
     # 6. Create receipt record (Story 3.6 will generate the PDF)

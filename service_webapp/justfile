@@ -27,6 +27,10 @@ _check-env *vars:
         exit 1
     fi
 
+# Start the FastAPI dev server with hot reload (port 8000).
+dev:
+    PYTHONPATH=src uvicorn src.main:app --reload --port 8000
+
 # Run tests via tox
 test:
     {{uv_tox}} -e test

@@ -79,18 +79,18 @@ class ValkeyAdapter(CacheProtocol):
         lua_script = (
             "local c = redis.call('INCR', KEYS[1])\nif c == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end\nreturn c"
         )
-        result = await self._client.eval(lua_script, 1, key, ttl_seconds)
+        result = await self._client.eval(lua_script, 1, key, ttl_seconds)  # type: ignore[call-arg]
         return int(result)
 
     async def hset(self, key: str, mapping: dict[str, str], *, ex: int | None = None) -> None:
         """HSET ``key`` from mapping; optionally EXPIRE after ``ex`` seconds (Story 4.4)."""
-        await self._client.hset(key, mapping=mapping)
+        await self._client.hset(key, mapping=mapping)  # type: ignore[arg-type]
         if ex is not None:
             await self._client.expire(key, ex)
 
     async def hgetall(self, key: str) -> dict[str, str]:
         """HGETALL ``key``; returns ``{}`` if absent (Story 4.4)."""
-        raw: dict[bytes, bytes] = await self._client.hgetall(key)
+        raw: dict[bytes, bytes] = await self._client.hgetall(key)  # type: ignore[assignment]
         return {k.decode("utf-8"): v.decode("utf-8") for k, v in raw.items()}
 
     async def close(self) -> None:

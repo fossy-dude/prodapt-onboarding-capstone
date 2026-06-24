@@ -60,7 +60,12 @@ def render_receipt_pdf(
     ``msisdn_last4`` must already be masked (last 4 digits only).
     No card numbers / full PAN appear in the output.
     """
-    from weasyprint import HTML  # noqa: PLC0415 — WeasyPrint excluded from tox test env
+    try:
+        # type: ignore[misc] — WeasyPrint excluded from tox test env
+        # noqa: PLC0415 — WeasyPrint excluded from tox test env
+        from weasyprint import HTML
+    except ImportError as exc:
+        raise ImportError("WeasyPrint is required for PDF rendering but is not installed") from exc
 
     method_label = _METHOD_TYPE_LABELS.get(method_type or "", method_type or "Unknown")
     ctx = {

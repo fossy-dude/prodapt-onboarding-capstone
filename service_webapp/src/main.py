@@ -63,14 +63,23 @@ from services.registration import (
 
 # Optional apscheduler imports - may not be installed
 try:
-    from apscheduler.schedulers.asyncio import AsyncIOScheduler
-    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler  # type: ignore[misc]
+    from apscheduler.triggers.cron import CronTrigger  # type: ignore[misc]
 except ImportError:
     AsyncIOScheduler = None  # type: ignore[assignment]
     CronTrigger = None  # type: ignore[assignment]
 
 # Data nudge consumer
 from services.data_nudge_consumer import run_data_nudge_consumer
+
+# Optional Azure OpenAI imports - may not be configured
+try:
+    from openai import AzureOpenAI
+except ImportError:
+    AzureOpenAI = None  # type: ignore[assignment]
+
+from agents.rag.retriever import HybridRetriever, set_retriever
+from core.observability.langfuse import get_langfuse_client
 
 if TYPE_CHECKING:
     # Type-only symbols: referenced only in annotations (runtime uses the concrete adapters).
@@ -125,10 +134,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # config (empty key) degrades gracefully to "no grounding", never crashes boot.
     if getattr(app.state, "rag_retriever", None) is None:
         try:
-            from openai import AzureOpenAI
-
-            from agents.rag.retriever import HybridRetriever, set_retriever
-            from core.observability.langfuse import get_langfuse_client
+            if AzureOpenAI is None:
+                raise ImportError("Azure OpenAI client not available")
 
             azure_openai_client = AzureOpenAI(
                 api_key=settings.azure_openai_api_key,
@@ -273,7 +280,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
                         if not subscriber_id or not notification_type:
                             logger.debug("Missing subscriber_id or notification_type in payload")
-                            await msg.commit()
+                            await msg.commit()  # type: ignore[attr-defined]
                             continue
 
                         # Query subscriber preferences
@@ -313,13 +320,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                                 )
 
                         # Commit offset after successful processing
-                        await msg.commit()
+                        await msg.commit()  # type: ignore[attr-defined]
 
                     except Exception as exc:
                         # Log ERROR but don't crash - commit offset and continue
                         logger.exception("Notification dispatch error: %s", exc)
                         try:
-                            await msg.commit()
+                            await msg.commit()  # type: ignore[attr-defined]
                         except Exception:
                             pass  # Best-effort commit
 

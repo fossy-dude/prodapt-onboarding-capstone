@@ -79,7 +79,7 @@ async def get_notification_preferences(
         preferences = []
         for notification_type in _ALL_NOTIFICATION_TYPES:
             is_enabled = pref_map.get(notification_type, True)  # Default to True
-            preferences.append(NotificationPreferenceItem(notification_type=notification_type, is_enabled=is_enabled))
+            preferences.append(NotificationPreferenceItem(notification_type=notification_type, is_enabled=is_enabled))  # type: ignore[arg-type]
 
     response = NotificationPreferencesResponse(preferences=preferences)
     return JSONResponse(

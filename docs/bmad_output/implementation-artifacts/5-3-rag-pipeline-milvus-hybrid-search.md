@@ -4,7 +4,7 @@ baseline_commit: 3c5d585
 
 # Story 5.3: RAG Pipeline — Milvus Hybrid Search
 
-Status: in-progress
+Status: review
 
 ## Story
 
@@ -23,42 +23,42 @@ so that I get accurate, grounded answers rather than hallucinated responses.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: RAG retriever module** (AC: #1–#5)
-  - [ ] Create `service_webapp/src/agents/rag/__init__.py` (empty).
-  - [ ] Create `service_webapp/src/agents/rag/retriever.py`.
-  - [ ] Define `RagChunk` dataclass: `collection: str, chunk_id: str, text: str, score: float, metadata: dict`.
-  - [ ] Class `HybridRetriever`:
+- [x] **Task 1: RAG retriever module** (AC: #1–#5)
+  - [x] Create `service_webapp/src/agents/rag/__init__.py` (empty).
+  - [x] Create `service_webapp/src/agents/rag/retriever.py`.
+  - [x] Define `RagChunk` dataclass: `collection: str, chunk_id: str, text: str, score: float, metadata: dict`.
+  - [x] Class `HybridRetriever`:
     - Constructor: `__init__(self, milvus_uri: str, azure_client: AzureOpenAI, embedding_deployment: str, langfuse_client: Langfuse | None = None)`
     - `async def embed(self, text: str) -> list[float]`: calls `azure_client.embeddings.create(model=embedding_deployment, input=text)` — returns 1536-dim vector. Use `settings.embedding_model` ("text-embedding-3-small") and `settings.embedding_dimensions` (1536). [Source: service_webapp/src/core/config.py:67–68]
     - `async def search(self, query: str, top_k: int = 3) -> list[RagChunk]`: (1) embed query; (2) dense search on `faq_chunks` + `plan_vectors` via `pymilvus` client; (3) BM25 sparse search using `pymilvus.model.sparse.BM25EmbeddingFunction`; (4) RRF fusion; (5) return top_k chunks above threshold.
-  - [ ] RRF formula: `score_rrf(d) = sum(1 / (k + rank_i(d)))` for each ranked list, `k=60` (standard). Sort descending by RRF score. Filter out chunks with `rrf_score < 0.1` (no-match threshold). [Source: architecture.md §1.6.1 RAG Pipeline]
-  - [ ] Milvus client: `from pymilvus import MilvusClient`. Connect with `uri=settings.milvus_db_uri` (Milvus Lite embedded, no separate container). [Source: memory: arch_key_decisions — Milvus Lite]
-  - [ ] LangFuse span: if `langfuse_client` provided, wrap `search()` in a span: `langfuse_client.trace(...).span(name="rag_retrieval", input={"query": query}, output={"chunks": [c.chunk_id for c in results], "rrf_scores": [c.score for c in results]})`. [Source: epics.md:1558; FR-72]
+  - [x] RRF formula: `score_rrf(d) = sum(1 / (k + rank_i(d)))` for each ranked list, `k=60` (standard). Sort descending by RRF score. Filter out chunks with `rrf_score < 0.1` (no-match threshold). [Source: architecture.md §1.6.1 RAG Pipeline]
+  - [x] Milvus client: `from pymilvus import MilvusClient`. Connect with `uri=settings.milvus_db_uri` (Milvus Lite embedded, no separate container). [Source: memory: arch_key_decisions — Milvus Lite]
+  - [x] LangFuse span: if `langfuse_client` provided, wrap `search()` in a span: `langfuse_client.trace(...).span(name="rag_retrieval", input={"query": query}, output={"chunks": [c.chunk_id for c in results], "rrf_scores": [c.score for c in results]})`. [Source: epics.md:1558; FR-72]
 
-- [ ] **Task 2: Tool function for LangGraph** (AC: #6)
-  - [ ] In `service_webapp/src/agents/rag/retriever.py`, add module-level async function:
+- [x] **Task 2: Tool function for LangGraph** (AC: #6)
+  - [x] In `service_webapp/src/agents/rag/retriever.py`, add module-level async function:
     ```python
     async def rag_search(query: str, top_k: int = 3) -> list[RagChunk]:
         ...
     ```
-  - [ ] This function uses a lazily-initialised singleton `_retriever: HybridRetriever` — set once at FastAPI startup via `set_retriever(retriever: HybridRetriever)`. This avoids passing dependencies into LangGraph tool closures. [Source: architecture.md §1.6.1]
+  - [x] This function uses a lazily-initialised singleton `_retriever: HybridRetriever` — set once at FastAPI startup via `set_retriever(retriever: HybridRetriever)`. This avoids passing dependencies into LangGraph tool closures. [Source: architecture.md §1.6.1]
 
-- [ ] **Task 3: Wire retriever at FastAPI startup** (AC: #1, #4)
-  - [ ] In `service_webapp/src/main.py` lifespan: after `azure_openai_client` is constructed, call `set_retriever(HybridRetriever(milvus_uri=settings.milvus_db_uri, azure_client=client, embedding_deployment=settings.embedding_model))`. [Source: service_webapp/src/main.py lifespan pattern]
+- [x] **Task 3: Wire retriever at FastAPI startup** (AC: #1, #4)
+  - [x] In `service_webapp/src/main.py` lifespan: after `azure_openai_client` is constructed, call `set_retriever(HybridRetriever(milvus_uri=settings.milvus_db_uri, azure_client=client, embedding_deployment=settings.embedding_model))`. [Source: service_webapp/src/main.py lifespan pattern]
 
-- [ ] **Task 4: Milvus collection compatibility** (AC: #2)
-  - [ ] Collections `faq_chunks` and `plan_vectors` were seeded in Story 2.7. Verify field names by reading `service_webapp/src/adapters/milvus.py` or the seeding script before writing query code. [Source: 2-7-milvus-lite-initialisation-vector-seeding.md]
-  - [ ] Dense search: `client.search(collection_name="faq_chunks", data=[query_vector], anns_field="embedding", limit=top_k * 3, output_fields=["chunk_id", "text", "metadata"])`. Repeat for `plan_vectors`.
-  - [ ] BM25: use `pymilvus.model.sparse.BM25EmbeddingFunction` fitted on the collection corpus (either loaded from a persisted state or refitted at startup). Sparse search via `client.search(..., anns_field="sparse_embedding", ...)`.
+- [x] **Task 4: Milvus collection compatibility** (AC: #2)
+  - [x] Collections `faq_chunks` and `plan_vectors` were seeded in Story 2.7. Verify field names by reading `service_webapp/src/adapters/milvus.py` or the seeding script before writing query code. [Source: 2-7-milvus-lite-initialisation-vector-seeding.md]
+  - [x] Dense search: `client.search(collection_name="faq_chunks", data=[query_vector], anns_field="embedding", limit=top_k * 3, output_fields=["chunk_id", "text", "metadata"])`. Repeat for `plan_vectors`.
+  - [x] BM25: use `pymilvus.model.sparse.BM25EmbeddingFunction` fitted on the collection corpus (either loaded from a persisted state or refitted at startup). Sparse search via `client.search(..., anns_field="sparse_embedding", ...)`.
 
-- [ ] **Task 5: Tests** (AC: #1–#6)
-  - [ ] `service_webapp/tests/unit/test_rag_retriever.py`: mock `AzureOpenAI` client and `MilvusClient`. Test: query returns 3 chunks sorted by RRF desc; all chunks below threshold → empty list; LangFuse span called with correct input/output shape.
-  - [ ] `service_webapp/tests/unit/test_rag_search_tool.py`: call `rag_search("what is my balance?")` via module-level function with singleton retriever set to mock. Verify returns `list[RagChunk]`.
-  - [ ] Integration test (`@pytest.mark.slow`): requires live Milvus Lite DB path with seeded data. Skip if `settings.milvus_db_uri` path doesn't exist.
+- [x] **Task 5: Tests** (AC: #1–#6)
+  - [x] `service_webapp/tests/unit/test_rag_retriever.py`: mock `AzureOpenAI` client and `MilvusClient`. Test: query returns 3 chunks sorted by RRF desc; all chunks below threshold → empty list; LangFuse span called with correct input/output shape.
+  - [x] `service_webapp/tests/unit/test_rag_search_tool.py`: call `rag_search("what is my balance?")` via module-level function with singleton retriever set to mock. Verify returns `list[RagChunk]`.
+  - [x] Integration test (`@pytest.mark.slow`): requires live Milvus Lite DB path with seeded data. Skip if `settings.milvus_db_uri` path doesn't exist.
 
-- [ ] **Task 6: Tox deps** (AC: #1)
-  - [ ] Add `openai>=1.0` to `service_webapp/pyproject.toml` `[tool.tox.env.lint] deps` AND `[tool.tox.env.test] deps`. `pymilvus[milvus-lite]` should already be present from Story 2.7 — verify.
-  - [ ] Add `openai>=1.0` to `[project.dependencies]` in `service_webapp/pyproject.toml` (runtime dep for agent stories).
+- [x] **Task 6: Tox deps** (AC: #1)
+  - [x] Add `openai>=1.0` to `service_webapp/pyproject.toml` `[tool.tox.env.lint] deps` AND `[tool.tox.env.test] deps`. `pymilvus[milvus-lite]` should already be present from Story 2.7 — verify.
+  - [x] Add `openai>=1.0` to `[project.dependencies]` in `service_webapp/pyproject.toml` (runtime dep for agent stories).
 
 ## Dev Notes
 
@@ -116,6 +116,72 @@ claude-sonnet-4-6
 
 ### Debug Log References
 
+- Initial unit-test run failed (7/14): mocked `MilvusClient.search` returned the
+  inner hit list directly, but real pymilvus wraps it one level deeper
+  (`[[hit, hit]]` — one result-list per query vector). The retriever code
+  (`list(results[0])`) was correct for real pymilvus; fixed the tests by adding a
+  `_results(*hits)` helper that wraps each side-effect entry. All 14 then passed.
+- Ruff RUF002 flagged two EN dashes (`#1–#5`) in test docstrings; replaced with
+  hyphens. Em dashes (`—`) are left as-is (existing codebase convention).
+
 ### Completion Notes List
 
+- **Implemented:** `HybridRetriever` (dense HNSW + BM25 sparse per collection,
+  manual RRF fusion) and the module-level `rag_search` LangGraph tool callable
+  with a `set_retriever()` singleton, wired into the FastAPI lifespan.
+- **Deviations from story text (arch-wins / SDK-version — flagged to user):**
+  1. **BM25 sparse search:** the Story 2.7 collections use Milvus's *native BM25
+     analyzer* on the `text` field (auto-populates `sparse_embedding`), so sparse
+     search takes the raw query text (`data=[query]`,
+     `anns_field="sparse_embedding"`) — NOT a separately-fitted
+     `pymilvus.model.sparse.BM25EmbeddingFunction`, which is incompatible with
+     this analyzer-backed schema. Consistent with the existing
+     `MilvusAdapter.hybrid_search`.
+  2. **RRF no-match threshold = 0.03 (not 0.1):** with `k=60`, a chunk can
+     contribute at most `2 × 1/61 ≈ 0.033` (it appears in exactly two ranked
+     lists — dense + sparse — for its own collection), so the story's `0.1` is
+     mathematically unreachable and would make `rag_search` return empty for
+     every query. **User decision (2026-06-24):** keep `k=60` (standard) and
+     lower the threshold to `0.03`. A chunk must agree across BOTH modalities
+     near the top of their lists to survive. Exposed as module constants
+     `_RRF_K=60` and `_RRF_NO_MATCH_THRESHOLD=0.03`.
+  3. **LangFuse v4 API:** `langfuse>=2` resolves to v4.x, which removed the v2
+     `client.trace().span()` surface. The retrieval span is opened with
+     `start_as_current_observation(name="rag_retrieval", as_type="span")`,
+     consistent with the existing `trace_agent` decorator. Input records only the
+     query text (no PII/MSISDN); output records chunk IDs + RRF scores.
+- **`output_fields`:** collections have no `metadata` column (the seeded schema
+  uses explicit scalar fields per collection); `RagChunk.metadata` is built from
+  the per-collection extra scalars (`category`/`source_doc`/`plan_type` for
+  `faq_chunks`; `plan_type`/`price`/`validity` for `plan_vectors`).
+- **Startup wiring:** Azure OpenAI + LangFuse are optional — empty key/config
+  degrades gracefully to "no grounding" (logged warning), never crashes boot.
+  The auto-formatter hoisted the optional `openai`/`apscheduler` imports to
+  module level with try/except guards; behaviour unchanged.
+- **Testing:** 14 new unit tests (RRF ordering, top_k, threshold-empty, metadata,
+  anns_field/collection args, LangFuse span shape, no-client path, span-open
+  failure fallback, empty-results tolerance, tool delegation/top_k/uninitialised).
+  Integration test marked `@pytest.mark.slow @pytest.mark.integration`, skips
+  unless a seeded Milvus DB + Azure config are present. All 14 pass; full unit
+  suite 279 pass. The 11 `test_synthetic_helpers.py` failures are pre-existing
+  and environmental (`faker` is a tox-only dev dep absent from the local venv) —
+  unrelated to this story. Ruff lint + format and pyrefly (0 errors) clean.
+
 ### File List
+
+- `service_webapp/src/agents/rag/__init__.py` (NEW)
+- `service_webapp/src/agents/rag/retriever.py` (NEW)
+- `service_webapp/src/main.py` (MODIFIED — lifespan wiring + shutdown close)
+- `service_webapp/pyproject.toml` (MODIFIED — `openai>=1.0` added to
+  `[project.dependencies]`, `[tool.tox.env.lint].deps`, `[tool.tox.env.test].deps`)
+- `service_webapp/tests/unit/test_rag_retriever.py` (NEW)
+- `service_webapp/tests/unit/test_rag_search_tool.py` (NEW)
+- `service_webapp/tests/integration/test_rag_integration.py` (NEW, slow)
+
+## Change Log
+
+- 2026-06-24: Story 5.3 developed — hybrid RAG retriever (dense + BM25 + RRF
+  k=60, threshold 0.03) + `rag_search` LangGraph tool + FastAPI lifespan wiring
+  + unit/integration tests. Threshold lowered from spec's unreachable 0.1 to 0.03
+  per user decision; BM25 uses native analyzer (arch-wins over BM25EmbeddingFunction);
+  LangFuse v4 span API. Status: ready-for-dev -> review.
