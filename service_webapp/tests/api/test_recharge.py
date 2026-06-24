@@ -21,27 +21,56 @@ if TYPE_CHECKING:
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from uuid_extensions import uuid7
+
+
+def _idempotency_key() -> str:
+    """FR-16: idempotency keys are client-generated UUIDv7 (not v4).
+
+    ``RechargeRequest.validate_idempotency_key`` rejects any non-v7 UUID, so the
+    tests must mint v7 keys to reach the handler instead of failing at 422.
+    """
+    return str(uuid7())
 
 
 class RechargeTestContext:
-    """Holds test fixtures for recharge tests."""
+    """Holds test fixtures for recharge tests.
+
+    The DB command functions imported by ``routers.recharge`` are patched at the
+    module boundary (the correct unit-test seam): each is an ``AsyncMock`` the
+    test configures with a per-function return value. This exercises the real
+    handler branching (idempotency / ownership / 404 / 403) without coupling to
+    the many distinct SQL queries each command issues internally.
+    """
 
     client: AsyncClient
-    mock_conn: AsyncMock
     mock_cache: AsyncMock
+    mock_get_completed_recharge_result: AsyncMock
+    mock_create_recharge_order: AsyncMock
+    mock_get_payment_method_owner: AsyncMock
+    mock_complete_recharge_transaction: AsyncMock
     test_sub: str
+    test_msisdn: str
 
     def __init__(
         self,
         client: AsyncClient,
-        mock_conn: AsyncMock,
         mock_cache: AsyncMock,
+        mock_get_completed_recharge_result: AsyncMock,
+        mock_create_recharge_order: AsyncMock,
+        mock_get_payment_method_owner: AsyncMock,
+        mock_complete_recharge_transaction: AsyncMock,
         test_sub: str,
+        test_msisdn: str,
     ) -> None:
         self.client = client
-        self.mock_conn = mock_conn
         self.mock_cache = mock_cache
+        self.mock_get_completed_recharge_result = mock_get_completed_recharge_result
+        self.mock_create_recharge_order = mock_create_recharge_order
+        self.mock_get_payment_method_owner = mock_get_payment_method_owner
+        self.mock_complete_recharge_transaction = mock_complete_recharge_transaction
         self.test_sub = test_sub
+        self.test_msisdn = test_msisdn
         self.auth_headers = {"Authorization": "Bearer fake-token"}
 
     # Make the RechargeTestContext behave like the client for convenience
@@ -57,8 +86,9 @@ class RechargeTestContext:
 
 
 @pytest.fixture
-async def recharge_client() -> AsyncIterator[RechargeTestContext]:
-    """App with async HTTP client + JWT middleware mocked + database and cache mocked."""
+async def recharge_client(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[RechargeTestContext]:
+    """App with async HTTP client + JWT middleware mocked + DB commands and cache mocked."""
+    import routers.recharge as recharge_module
     from core.auth import FakeJWTValidator
     from main import create_app
 
@@ -66,9 +96,20 @@ async def recharge_client() -> AsyncIterator[RechargeTestContext]:
     test_msisdn = "911234567890"
     mock_jwt_payload = {"sub": test_sub, "cognito:groups": ["subscriber"]}
 
-    # Mock database connection
+    # Patch the DB command functions at the router module boundary. monkeypatch
+    # restores the originals after the test, so no manual cleanup is required.
+    mock_get_completed = AsyncMock(return_value=None)
+    mock_create_order = AsyncMock()
+    mock_get_owner = AsyncMock()
+    mock_complete = AsyncMock()
+    monkeypatch.setattr(recharge_module, "get_completed_recharge_result", mock_get_completed)
+    monkeypatch.setattr(recharge_module, "create_recharge_order", mock_create_order)
+    monkeypatch.setattr(recharge_module, "get_payment_method_owner", mock_get_owner)
+    monkeypatch.setattr(recharge_module, "complete_recharge_transaction", mock_complete)
+
+    # The transaction context manager still needs to yield a stand-in conn, but
+    # the patched commands never touch it, so a bare AsyncMock suffices.
     mock_conn = AsyncMock()
-    mock_conn.execute.return_value = mock_conn
     mock_db = AsyncMock()
     mock_db.transaction = MagicMock(
         return_value=AsyncMock(
@@ -94,7 +135,16 @@ async def recharge_client() -> AsyncIterator[RechargeTestContext]:
 
     transport = ASGITransport(app=application)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield RechargeTestContext(ac, mock_conn, mock_cache, test_sub)
+        yield RechargeTestContext(
+            ac,
+            mock_cache,
+            mock_get_completed,
+            mock_create_order,
+            mock_get_owner,
+            mock_complete,
+            test_sub,
+            test_msisdn,
+        )
 
     application.dependency_overrides.clear()
 
@@ -105,39 +155,36 @@ async def recharge_client() -> AsyncIterator[RechargeTestContext]:
 @pytest.mark.asyncio
 async def test_recharge_success_creates_order_and_credits_balance(recharge_client: RechargeTestContext) -> None:
     """Happy path: recharge creates order, credits balance, activates plan, creates receipt."""
-    # Setup mock responses for database queries
-    # First call: check for existing completed order (returns None)
-    recharge_client.mock_conn.fetchone.return_value = None
-
-    # get_payment_method_owner returns the test subscriber
-    recharge_client.mock_conn.fetchone.return_value = recharge_client.test_sub
-
-    # create_recharge_order returns new order
     order_id = uuid.uuid4()
     plan_id = uuid.uuid4()
-    recharge_client.mock_conn.execute.return_value.fetchone.return_value = (
-        order_id,
-        recharge_client.test_sub,
-        plan_id,
-        10000,  # amount_paise
-        "pending",
-        datetime.now(UTC),
-    )
 
-    # complete_recharge_transaction returns result
-    recharge_client.mock_conn.execute.return_value.fetchone.return_value = (
-        order_id,
-        15000,  # new_balance_paise
-        datetime.now(UTC),  # plan_activation_timestamp
-        test_msisdn := "911234567890",
-    )
+    # No existing completed order -> proceed to create a new one
+    recharge_client.mock_get_completed_recharge_result.return_value = None
+    # Payment method is owned by the authenticated subscriber
+    recharge_client.mock_get_payment_method_owner.return_value = recharge_client.test_sub
+    # create_recharge_order returns the new order row
+    recharge_client.mock_create_recharge_order.return_value = {
+        "id": order_id,
+        "subscriber_id": recharge_client.test_sub,
+        "plan_id": plan_id,
+        "amount_paise": 10000,
+        "status": "pending",
+        "created_at": datetime.now(UTC),
+    }
+    # complete_recharge_transaction returns the completed result
+    recharge_client.mock_complete_recharge_transaction.return_value = {
+        "transaction_id": order_id,
+        "new_balance_paise": 15000,
+        "plan_activation_timestamp": datetime.now(UTC),
+        "msisdn": recharge_client.test_msisdn,
+    }
 
     response = await recharge_client.post(
         "/api/v1/subscriber/recharge",
         json={
             "plan_id": str(plan_id),
             "payment_method_id": str(uuid.uuid4()),
-            "idempotency_key": str(uuid.uuid4()),
+            "idempotency_key": _idempotency_key(),
         },
     )
 
@@ -149,26 +196,27 @@ async def test_recharge_success_creates_order_and_credits_balance(recharge_clien
     assert "plan_activation_timestamp" in data["data"]
     assert "/receipts/" in data["data"]["receipt_url"]
 
-    # Verify Valkey was credited
-    recharge_client.mock_cache.incr_balance.assert_called_once_with(test_msisdn, 10000)
+    # Verify Valkey was credited for the full amount
+    recharge_client.mock_cache.incr_balance.assert_called_once_with(recharge_client.test_msisdn, 10000)
 
 
 @pytest.mark.asyncio
 async def test_recharge_idempotent_retry_returns_original_result(recharge_client: RechargeTestContext) -> None:
     """Idempotency: duplicate idempotency_key returns original completed order (no double-charge)."""
-    idempotency_key = str(uuid.uuid4())
+    idempotency_key = _idempotency_key()
     order_id = uuid.uuid4()
 
     # get_completed_recharge_result returns existing completed order
-    recharge_client.mock_conn.execute.return_value.fetchone.return_value = (
-        order_id,
-        recharge_client.test_sub,
-        10000,  # amount_paise
-        datetime.now(UTC),  # completed_at
-        15000,  # new_balance_paise
-        datetime.now(UTC),  # plan_activation_timestamp
-        "911234567890",  # msisdn
-    )
+    recharge_client.mock_get_completed_recharge_result.return_value = {
+        "transaction_id": str(order_id),
+        "subscriber_id": recharge_client.test_sub,
+        "amount_paise": 10000,
+        "completed_at": datetime.now(UTC),
+        "status": "completed",
+        "new_balance_paise": 15000,
+        "plan_activation_timestamp": datetime.now(UTC),
+        "msisdn": recharge_client.test_msisdn,
+    }
 
     response = await recharge_client.post(
         "/api/v1/subscriber/recharge",
@@ -184,7 +232,9 @@ async def test_recharge_idempotent_retry_returns_original_result(recharge_client
     assert data["data"]["transaction_id"] == str(order_id)
     assert data["data"]["new_balance_paise"] == 15000
 
-    # Verify Valkey was NOT credited (idempotent retry)
+    # Verify the create/complete path was bypassed entirely (idempotent retry)
+    recharge_client.mock_create_recharge_order.assert_not_called()
+    recharge_client.mock_complete_recharge_transaction.assert_not_called()
     recharge_client.mock_cache.incr_balance.assert_not_called()
 
 
@@ -198,15 +248,16 @@ async def test_recharge_403_when_payment_method_belongs_to_another_subscriber(
     """Security: payment method ownership is validated (403 if not owned by subscriber)."""
     other_subscriber_id = str(uuid.uuid4())
 
-    # get_payment_method_owner returns different subscriber
-    recharge_client.mock_conn.execute.return_value.fetchone.return_value = other_subscriber_id
+    # No existing order, and the payment method is owned by a different subscriber
+    recharge_client.mock_get_completed_recharge_result.return_value = None
+    recharge_client.mock_get_payment_method_owner.return_value = other_subscriber_id
 
     response = await recharge_client.post(
         "/api/v1/subscriber/recharge",
         json={
             "plan_id": str(uuid.uuid4()),
             "payment_method_id": str(uuid.uuid4()),
-            "idempotency_key": str(uuid.uuid4()),
+            "idempotency_key": _idempotency_key(),
         },
     )
 
@@ -217,15 +268,16 @@ async def test_recharge_403_when_payment_method_belongs_to_another_subscriber(
 @pytest.mark.asyncio
 async def test_recharge_404_when_payment_method_not_found(recharge_client: RechargeTestContext) -> None:
     """Security: payment method must exist (404 if not found)."""
-    # get_payment_method_owner returns None (not found)
-    recharge_client.mock_conn.execute.return_value.fetchone.return_value = None
+    # No existing order, and the payment method does not exist
+    recharge_client.mock_get_completed_recharge_result.return_value = None
+    recharge_client.mock_get_payment_method_owner.return_value = None
 
     response = await recharge_client.post(
         "/api/v1/subscriber/recharge",
         json={
             "plan_id": str(uuid.uuid4()),
             "payment_method_id": str(uuid.uuid4()),
-            "idempotency_key": str(uuid.uuid4()),
+            "idempotency_key": _idempotency_key(),
         },
     )
 
@@ -249,7 +301,8 @@ async def test_recharge_422_when_idempotency_key_is_not_valid_uuid(recharge_clie
     )
 
     assert response.status_code == 422
-    errors = response.json()["error"]["detail"]
+    # §1.11.3 envelope: error.detail is {"errors": [ {type, loc, msg, ...}, ... ]}
+    errors = response.json()["error"]["detail"]["errors"]
     idempotency_errors = [e for e in errors if "idempotency_key" in str(e.get("loc", []))]
     assert len(idempotency_errors) > 0
 
@@ -261,7 +314,7 @@ async def test_recharge_422_when_missing_required_fields(recharge_client: Rechar
         "/api/v1/subscriber/recharge",
         json={
             # Missing plan_id and payment_method_id
-            "idempotency_key": str(uuid.uuid4()),
+            "idempotency_key": _idempotency_key(),
         },
     )
 
