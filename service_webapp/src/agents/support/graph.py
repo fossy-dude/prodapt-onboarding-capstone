@@ -36,7 +36,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from agents.guardrails.validator import GuardrailResult, InputGuardrail, log_rejection
+from agents.guardrails.validator import log_rejection
 from agents.support.context import load_context, save_turn
 from agents.support.identity import current_msisdn, current_session_id
 from agents.support.tools import SUPPORT_TOOLS, get_support_cache
@@ -47,6 +47,8 @@ from core.security import mask_msisdn
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
     from langgraph.graph.state import CompiledStateGraph
+
+    from agents.guardrails.validator import GuardrailResult, InputGuardrail
 
 logger = logging.getLogger(__name__)
 
