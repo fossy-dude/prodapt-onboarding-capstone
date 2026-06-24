@@ -103,3 +103,10 @@
 - Two `MilvusClient` instances open the same Milvus Lite file (adapter + retriever) — works today; retriever could reuse `app.state.milvus_adapter`. Design note.
 - Singleton `_retriever` has no lock — `set_retriever` is called once at startup and concurrent reads were verified safe. Theoretical only.
 - Falsy PK `or ""` chain in `_record_hit` — real Milvus PKs are UUID/strings, never falsy. Low-value defensive.
+
+## Deferred from: code review of 5-4-copilotkit-runtime-support-agent-graph (2026-06-24)
+
+- `get_plan`/`get_usage` wrap a pure SELECT in `db.transaction()` (`tools.py`) — suboptimal but acceptable; `DatabaseProtocol` exposes no connection-only seam and its docstring says "later stories extend it." Revisit if a `connection()`/`acquire()` seam is added.
+- `test_support_agent_tools.py` patches the imported name `support_tools.get_active_plan` rather than `queries.get_active_plan` — brittle to refactor.
+- Integration `valkey_url` readiness loop yields after 30s even if Valkey never became ready, producing unclear connection errors instead of a clear "container didn't start" failure.
+- Valkey chat context non-atomic read-modify-write (`context.py`: load → reindex → DELETE → HSET) — concurrent turns for one session can lose updates or drop the whole HASH; the DELETE window makes the key vanish mid-write. Deferred from Story 5.4 review: moot until subscriber identity/session_id actually flow into the graph; revisit when chat concurrency is exercised (consider a Lua HSET+trim+EXPIRE or a LIST/STREAM + LTRIM model).

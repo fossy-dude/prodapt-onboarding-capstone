@@ -37,6 +37,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 
+from agents.guardrails.validator import GuardrailResult, InputGuardrail, log_rejection
 from agents.support.context import load_context, save_turn
 from agents.support.tools import SUPPORT_TOOLS, get_support_cache
 from core.config import settings
@@ -49,7 +50,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["SUPPORT_SYSTEM_PROMPT", "SupportAgentState", "build_support_graph"]
+__all__ = ["SUPPORT_SYSTEM_PROMPT", "SupportAgentState", "build_support_graph", "set_guardrail"]
 
 # ARCH-32: billing/account scope, TRAI compliance, PII ceiling (last-4 only).
 SUPPORT_SYSTEM_PROMPT = (
@@ -72,6 +73,78 @@ class SupportAgentState(CopilotKitState):
     session_id: str
     msisdn: str
     context_turns: list[dict]
+    rejected: bool  # Set by guardrail_node when input validation fails
+
+
+# ── Guardrail singleton (Story 5.5) ──────────────────────────────────────────────
+# Module-level guardrail instance set once at FastAPI startup, so guardrail_node
+# can access it without dependency injection through the LangGraph registry.
+_guardrail: InputGuardrail | None = None
+
+
+def set_guardrail(guardrail: InputGuardrail | None) -> None:
+    """Set (or clear with ``None``) the process-wide guardrail singleton."""
+    global _guardrail
+    _guardrail = guardrail
+
+
+async def guardrail_node(state: dict) -> dict:
+    """Validate incoming user message before processing by the agent.
+
+    Extracts the latest user message from state.messages and validates it via
+    the guardrail singleton. If validation fails, appends an assistant message
+    with the rejection response and sets the ``rejected`` flag to short-circuit
+    the graph (route to END via :func:`_route_after_guardrail`).
+
+    Returns
+    -------
+        Updated state with ``rejected`` flag and optional rejection message
+    """
+    messages = state.get("messages", [])
+    if not messages:
+        return {"rejected": False}
+
+    # Extract the latest message content (assume HumanMessage for user input)
+    latest_message = messages[-1]
+    message_content = getattr(latest_message, "content", "")
+    if not isinstance(message_content, str):
+        message_content = str(message_content)
+
+    # Default to pass if no guardrail is configured (degraded graceful)
+    if _guardrail is None:
+        logger.warning("guardrail_node called but no guardrail singleton set - passing message")
+        return {"rejected": False}
+
+    # Validate the message
+    result: GuardrailResult = await _guardrail.validate(message_content)
+
+    if not result.passed:
+        # Rejection: append assistant message with rejection response
+        rejection_message = result.response_message or "I cannot process this request."
+        updated_messages = messages + [AIMessage(content=rejection_message)]
+
+        # Log rejection to audit table (if DB connection available)
+        # Note: Database logging will be wired in Task 5 via main.py
+        session_id = state.get("session_id", "")
+        if session_id:
+            logger.info("Guardrail rejection: session_id=%s reason=%s", session_id, result.rejection_reason)
+
+        return {
+            "messages": updated_messages,
+            "rejected": True,
+        }
+
+    # Passed: continue to support_agent_node
+    return {"rejected": False}
+
+
+def _route_after_guardrail(state: dict) -> str:
+    """Route after guardrail validation.
+
+    If ``rejected`` is True, route to END (short-circuit before LLM call).
+    Otherwise, route to ``support_agent_node`` for normal processing.
+    """
+    return END if state.get("rejected") else "support_agent_node"
 
 
 def _usage_from_response(response: BaseMessage) -> dict[str, int] | None:
@@ -211,6 +284,9 @@ def build_support_graph(llm: BaseChatModel) -> CompiledStateGraph:
 
     The supervisor closure captures the tool-bound LLM; the ``tools`` node is a
     standard langgraph :class:`ToolNode` over :data:`SUPPORT_TOOLS`.
+
+    Story 5.5: Guardrail node is now the entry point, validating all incoming
+    messages before they reach the agent. Rejected messages short-circuit to END.
     """
 
     async def _node(state: dict) -> dict:
@@ -220,9 +296,21 @@ def build_support_graph(llm: BaseChatModel) -> CompiledStateGraph:
     # the CopilotKit-mixin TypedDict as a valid StateT bound at static-analysis
     # time. Runtime is correct (CopilotKit's own examples construct it this way).
     builder = StateGraph(SupportAgentState)  # type: ignore[bad-specialization]
+
+    # Add nodes (Story 5.5: guardrail_node is first)
+    builder.add_node("guardrail_node", guardrail_node)
     builder.add_node("support_agent_node", _node)
     builder.add_node("tools", ToolNode(SUPPORT_TOOLS))
-    builder.set_entry_point("support_agent_node")
+
+    # Story 5.5: Entry point is now guardrail_node (not support_agent_node)
+    builder.set_entry_point("guardrail_node")
+
+    # Story 5.5: Conditional routing after guardrail
+    # If rejected → END (short-circuit), else → support_agent_node
+    builder.add_conditional_edges("guardrail_node", _route_after_guardrail, ["support_agent_node", END])
+
+    # Existing ReAct loop: agent → tools → agent
     builder.add_conditional_edges("support_agent_node", _route_after_agent, ["tools", END])
     builder.add_edge("tools", "support_agent_node")
+
     return builder.compile()

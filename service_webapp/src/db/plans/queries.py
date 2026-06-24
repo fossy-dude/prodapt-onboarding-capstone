@@ -71,4 +71,49 @@ async def get_available_plans(conn: AsyncConnection, limit: int = 5) -> list[dic
     ]
 
 
-__all__ = ["get_active_subscription", "get_available_plans"]
+async def get_payment_method_for_subscriber(
+    conn: AsyncConnection,
+    subscriber_id: str,
+) -> dict | None:
+    """Return the default (or first active) payment method for a subscriber.
+
+    Queries ``recharge_payment_methods`` for an active method and returns its
+    ``method_type`` and ``last_four`` digits. Returns ``None`` when no saved
+    payment method exists.
+
+    Parameters
+    ----------
+    conn : AsyncConnection
+        Postgres connection for raw SQL queries.
+    subscriber_id : str
+        Subscriber UUID string.
+
+    Returns
+    -------
+    dict | None
+        Payment method dict with keys: ``method_type``, ``last_four`` or ``None``
+        if no active method exists.
+    """
+    cur = await conn.execute(
+        """
+        SELECT
+            method_type,
+            last_four
+          FROM recharge_payment_methods
+         WHERE subscriber_id = %s::uuid
+           AND is_active = TRUE
+         ORDER BY is_default DESC, created_at ASC
+         LIMIT 1
+        """,
+        (subscriber_id,),
+    )
+    row = await cur.fetchone()
+    if row is None:
+        return None
+    return {
+        "method_type": row[0],
+        "last_four": row[1],
+    }
+
+
+__all__ = ["get_active_subscription", "get_available_plans", "get_payment_method_for_subscriber"]

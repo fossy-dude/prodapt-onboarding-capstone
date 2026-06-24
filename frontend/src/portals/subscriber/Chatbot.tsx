@@ -1,12 +1,13 @@
 import { useMemo } from "react";
 
 import { CopilotChat } from "@copilotkit/react-ui";
-import { useCopilotReadable } from "@copilotkit/react-core";
+import { useCopilotReadable, useCopilotAction } from "@copilotkit/react-core";
 
 import "@copilotkit/react-ui/styles.css";
 
 import { useActivePlan } from "../../hooks/useActivePlan";
 import { useBalance } from "../../hooks/useBalance";
+import { PlanRecommendationCard } from "./components/PlanRecommendationCard";
 
 /**
  * Floating billing assistant chat panel for the subscriber portal (Story 5.4;
@@ -43,6 +44,32 @@ function Chatbot() {
   useCopilotReadable({
     description: "chat_session",
     value: { session_id: sessionId },
+  });
+
+  // Story 5.6 AC #3: render plan recommendation cards when list_plans tool is called.
+  useCopilotAction({
+    name: "list_plans",
+    render: ({ result }) => (
+      <div className="plan-cards flex flex-col gap-3">
+        {result.plans.map(
+          (plan: {
+            plan_id: string;
+            name: string;
+            price_inr: string;
+            data_limit_mb: number | null;
+            voice_minutes: number | null;
+            sms_count: number | null;
+            recharge_url: string;
+          }) => (
+            <PlanRecommendationCard
+              key={plan.plan_id}
+              {...plan}
+              recharge_url={`/subscriber/recharge?plan=${plan.plan_id}`}
+            />
+          ),
+        )}
+      </div>
+    ),
   });
 
   return (

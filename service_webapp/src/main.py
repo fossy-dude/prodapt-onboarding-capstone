@@ -79,6 +79,7 @@ try:
 except ImportError:
     AzureOpenAI = None  # type: ignore[assignment]
 
+from agents.guardrails.validator import InputGuardrail, set_guardrail
 from agents.rag.retriever import HybridRetriever, set_retriever
 from agents.support.tools import set_support_adapters
 from core.observability.langfuse import get_langfuse_client
@@ -159,6 +160,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.azure_openai_client = azure_openai_client
             app.state.rag_retriever = retriever
             set_retriever(retriever)
+
+            # Story 5.5: Initialize input guardrail with Azure OpenAI client
+            guardrail = InputGuardrail(
+                azure_client=azure_openai_client,
+                embedding_deployment=settings.embedding_model,
+            )
+            set_guardrail(guardrail)
+            app.state.input_guardrail = guardrail
+            owned.append("input_guardrail")
+
             owned.append("rag_retriever")
         except Exception as exc:
             if retriever is not None:
@@ -170,6 +181,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.azure_openai_client = None
             app.state.rag_retriever = None
             set_retriever(None)
+            set_guardrail(None)  # Story 5.5: Clear guardrail if Azure unavailable
     # The registration service composes the DB repository + Cognito provider; build
     # it only when not injected (tests inject a service wired to fakes).
     if getattr(app.state, "registration_service", None) is None:

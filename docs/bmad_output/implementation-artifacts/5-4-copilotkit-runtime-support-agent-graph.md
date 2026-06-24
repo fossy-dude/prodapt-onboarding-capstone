@@ -182,3 +182,34 @@ Modified:
 ## Change Log
 
 - 2026-06-24: Story 5.4 implemented — CopilotKit runtime (`POST /api/chat/*`), Support Agent LangGraph ReAct graph with `get_balance`/`get_plan`/`get_usage`/`rag_search` tools, Valkey-backed 10-turn conversational context (2h sliding TTL), PII-redacted LangFuse node tracing, frontend `<Chatbot>` with `useCopilotReadable` hooks. Lint + unit/integration test gates green (344 passed, 48 skipped).
+
+### Review Findings
+
+Code review (2026-06-24) — three adversarial layers (Blind Hunter, Edge Case Hunter, Acceptance Auditor). Headline: identity (`msisdn`/`subscriber_id`) and `session_id` never propagate into the graph at runtime, so **AC #2 (tools) and AC #3 (Valkey context) are non-functional in any real CopilotKit request** despite passing unit tests (which inject state directly). Verified against the installed `copilotkit` SDK: `CopilotKitState` carries only `messages` + `copilotkit.context`; `routers/chat.py` passes no `initial_state`/JWT extraction/middleware.
+
+**Decision-needed (resolved 2026-06-24):**
+
+- [x] [Review][Decision→Patch] Subscriber identity + session_id never reach graph state. **Resolved:** supply identity via a **per-request contextvar populated from the JWT** in the CopilotKit route handler; drop `msisdn`/`subscriber_id` from the `@tool` signatures so the LLM no longer hallucinates them; `session_id` supplied the same way. See patch list.
+- [x] [Review][Decision→Defer] Valkey chat context non-atomic RMW. **Resolved: Defer** — moot until identity flows (AC #2/#3 unreachable today); revisit when concurrency is actually exercised.
+- [x] [Review][Decision→Dismiss] AC #5 "latency". **Resolved: Dismiss** — LangFuse derives span duration server-side from start/end; AC satisfied as-is.
+
+**Patch (unambiguous fixes):**
+
+- [ ] [Review][Patch] Supply subscriber identity + session_id from a per-request contextvar set from the JWT in the CopilotKit route handler; remove `msisdn`/`subscriber_id` from `get_balance`/`get_plan`/`get_usage` `@tool` signatures; `support_agent_node` reads `session_id`/`msisdn` from the contextvar (not graph state) [`chat.py`, `tools.py`, `graph.py:128`] **(was decision #1)**
+- [ ] [Review][Patch] Manual `__exit__(*sys.exc_info())` + bare `except: pass` reintroduces the anti-pattern Story 5.3 fixed in `retriever.py` — use `with observation_cm as observation:` [`graph.py:174-178`]
+- [ ] [Review][Patch] No error handling on the business LLM invoke / ToolNode — raw exceptions propagate through CopilotKit; a tool failure mid-ReAct leaves an orphan user turn and no graceful reply. Wrap in try/except returning a fallback AIMessage; persist in `finally` [`graph.py:144-194`]
+- [ ] [Review][Patch] `tools` node has no LangFuse span — FR-72 "every agent node execution" under-covered (only `support_agent_node` is traced) [`graph.py:224`]
+- [ ] [Review][Patch] Support singletons never reset to `None` on shutdown — add `set_support_adapters(None, None)` in the lifespan `finally` (mirror `set_retriever(None)`) [`main.py` lifespan]
+- [ ] [Review][Patch] No `recursion_limit` on the ReAct loop — a misbehaving mini-model loops `support_agent_node ↔ tools` indefinitely (esp. when tools return `{None, None}`) [`graph.py:228`]
+- [ ] [Review][Patch] `_decode_turns` does not validate dict shape — a non-dict Valkey field (e.g. `"turn_3": "42"`) crashes `_prior_context_messages` with `AttributeError` [`context.py`, `graph.py:113`]
+- [ ] [Review][Patch] `crypto.randomUUID()` session id is lost on reload/remount and throws on a non-secure (plain-HTTP) context — persist to `sessionStorage` and guard `crypto` availability [`Chatbot.tsx:30`]
+- [ ] [Review][Patch] `get_balance` formatting: guard non-int `balance_paise` and format negative balances (`₹-50.00` → `-₹50.00`) [`tools.py:108-109`] (latent; moot until identity flows)
+
+**Deferred (pre-existing / acceptable):**
+
+- [x] [Review][Defer] `get_plan`/`get_usage` wrap a pure SELECT in `db.transaction()` [`tools.py`] — suboptimal but acceptable: `DatabaseProtocol` exposes no connection-only seam and its docstring says "later stories extend it"; reads-in-tx are not incorrect. Deferred — pre-existing protocol design.
+- [x] [Review][Defer] `test_support_agent_tools.py` patches the imported name (`support_tools.get_active_plan`) — correct today but brittle to a refactor to `queries.get_active_plan`. Deferred — test maintainability.
+- [x] [Review][Defer] Integration test `valkey_url` readiness loop yields even if Valkey never becomes ready in 30s, producing unclear connection errors. Deferred — test UX.
+- [x] [Review][Defer] Valkey chat context non-atomic RMW (`context.py:92-112`: load → reindex → DELETE → HSET; concurrent turns lose updates / key vanishes mid-write). Deferred — moot until identity flows; revisit when concurrency is exercised.
+
+**Dismissed (10):** documented SDK class-rename / catch-all route deviation (AC #1 met); `_route_after_agent` empty-list falsy (correct); `_prior_context_messages` drops non-user/assistant roles (consistent with `save_turn`); `_FakeDB.transaction` async-vs-protocol signature (lint + concrete adapter pass); `set_trace_usage` ordering (usage also written to the observation); `load_context` double-trim (defensive); LangFuse usage key names (correct); `mask_msisdn("")` (safe); various.
