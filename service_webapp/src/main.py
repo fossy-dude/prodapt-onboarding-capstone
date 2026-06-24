@@ -30,7 +30,7 @@ from adapters.redis import ValkeyAdapter
 from core.auth import JWTValidator, _cognito_jwks_url
 from core.config import settings
 from core.errors import register_exception_handlers
-from core.middleware import OtelTraceMiddleware
+from core.middleware import OtelTraceMiddleware, SupportIdentityMiddleware
 from core.rate_limit import RateLimitMiddleware
 from core.step_up import StepUpOtpService
 
@@ -454,6 +454,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if "rag_retriever" in owned:
             await app.state.rag_retriever.close()
             set_retriever(None)
+        # Clear the Support Agent tool singletons so no in-flight tool call can
+        # touch a closed adapter after shutdown (mirrors set_retriever(None)).
+        set_support_adapters(None, None)
 
 
 def create_app(
@@ -479,6 +482,10 @@ def create_app(
     app = FastAPI(title="SBOAI Capstone", version="0.1.0", lifespan=lifespan)
     app.add_middleware(OtelTraceMiddleware)
     app.add_middleware(RateLimitMiddleware, settings=settings)
+    # Support Agent identity (Story 5.4): bind the authenticated subscriber (JWT
+    # ``sub`` + MSISDN) and the chat session id onto /api/chat/* requests so the
+    # tools scope queries without the LLM supplying identity (AC #2).
+    app.add_middleware(SupportIdentityMiddleware)
     register_exception_handlers(app)
     app.include_router(health_router)
     app.include_router(subscriber_router)

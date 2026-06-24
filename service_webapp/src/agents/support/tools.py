@@ -36,7 +36,9 @@ from uuid import UUID
 from langchain_core.tools import tool
 
 from agents.rag.retriever import rag_search
+from agents.support.identity import current_msisdn, current_subscriber_id
 from core.observability.langfuse import get_langfuse_client
+from core.security import mask_msisdn
 from db.billing.queries import get_active_plan, get_usage_for_period
 from db.plans.queries import get_available_plans, get_payment_method_for_subscriber
 
@@ -96,36 +98,45 @@ def _require_db() -> DatabaseProtocol:
 
 
 @tool
-async def get_balance(msisdn: str) -> dict:
-    """Return the subscriber's current wallet balance.
+async def get_balance() -> dict:
+    """Return the *authenticated* subscriber's current wallet balance.
 
-    Reads the Valkey-authoritative counter ``balance:{msisdn}`` (ARCH-6). Returns
+    Reads the Valkey-authoritative counter ``balance:{msisdn}`` (ARCH-6), where the
+    MSISDN is resolved server-side from the request's JWT (never supplied by the
+    LLM — see :mod:`agents.support.identity`). Returns
     ``{"balance_paise": int, "balance_inr": str}`` where ``balance_inr`` is a
-    formatted ``₹RR.PP`` string. A cold cache (no key) returns ``None`` values so
-    the agent can explain the balance is unavailable rather than fabricate one.
+    formatted rupee string. A cold cache (no key) returns ``None`` values so the
+    agent can explain the balance is unavailable rather than fabricate one.
     """
     cache = _require_cache()
+    msisdn = current_msisdn()
     balance_paise = await cache.get_balance(msisdn)
     if balance_paise is None:
-        logger.debug("get_balance: cache-miss msisdn=%s", msisdn[-4:])
+        logger.debug("get_balance: cache-miss msisdn=%s", mask_msisdn(msisdn))
         return {"balance_paise": None, "balance_inr": None}
+    # Guard against a non-int counter value (defensive: the contract is int, but a
+    # corrupt/manual Valkey entry must not crash formatting). Negative balances
+    # render as ``-₹RR.PP`` (debt) rather than the malformed ``₹-RR.PP``.
+    paise = int(balance_paise)
+    sign = "-" if paise < 0 else ""
     return {
-        "balance_paise": balance_paise,
-        "balance_inr": f"₹{balance_paise / 100:.2f}",
+        "balance_paise": paise,
+        "balance_inr": f"{sign}₹{abs(paise) / 100:.2f}",
     }
 
 
 @tool
-async def get_plan(subscriber_id: str) -> dict:
-    """Return the subscriber's active plan: name, validity expiry and quotas.
+async def get_plan() -> dict:
+    """Return the *authenticated* subscriber's active plan: name, expiry, quotas.
 
     Joins the latest active ``plans_subscriptions`` to its ``plans_plans`` row
-    (status='active'). Returns ``None`` when no active subscription exists so the
-    agent can advise the subscriber to recharge.
+    (status='active'), scoped to the JWT ``sub`` (never supplied by the LLM — see
+    :mod:`agents.support.identity`). Returns ``None`` when no active subscription
+    exists so the agent can advise the subscriber to recharge.
     """
     db = _require_db()
     async with db.transaction() as conn:
-        plan = await get_active_plan(conn, UUID(subscriber_id))
+        plan = await get_active_plan(conn, UUID(current_subscriber_id()))
     if plan is None:
         return {"active_plan": None}
     end_date = plan["end_date"]
@@ -143,10 +154,11 @@ async def get_plan(subscriber_id: str) -> dict:
 
 
 @tool
-async def get_usage(subscriber_id: str, days: int = 30) -> dict:
+async def get_usage(days: int = 30) -> dict:
     """Aggregate per-type CDR usage (voice/data/SMS) for the last ``days`` days.
 
-    Sums charged ``billing_cdr_events`` between ``now - days`` and ``now``. Voice is
+    Sums charged ``billing_cdr_events`` between ``now - days`` and ``now`` for the
+    *authenticated* subscriber (JWT ``sub`` — never supplied by the LLM). Voice is
     returned in minutes, data in MB and SMS as a count — the natural units the
     agent uses to answer "how much have I used" questions.
     """
@@ -154,7 +166,7 @@ async def get_usage(subscriber_id: str, days: int = 30) -> dict:
     end = datetime.now(UTC)
     start = end - timedelta(days=days)
     async with db.transaction() as conn:
-        usage = await get_usage_for_period(conn, UUID(subscriber_id), start, end)
+        usage = await get_usage_for_period(conn, UUID(current_subscriber_id()), start, end)
     return {
         "window_days": days,
         "voice_minutes": round(usage["voice_minutes_used"], 2),

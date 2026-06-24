@@ -20,11 +20,11 @@ from opentelemetry import trace
 from opentelemetry.propagate import extract
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from agents.support.identity import support_context
 from core.auth import _extract_token
-from core.errors import UnauthenticatedError
+from core.errors import DomainError, UnauthenticatedError, _error_body
 from db.billing.queries import get_msisdn_for_subscriber
 
 logger = logging.getLogger(__name__)
@@ -85,24 +85,34 @@ class SupportIdentityMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        """Bind subscriber identity on ``/api/chat/*`` requests; pass others through."""
         if not request.url.path.startswith(_CHAT_PREFIX):
             return await call_next(request)
 
-        validator = getattr(request.app.state, "jwt_validator", None)
-        if validator is None:
-            raise RuntimeError("jwt_validator not wired onto app.state — check lifespan")
+        try:
+            validator = getattr(request.app.state, "jwt_validator", None)
+            if validator is None:
+                raise RuntimeError("jwt_validator not wired onto app.state — check lifespan")
 
-        token = _extract_token(request)  # raises UnauthenticatedError on a bad header
-        payload = validator.decode(token)  # raises UnauthenticatedError on a bad token
-        subscriber_id = payload.get("sub")
-        if not subscriber_id:
-            raise UnauthenticatedError("Access token is missing the 'sub' claim.")
+            token = _extract_token(request)  # UnauthenticatedError on a bad header
+            payload = validator.decode(token)  # UnauthenticatedError on a bad token
+            subscriber_id = payload.get("sub")
+            if not subscriber_id:
+                raise UnauthenticatedError("Access token is missing the 'sub' claim.")
 
-        msisdn = await self._resolve_msisdn(request, str(subscriber_id))
-        if msisdn is None:
-            raise UnauthenticatedError("Authenticated subscriber has no MSISDN on record.")
+            msisdn = await self._resolve_msisdn(request, str(subscriber_id))
+            if msisdn is None:
+                raise UnauthenticatedError("Authenticated subscriber has no MSISDN on record.")
+        except DomainError as exc:
+            # Middleware runs OUTSIDE Starlette's ExceptionMiddleware, so the
+            # registered DomainError handler (→ JSON envelope) would not catch a
+            # raised error. Convert it here to keep the same §1.11.3 response shape.
+            return JSONResponse(
+                status_code=exc.http_status,
+                content=_error_body(request, exc.code, exc.message, exc.detail),
+            )
+
         session_id = request.headers.get(_SESSION_ID_HEADER, "")
-
         with support_context(
             subscriber_id=str(subscriber_id),
             msisdn=msisdn,

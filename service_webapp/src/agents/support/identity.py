@@ -26,7 +26,11 @@ the failure is loud rather than silently querying the wrong subscriber.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Iterator
+import contextvars
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 _subscriber_id: contextvars.ContextVar[str | None] = contextvars.ContextVar("support_subscriber_id", default=None)
 _msisdn: contextvars.ContextVar[str | None] = contextvars.ContextVar("support_msisdn", default=None)

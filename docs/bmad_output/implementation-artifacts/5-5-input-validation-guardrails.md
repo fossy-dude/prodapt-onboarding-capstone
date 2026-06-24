@@ -195,3 +195,29 @@ All tasks completed successfully with comprehensive test coverage:
 **Modified Files:**
 - service_webapp/src/agents/support/graph.py
 - service_webapp/src/main.py
+
+## Code Review Findings (2026-06-24)
+
+Review target: committed `9b9ca7d` "Story 5.5, 5.6 dev completed". Reviewed via 3 adversarial layers (Blind Hunter, Edge Case Hunter, Acceptance Auditor) + direct verification.
+
+> NOTE: the working tree has since diverged from `9b9ca7d` (graph.py guardrail wiring stripped, main.py/tools.py mid-edit). These findings are against the committed `9b9ca7d` artifact, which is what was submitted for review.
+
+### Decision-needed
+
+- [ ] [Review][Decision] **AC #4 not met: `log_rejection` never called** — rejections are not persisted to `support_guardrail_rejections` [`graph.py:guardrail_node`] — The rejection branch only `logger.info`s; the audit INSERT is dead code (imported at `graph.py:40`, never invoked). Worse, `session_id = state.get("session_id","")` reads a field absent from `SupportAgentState` (identity comes from contextvars), so even the info-log is gated out. Satisfying AC #4 requires the guardrail node to obtain a DB handle (it currently has none) and call `log_rejection`; that function itself calls `db.execute()` which the adapter does not expose (must use `async with db.transaction() as conn: await conn.execute(...)`). Decision needed: DB-access pattern (new singleton vs reuse `tools._db`) and whether a logging failure should be best-effort.
+- [ ] [Review][Decision] **Injection patterns include bare common words "disregard"/"override"** → false positives on legitimate billing messages; matching is plain substring with no unicode/whitespace normalization → trivially bypassable [`validator.py:_INJECTION_PATTERNS`] — Decision: keep the spec's literal 8-pattern list (accept false positives) or drop the bare-word entries and add NFKC/whitespace normalization?
+
+### Patches
+
+- [ ] [Review][Patch] **CRITICAL — app won't boot: `set_guardrail` imported from wrong module** [`main.py:82`] — `from agents.guardrails.validator import InputGuardrail, set_guardrail`; validator.py does not export `set_guardrail` (it lives in `agents.support.graph`). ImportError at module load (verified empirically). Unit tests pass only because they import from `graph`. Fix: split the import — `from agents.guardrails.validator import InputGuardrail` + `from agents.support.graph import set_guardrail`.
+- [ ] [Review][Patch] Lazy seed-embedding race + thundering-herd retry storm [`validator.py:97-119`] — no `asyncio.Lock` (N coroutines fire Azure on cold start); on failure the cache resets to `None` so every subsequent request retries against an already-failing dependency. Fix: lock + negative caching with TTL.
+- [ ] [Review][Patch] Cosine similarity silently truncates on dimension mismatch via `zip`; no NaN guard [`validator.py:186-215`] — dot product over `zip(a,b)` but norms over full vectors → meaningless similarity, spurious OFF_TOPIC. Fix: `len`-equality guard.
+- [ ] [Review][Patch] `guardrail_node` assumes `messages[-1]` is the user message (no `isinstance` check); `str()` on list/multimodal content → meaningless checks + false OFF_TOPIC [`graph.py:guardrail_node`] — Fix: verify HumanMessage; extract text from content blocks.
+- [ ] [Review][Patch] V8 migration omits the append-only grants V5 applies to the other audit tables [`V8__support_guardrail_rejections.sql`] — `sboai_app` inherits UPDATE/DELETE on the guardrail audit log (TRAI/NFR-4 append-only guarantee not enforced at DB level). Fix: a grants migration mirroring V5 (`GRANT SELECT, INSERT` + `REVOKE UPDATE, DELETE`).
+- [ ] [Review][Patch] SHA-256 hash emitted to DEBUG log (hash is a correlation handle) [`validator.py:242`] — Fix: drop the hash from the debug line.
+- [ ] [Review][Patch] `logger.warning("... %s", exc)` may echo raw user input when Azure errors include the request payload (PII) [`validator.py:116,183`] — Fix: redact/sanitize.
+
+### Deferred
+
+- [x] [Review][Defer] `len(message) > 2000` counts Unicode code points, not bytes/graphemes; AC "2,000 characters" is ambiguous — defer; document the interpretation. [validator.py:135]
+- [x] [Review][Defer] `rejected` flag not reset at the start of `guardrail_node`; brittle only if graph topology changes — defer (current topology is linear). [graph.py]

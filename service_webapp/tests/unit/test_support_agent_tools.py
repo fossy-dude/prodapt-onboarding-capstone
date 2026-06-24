@@ -1,9 +1,11 @@
 """Unit tests for the Support Agent LangGraph tools (Story 5.4; AC #2, #6).
 
 The tools resolve the cache/DB from process-wide singletons set via
-``set_support_adapters`` (the same pattern Story 5.3's ``set_retriever`` uses), so
-each test injects fakes and asserts the tool's mapping + edge-case behaviour.
-DB-backed tools patch the leaf query functions so no real Postgres is needed.
+``set_support_adapters`` (the same pattern Story 5.3's ``set_retriever`` uses) and
+subscriber identity from per-request contextvars (``support_context``), so each
+test injects fakes + binds identity and asserts the tool's mapping + edge-case
+behaviour. DB-backed tools patch the leaf query functions so no real Postgres is
+needed.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ import pytest
 
 from agents.rag.retriever import RagChunk
 from agents.support import tools as support_tools
+from agents.support.identity import support_context
 from agents.support.tools import (
     get_balance,
     get_plan,
@@ -23,6 +26,9 @@ from agents.support.tools import (
     set_support_adapters,
 )
 
+_SUB_ID = "12345678-1234-4321-8765-432187654321"
+_MSISDN = "919999990001"
+
 
 @pytest.fixture(autouse=True)
 def _reset_singletons():
@@ -30,6 +36,13 @@ def _reset_singletons():
     set_support_adapters(None, None)
     yield
     set_support_adapters(None, None)
+
+
+@pytest.fixture(autouse=True)
+def _bound_identity():
+    """Bind subscriber identity (contextvars) for each test, resetting after."""
+    with support_context(subscriber_id=_SUB_ID, msisdn=_MSISDN, session_id="sess-test"):
+        yield
 
 
 class _FakeDB:
@@ -51,10 +64,10 @@ async def test_get_balance_returns_paise_and_formatted_inr() -> None:
     cache.get_balance = AsyncMock(return_value=5000)
     set_support_adapters(cache=cache, db=_FakeDB())
 
-    result = await get_balance.ainvoke({"msisdn": "919999990001"})
+    result = await get_balance.ainvoke({})
 
     assert result == {"balance_paise": 5000, "balance_inr": "₹50.00"}
-    cache.get_balance.assert_awaited_once_with("919999990001")
+    cache.get_balance.assert_awaited_once_with(_MSISDN)
 
 
 async def test_get_balance_cache_miss_returns_none_values() -> None:
@@ -62,15 +75,25 @@ async def test_get_balance_cache_miss_returns_none_values() -> None:
     cache.get_balance = AsyncMock(return_value=None)
     set_support_adapters(cache=cache, db=_FakeDB())
 
-    result = await get_balance.ainvoke({"msisdn": "919999990001"})
+    result = await get_balance.ainvoke({})
 
     assert result == {"balance_paise": None, "balance_inr": None}
+
+
+async def test_get_balance_formats_negative_balance_as_debt() -> None:
+    cache = MagicMock()
+    cache.get_balance = AsyncMock(return_value=-5000)
+    set_support_adapters(cache=cache, db=_FakeDB())
+
+    result = await get_balance.ainvoke({})
+
+    assert result == {"balance_paise": -5000, "balance_inr": "-₹50.00"}
 
 
 async def test_get_balance_raises_when_adapters_not_set() -> None:
     set_support_adapters(cache=None, db=None)
     with pytest.raises(RuntimeError, match="set_support_adapters"):
-        await get_balance.ainvoke({"msisdn": "919999990001"})
+        await get_balance.ainvoke({})
 
 
 # ── get_plan ───────────────────────────────────────────────────────────────────
@@ -91,20 +114,23 @@ async def test_get_plan_maps_active_plan_row(monkeypatch) -> None:
     }
     monkeypatch.setattr(support_tools, "get_active_plan", AsyncMock(return_value=plan_row))
 
-    result = await get_plan.ainvoke({"subscriber_id": "12345678-1234-4321-8765-432187654321"})
+    result = await get_plan.ainvoke({})
 
     assert result["active_plan"]["plan_name"] == "Truly Unlimited 299"
     assert result["active_plan"]["validity_expiry"] is None
     assert result["active_plan"]["data_limit_mb"] == 1024
     assert result["active_plan"]["sms_count"] == 100
     support_tools.get_active_plan.assert_awaited_once()
+    # subscriber_id is sourced from the request contextvar (JWT sub), not an arg.
+    args, _kwargs = support_tools.get_active_plan.call_args
+    assert str(args[1]) == _SUB_ID
 
 
 async def test_get_plan_no_active_subscription(monkeypatch) -> None:
     set_support_adapters(cache=MagicMock(), db=_FakeDB())
     monkeypatch.setattr(support_tools, "get_active_plan", AsyncMock(return_value=None))
 
-    result = await get_plan.ainvoke({"subscriber_id": "12345678-1234-4321-8765-432187654321"})
+    result = await get_plan.ainvoke({})
 
     assert result == {"active_plan": None}
 
@@ -123,7 +149,7 @@ async def test_get_usage_aggregates_last_n_days(monkeypatch) -> None:
     mock_query = AsyncMock(return_value=usage_row)
     monkeypatch.setattr(support_tools, "get_usage_for_period", mock_query)
 
-    result = await get_usage.ainvoke({"subscriber_id": "12345678-1234-4321-8765-432187654321", "days": 14})
+    result = await get_usage.ainvoke({"days": 14})
 
     assert result == {
         "window_days": 14,
@@ -132,9 +158,9 @@ async def test_get_usage_aggregates_last_n_days(monkeypatch) -> None:
         "sms_count": 7,
         "roaming_mb": 0.0,
     }
-    # The window is computed from now; assert subscriber + the requested window.
+    # The window is computed from now; subscriber_id is sourced from the contextvar.
     args, _kwargs = mock_query.call_args
-    assert str(args[1]) == "12345678-1234-4321-8765-432187654321"  # subscriber_id (positional)
+    assert str(args[1]) == _SUB_ID  # subscriber_id (positional)
     assert args[2] is not None  # start
 
 
@@ -145,7 +171,7 @@ async def test_get_usage_defaults_to_30_days(monkeypatch) -> None:
     )
     monkeypatch.setattr(support_tools, "get_usage_for_period", mock_query)
 
-    result = await get_usage.ainvoke({"subscriber_id": "12345678-1234-4321-8765-432187654321"})
+    result = await get_usage.ainvoke({})
 
     assert result["window_days"] == 30
 

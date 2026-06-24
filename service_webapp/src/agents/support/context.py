@@ -57,8 +57,9 @@ def context_key(session_id: str) -> str:
 def _decode_turns(raw: dict[str, str]) -> list[tuple[int, dict]]:
     """Parse an ``hgetall`` result into sorted ``(index, message)`` pairs.
 
-    Malformed fields (bad index, bad JSON) are skipped rather than fatal — a
-    corrupt single turn must not break the whole conversation.
+    Malformed fields (bad index, bad JSON, or a value that is not a message dict)
+    are skipped rather than fatal — a corrupt single turn must not break the whole
+    conversation (a non-dict value would later crash ``turn.get("role")``).
     """
     parsed: list[tuple[int, dict]] = []
     for field, value in raw.items():
@@ -71,6 +72,9 @@ def _decode_turns(raw: dict[str, str]) -> list[tuple[int, dict]]:
             msg = json.loads(value)
         except (TypeError, ValueError):
             logger.debug("load_context: skipping unparseable turn field=%s", field)
+            continue
+        if not isinstance(msg, dict):
+            logger.debug("load_context: skipping non-dict turn field=%s", field)
             continue
         parsed.append((int(idx_str), msg))
     parsed.sort(key=lambda item: item[0])

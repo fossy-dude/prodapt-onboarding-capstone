@@ -29,7 +29,6 @@ deprecated) — see ``routers/chat.py``.
 from __future__ import annotations
 
 import logging
-import sys
 from typing import TYPE_CHECKING, Any
 
 from copilotkit.langgraph import CopilotKitState
@@ -39,6 +38,7 @@ from langgraph.prebuilt import ToolNode
 
 from agents.guardrails.validator import GuardrailResult, InputGuardrail, log_rejection
 from agents.support.context import load_context, save_turn
+from agents.support.identity import current_msisdn, current_session_id
 from agents.support.tools import SUPPORT_TOOLS, get_support_cache
 from core.config import settings
 from core.observability.langfuse import get_langfuse_client, set_trace_usage

@@ -1,10 +1,16 @@
+import { useState } from "react";
+
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { CopilotKit } from "@copilotkit/react-core";
 
 import { RoleGuard } from "./components/layout/RoleGuard";
+import { getToken } from "./lib/auth";
 import { Login } from "./portals/auth/Login";
-import { Chatbot } from "./portals/subscriber/Chatbot";
+import {
+  Chatbot,
+  getOrCreateChatSessionId,
+} from "./portals/subscriber/Chatbot";
 import { Dashboard } from "./portals/subscriber/Dashboard";
 import { NotificationPreferences } from "./portals/subscriber/NotificationPreferences";
 import { PaymentMethods } from "./portals/subscriber/PaymentMethods";
@@ -46,6 +52,11 @@ function PortalPlaceholder({ role }: { readonly role: string }) {
  *   /simulator/*  — role: dev
  */
 function App() {
+  // One stable chat session id per browser session, persisted across reloads
+  // (Story 5.4 AC #3). Owned here so the CopilotKit provider can forward it as
+  // the X-Chat-Session-Id header that the backend identity middleware reads.
+  const [sessionId] = useState(getOrCreateChatSessionId);
+
   return (
     <Routes>
       {/* Public routes */}
@@ -57,7 +68,23 @@ function App() {
         path="/subscriber/*"
         element={
           <RoleGuard allowedRoles={["subscriber"]}>
-            <CopilotKit runtimeUrl="/api/chat">
+            {/*
+              Headers are re-evaluated per render (function form) so a refreshed
+              access token is always attached. The session id keys the Valkey
+              conversation context; the Authorization Bearer authenticates the
+              request so the backend can resolve subscriber identity (Story 5.4
+              AC #2 — identity flows from the JWT, never from the LLM).
+            */}
+            <CopilotKit
+              runtimeUrl="/api/chat"
+              headers={() => {
+                const token = getToken();
+                return {
+                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                  "X-Chat-Session-Id": sessionId,
+                };
+              }}
+            >
               <Routes>
                 <Route path="dashboard" element={<Dashboard />} />
                 <Route path="activate" element={<SimActivation />} />
@@ -80,7 +107,7 @@ function App() {
               </Routes>
               {/* Floating billing assistant — Story 5.4 (must sit inside the
               CopilotKit provider so useCopilotReadable resolves). */}
-              <Chatbot />
+              <Chatbot sessionId={sessionId} />
             </CopilotKit>
           </RoleGuard>
         }

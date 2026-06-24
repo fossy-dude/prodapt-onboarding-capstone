@@ -110,3 +110,17 @@
 - `test_support_agent_tools.py` patches the imported name `support_tools.get_active_plan` rather than `queries.get_active_plan` — brittle to refactor.
 - Integration `valkey_url` readiness loop yields after 30s even if Valkey never became ready, producing unclear connection errors instead of a clear "container didn't start" failure.
 - Valkey chat context non-atomic read-modify-write (`context.py`: load → reindex → DELETE → HSET) — concurrent turns for one session can lose updates or drop the whole HASH; the DELETE window makes the key vanish mid-write. Deferred from Story 5.4 review: moot until subscriber identity/session_id actually flow into the graph; revisit when chat concurrency is exercised (consider a Lua HSET+trim+EXPIRE or a LIST/STREAM + LTRIM model).
+
+## Deferred from: code review of stories 5.5 & 5.6 (2026-06-24)
+
+### Story 5.5 (input-validation-guardrails)
+- `len(message) > 2000` counts Unicode code points, not bytes/graphemes; AC "2,000 characters" is ambiguous — document the interpretation (code-point count is a defensible reading for an MVP guardrail). [service_webapp/src/agents/guardrails/validator.py:135]
+- `rejected` flag not reset at the start of `guardrail_node`; relies on the node rewriting it each turn — brittle only if the graph topology becomes non-linear. [service_webapp/src/agents/support/graph.py]
+
+### Story 5.6 (recharge-via-chatbot)
+- No recharge-intent guidance in `SUPPORT_SYSTEM_PROMPT`; AC #1 "detects recharge intent" relies on the model inferring it from the `list_plans` docstring — robustness enhancement, not a hard violation. [service_webapp/src/agents/support/graph.py:58]
+- NULL/corrupt `price_paise` → `None / 100` TypeError in `list_plans` formatting; `plans_plans.price_paise` is NOT NULL in V1 so real risk is low (unlike `get_balance`, no defensive `int()` cast). [service_webapp/src/agents/support/tools.py]
+- No LangFuse-traced test coverage (AC #5 verified by code inspection only; all `test_recharge_tools.py` cases run with `langfuse_enabled=False`). [service_webapp/tests/unit/test_recharge_tools.py]
+- `formatData(0)` renders "0.0 GB" for zero-data plans; no MB fallback below 1 GB — cosmetic. [frontend/src/portals/subscriber/components/PlanRecommendationCard.tsx]
+- `get_payment_method_for_subscriber` orders by `is_default DESC, created_at ASC` (selects the oldest active card, possibly a stale token), a silent deviation from the spec's simple `WHERE subscriber_id=%s AND is_active=TRUE LIMIT 1`; behavior is correct but the preselect may not be the most-recent card. [service_webapp/src/db/plans/queries.py]
+- `_FakeConn.execute` in the recharge tests routes by table-name substring (`"plans_plans" in sql`), so the tests never validate SQL shape/parameter binding; the LangFuse-traced branches are also uncovered. [service_webapp/tests/unit/test_recharge_tools.py]

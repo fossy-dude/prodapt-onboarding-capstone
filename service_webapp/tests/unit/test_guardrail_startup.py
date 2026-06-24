@@ -14,7 +14,7 @@ import pytest
 from openai import AzureOpenAI
 
 from agents.guardrails.validator import InputGuardrail
-from agents.support.graph import set_guardrail, _guardrail
+from agents.support.graph import _guardrail, set_guardrail
 
 
 class TestGuardrailStartup:

@@ -157,3 +157,27 @@ All acceptance criteria satisfied:
 - No database migration needed (uses existing V1 tables)
 - No new dependencies added
 - No integration tests needed (follows existing tool patterns)
+
+## Code Review Findings (2026-06-24)
+
+Review target: committed `9b9ca7d`. 3 adversarial layers + direct verification. All 6 ACs are MET in the committed code; findings below are hardening/security/correctness issues.
+
+### Patches
+
+- [ ] [Review][Patch] **HIGH — IDOR/auth**: `recharge_flow` trusts an LLM-supplied `subscriber_id` (and `list_plans` carries a dead `subscriber_id` param), unlike `get_plan`/`get_balance`/`get_usage` which resolve identity server-side via `current_subscriber_id()` [`tools.py:201,311`] — a prompt-injected or hallucinating LLM can probe another subscriber's saved payment method. Fix: drop the param, use `current_subscriber_id()` (matches the spec dev-note that identity comes from JWT claims).
+- [ ] [Review][Patch] **HIGH — unvalidated `plan_id` into deeplink URL**: `recharge_flow` builds the URL via f-string with no UUID validation, no URL-encoding, no plan-existence check [`tools.py:347,376,395`] — Fix: `UUID(plan_id)` + `urllib.parse.quote`.
+- [ ] [Review][Patch] **HIGH — deeplink query-key mismatch**: chatbot/tools emit `?plan=` but the portal reads `?plan_id=` (`Recharge.tsx:75`) → the deeplink never preselects the plan, defeating AC #2's UX [`tools.py` + `Chatbot.tsx`] — Fix: emit `plan_id`. (Spec AC #2 text also says `?plan=` — update the spec too.)
+- [ ] [Review][Patch] Unbounded/zero/negative `top_n` flows into `LIMIT %s`; negative raises an unhandled psycopg DataError [`tools.py:list_plans`] — Fix: clamp `max(1, min(top_n, N))`.
+- [ ] [Review][Patch] PII: `subscriber_id` UUID logged into the LangFuse span input, contradicting the codebase's own `langfuse.py` docstring [`tools.py:251,359`] — Fix: drop/mask.
+- [ ] [Review][Patch] React `result.plans.map()` unguarded; crashes the chat render if the tool returns `{}`/undefined [`Chatbot.tsx`] — Fix: `(result?.plans ?? []).map(...)`.
+- [ ] [Review][Patch] Tracing logic triplicated across 3 branches with hand-rolled `__enter__`/`__exit__` — contradicts `graph.py`'s own "use a proper `with`, never a hand-rolled `__exit__`" guidance; the traced path is untested and never tags `level=ERROR` on failure [`tools.py:247-305,355-409`] — Fix: extract one core fn, wrap with a `with`-block + ERROR tagging.
+- [ ] [Review][Patch] `ORDER BY price_paise ASC` has no tiebreaker → non-deterministic "top 3 cheapest" when plans share a price [`db/plans/queries.py`] — Fix: add `, id ASC` (cf. `get_active_subscription`).
+
+### Deferred
+
+- [x] [Review][Defer] No recharge-intent guidance in `SUPPORT_SYSTEM_PROMPT`; AC #1 "detects recharge intent" relies on model inference — defer as robustness enhancement. [graph.py:58]
+- [x] [Review][Defer] NULL/corrupt `price_paise` → `None/100` TypeError; schema enforces NOT NULL so low risk — defer. [tools.py]
+- [x] [Review][Defer] No LangFuse-traced test coverage (AC #5 verified by inspection only) — defer. [test_recharge_tools.py]
+- [x] [Review][Defer] `formatData(0)` renders "0.0 GB" for zero-data plans; no MB fallback — defer (cosmetic). [PlanRecommendationCard.tsx]
+- [x] [Review][Defer] `get_payment_method_for_subscriber` orders by `is_default DESC, created_at ASC` (oldest card), a silent deviation from the spec's simple `LIMIT 1`; behavior is correct — defer. [queries.py]
+- [x] [Review][Defer] `_FakeConn.execute` routes by table-name substring; tests don't assert SQL shape — defer (test design). [test_recharge_tools.py]
