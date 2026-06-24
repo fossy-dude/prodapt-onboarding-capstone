@@ -83,6 +83,17 @@ class ValkeyAdapter(CacheProtocol):
             results = await pipe.execute()
         return int(results[0])
 
+    async def hset(self, key: str, mapping: dict[str, str], *, ex: int | None = None) -> None:
+        """HSET ``key`` from mapping; optionally EXPIRE after ``ex`` seconds (Story 4.4)."""
+        await self._client.hset(key, mapping=mapping)
+        if ex is not None:
+            await self._client.expire(key, ex)
+
+    async def hgetall(self, key: str) -> dict[str, str]:
+        """HGETALL ``key``; returns ``{}`` if absent (Story 4.4)."""
+        raw: dict[bytes, bytes] = await self._client.hgetall(key)
+        return {k.decode("utf-8"): v.decode("utf-8") for k, v in raw.items()}
+
     async def close(self) -> None:
         """Close the underlying client (best-effort)."""
         try:

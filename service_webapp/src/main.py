@@ -49,6 +49,7 @@ from routers.simulator import (
     to_notification_broadcast,
     ws_router as simulator_ws_router,
 )
+from routers.ussd import router as ussd_router
 from services.registration import (
     PostgresRegistrationRepository,
     RegistrationRepository,
@@ -431,6 +432,7 @@ def create_app(
     app.include_router(balance_router)
     app.include_router(recharge_router)
     app.include_router(notifications_router)
+    app.include_router(ussd_router)
     app.include_router(simulator_router)
     app.include_router(simulator_ws_router)
     app.state.db_adapter = db_adapter

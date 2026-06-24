@@ -70,3 +70,20 @@ class CacheProtocol(Protocol):
         Returns the new counter value after increment.
         """
         ...
+
+    async def hset(self, key: str, mapping: dict[str, str], *, ex: int | None = None) -> None:
+        """HSET ``key`` field/value pairs from ``mapping``; optionally EXPIRE after ``ex`` seconds.
+
+        Used for USSD session state (Story 4.4): each USSD session is a HASH keyed
+        ``session:{session_id}`` with fields like ``menu_state``, ``subscriber_id``.
+        The ``ex`` parameter is the 30-minute TTL (1800 s) that resets on every request.
+        """
+        ...
+
+    async def hgetall(self, key: str) -> dict[str, str]:
+        """HGETALL ``key``; returns an empty dict if the key does not exist.
+
+        Used for USSD session load (Story 4.4): an empty return means a new session
+        that should be initialised to the root menu state.
+        """
+        ...
