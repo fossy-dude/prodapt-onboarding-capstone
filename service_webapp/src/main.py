@@ -79,8 +79,9 @@ try:
 except ImportError:
     AzureOpenAI = None  # type: ignore[assignment]
 
-from agents.guardrails.validator import InputGuardrail, set_guardrail
+from agents.guardrails.validator import InputGuardrail
 from agents.rag.retriever import HybridRetriever, set_retriever
+from agents.support.graph import set_guardrail
 from agents.support.tools import set_support_adapters
 from core.observability.langfuse import get_langfuse_client
 

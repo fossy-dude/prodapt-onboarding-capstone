@@ -52,6 +52,12 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["SUPPORT_SYSTEM_PROMPT", "SupportAgentState", "build_support_graph", "set_guardrail"]
 
+# ReAct loop ceiling (patch 6): guard against unbounded tool-call cycles.
+# StateGraph.compile() does not accept recursion_limit, so the cap is enforced
+# via a per-turn counter incremented in ``support_agent_node`` and checked in
+# ``_route_after_agent``.
+MAX_REACT_STEPS = 6
+
 # ARCH-32: billing/account scope, TRAI compliance, PII ceiling (last-4 only).
 SUPPORT_SYSTEM_PROMPT = (
     "You are a billing and account assistant for an MVNO. "
@@ -74,6 +80,7 @@ class SupportAgentState(CopilotKitState):
     msisdn: str
     context_turns: list[dict]
     rejected: bool  # Set by guardrail_node when input validation fails
+    react_steps: int  # ReAct turns taken; capped by MAX_REACT_STEPS (patch 6)
 
 
 # ── Guardrail singleton (Story 5.5) ──────────────────────────────────────────────
@@ -125,7 +132,7 @@ async def guardrail_node(state: dict) -> dict:
 
         # Log rejection to audit table (if DB connection available)
         # Note: Database logging will be wired in Task 5 via main.py
-        session_id = state.get("session_id", "")
+        session_id = current_session_id()
         if session_id:
             logger.info("Guardrail rejection: session_id=%s reason=%s", session_id, result.rejection_reason)
 
@@ -172,10 +179,9 @@ def _redacted_snapshot(state: dict) -> dict[str, Any]:
     """
     messages = state.get("messages", [])
     return {
-        "session_id": state.get("session_id"),
-        "msisdn": mask_msisdn(state.get("msisdn", "")),
+        "session_id": current_session_id(),
+        "msisdn": mask_msisdn(current_msisdn()),
         "message_count": len(messages),
-        "has_context_turns": len(state.get("context_turns", [])),
     }
 
 
@@ -192,13 +198,78 @@ def _prior_context_messages(turns: list[dict]) -> list[BaseMessage]:
     return msgs
 
 
+# Deterministic reply when the model is unavailable (patch 3). Surfacing a raw
+# exception to the CopilotKit runtime would 500 the chat turn; a graceful reply
+# keeps the conversation usable during a model outage / rate-limit.
+_FALLBACK_REPLY = AIMessage(
+    content="I'm having trouble reaching the billing service right now. Please try again in a moment.",
+)
+
+
+async def _invoke_llm(
+    llm: BaseChatModel,
+    messages: list[BaseMessage],
+    state: dict,
+) -> BaseMessage:
+    """Invoke the tool-bound LLM under a LangFuse span (patch 2/3).
+
+    Observability is best-effort: a LangFuse failure never breaks the business
+    call, and an LLM failure returns :data:`_FALLBACK_REPLY` instead of raising
+    into the CopilotKit runtime.
+    """
+    client = get_langfuse_client()
+    if client is None:
+        try:
+            return await llm.ainvoke(messages)
+        except Exception as exc:  # model outage / rate-limit
+            logger.warning("support_agent_node LLM invoke failed (no trace): %s", exc)
+            return _FALLBACK_REPLY
+
+    try:
+        with client.start_as_current_observation(
+            name="support_agent_node",
+            as_type="generation",
+            input=_redacted_snapshot(state),
+            model=settings.chat_deployment_mini,
+        ) as observation:
+            try:
+                response = await llm.ainvoke(messages)
+            except Exception as exc:
+                logger.warning("support_agent_node LLM invoke failed: %s", exc)
+                return _FALLBACK_REPLY
+            usage = _usage_from_response(response)
+            if usage is not None:
+                set_trace_usage(usage)
+            update_kwargs: dict[str, Any] = {
+                "output": {"has_tool_calls": bool(getattr(response, "tool_calls", None))},
+            }
+            if usage is not None:
+                update_kwargs["usage_details"] = usage
+            try:
+                observation.update(**update_kwargs)
+            except Exception as exc:
+                logger.warning("LangFuse support_agent_node span update failed: %s", exc)
+            return response
+    except Exception as exc:  # span open failed; fall back to a plain invoke
+        logger.warning("LangFuse support_agent_node span open failed: %s", exc)
+        try:
+            return await llm.ainvoke(messages)
+        except Exception as exc2:
+            logger.warning("support_agent_node LLM invoke failed (after span err): %s", exc2)
+            return _FALLBACK_REPLY
+
+
 async def support_agent_node(state: dict, *, llm: BaseChatModel) -> dict:
     """Supervisor turn: load context → invoke tool-bound LLM → persist → trace.
 
     Returns ``{"messages": [response]}`` for LangGraph to merge. Tool calls in the
     response route to the ``tools`` node via :func:`_route_after_agent`.
     """
-    session_id = state.get("session_id", "")
+    # Identity flows from the request contextvar (bound by
+    # SupportIdentityMiddleware from the JWT), never from the graph state —
+    # CopilotKitState carries only ``messages`` + ``copilotkit.context``, so the
+    # session id / msisdn would never reach top-level state.
+    session_id = current_session_id()
 
     # AC #3: prepend Valkey-persisted prior turns so the agent has memory across
     # CopilotKit requests / frontend reloads. Degrades to no context if the cache
@@ -212,65 +283,41 @@ async def support_agent_node(state: dict, *, llm: BaseChatModel) -> dict:
     messages.extend(_prior_context_messages(prior_turns))
     messages.extend(state.get("messages", []))
 
-    client = get_langfuse_client()
-    response: BaseMessage
-    if client is None:
-        response = await llm.ainvoke(messages)
-    else:
-        # FR-72 + ARCH-32: one LangFuse generation per node run, PII-redacted.
-        try:
-            observation_cm = client.start_as_current_observation(
-                name="support_agent_node",
-                as_type="generation",
-                input=_redacted_snapshot(state),
-                model=settings.chat_deployment_mini,
-            )
-            observation = observation_cm.__enter__()
-        except Exception as exc:  # observability must never break the business call
-            logger.warning("LangFuse support_agent_node span open failed: %s", exc)
-            response = await llm.ainvoke(messages)
-        else:
-            try:
-                response = await llm.ainvoke(messages)
-                usage = _usage_from_response(response)
-                if usage is not None:
-                    set_trace_usage(usage)
-                update_kwargs: dict[str, Any] = {
-                    "output": {"has_tool_calls": bool(getattr(response, "tool_calls", None))},
-                }
-                if usage is not None:
-                    update_kwargs["usage_details"] = usage
-                try:
-                    observation.update(**update_kwargs)
-                except Exception as exc:
-                    logger.warning("LangFuse support_agent_node span update failed: %s", exc)
-            finally:
-                try:
-                    observation_cm.__exit__(*sys.exc_info())
-                except Exception:
-                    pass
+    response = await _invoke_llm(llm, messages, state)
 
     # AC #3: persist this exchange (user ask + agent reply) to Valkey. We persist
     # the inbound user message and the assistant text; tool-call rounds are an
     # internal detail and are not stored.
     if cache is not None and session_id:
-        inbound = state.get("messages", [])
-        last_user = next(
-            (m for m in reversed(inbound) if isinstance(m, HumanMessage)),
-            None,
-        )
-        if last_user is not None:
-            await save_turn(cache, session_id, "user", str(last_user.content))
-        if isinstance(response, AIMessage) and not getattr(response, "tool_calls", None):
-            await save_turn(cache, session_id, "assistant", str(response.content))
+        try:
+            inbound = state.get("messages", [])
+            last_user = next(
+                (m for m in reversed(inbound) if isinstance(m, HumanMessage)),
+                None,
+            )
+            if last_user is not None:
+                await save_turn(cache, session_id, "user", str(last_user.content))
+            if isinstance(response, AIMessage) and not getattr(response, "tool_calls", None):
+                await save_turn(cache, session_id, "assistant", str(response.content))
+        except Exception as exc:
+            # Context persistence must not fail the user-facing reply (patch 3).
+            logger.warning("Support Agent context save failed for session %s: %s", session_id, exc)
 
-    return {"messages": [response]}
+    return {
+        "messages": [response],
+        "react_steps": int(state.get("react_steps", 0)) + 1,
+    }
 
 
 def _route_after_agent(state: dict) -> str:
     """Route to the tool executor when the agent emitted tool calls, else finish."""
     messages = state.get("messages", [])
     if not messages:
+        return END
+    # ReAct loop guard (patch 6): stop dispatching to tools once the turn
+    # counter hits the ceiling, so a runaway tool-call cycle can never exhaust
+    # the graph.
+    if int(state.get("react_steps", 0)) >= MAX_REACT_STEPS:
         return END
     last = messages[-1]
     tool_calls = getattr(last, "tool_calls", None)
@@ -292,6 +339,31 @@ def build_support_graph(llm: BaseChatModel) -> CompiledStateGraph:
     async def _node(state: dict) -> dict:
         return await support_agent_node(state, llm=llm)
 
+    # Tool execution is wrapped in a LangFuse span (patch 4) so DB/Valkey tool
+    # latency is observable independently of the LLM call. Observability is
+    # best-effort and never blocks tool execution.
+    tool_executor = ToolNode(SUPPORT_TOOLS)
+
+    async def _tools_node(state: dict) -> dict:
+        client = get_langfuse_client()
+        if client is None:
+            return await tool_executor.ainvoke(state)
+        try:
+            with client.start_as_current_observation(
+                name="support_tools",
+                as_type="generation",
+                input=_redacted_snapshot(state),
+            ) as observation:
+                result = await tool_executor.ainvoke(state)
+                try:
+                    observation.update(output={"status": "tools_executed"})
+                except Exception:
+                    pass
+                return result
+        except Exception as exc:
+            logger.warning("LangFuse support_tools span open failed: %s", exc)
+            return await tool_executor.ainvoke(state)
+
     # CopilotKitState is a TypedDict; pyrefly's langgraph stubs don't recognise
     # the CopilotKit-mixin TypedDict as a valid StateT bound at static-analysis
     # time. Runtime is correct (CopilotKit's own examples construct it this way).
@@ -300,7 +372,7 @@ def build_support_graph(llm: BaseChatModel) -> CompiledStateGraph:
     # Add nodes (Story 5.5: guardrail_node is first)
     builder.add_node("guardrail_node", guardrail_node)
     builder.add_node("support_agent_node", _node)
-    builder.add_node("tools", ToolNode(SUPPORT_TOOLS))
+    builder.add_node("tools", _tools_node)
 
     # Story 5.5: Entry point is now guardrail_node (not support_agent_node)
     builder.set_entry_point("guardrail_node")

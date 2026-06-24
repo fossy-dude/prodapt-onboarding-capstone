@@ -195,15 +195,15 @@ Code review (2026-06-24) — three adversarial layers (Blind Hunter, Edge Case H
 
 **Patch (unambiguous fixes):**
 
-- [ ] [Review][Patch] Supply subscriber identity + session_id from a per-request contextvar set from the JWT in the CopilotKit route handler; remove `msisdn`/`subscriber_id` from `get_balance`/`get_plan`/`get_usage` `@tool` signatures; `support_agent_node` reads `session_id`/`msisdn` from the contextvar (not graph state) [`chat.py`, `tools.py`, `graph.py:128`] **(was decision #1)**
-- [ ] [Review][Patch] Manual `__exit__(*sys.exc_info())` + bare `except: pass` reintroduces the anti-pattern Story 5.3 fixed in `retriever.py` — use `with observation_cm as observation:` [`graph.py:174-178`]
-- [ ] [Review][Patch] No error handling on the business LLM invoke / ToolNode — raw exceptions propagate through CopilotKit; a tool failure mid-ReAct leaves an orphan user turn and no graceful reply. Wrap in try/except returning a fallback AIMessage; persist in `finally` [`graph.py:144-194`]
-- [ ] [Review][Patch] `tools` node has no LangFuse span — FR-72 "every agent node execution" under-covered (only `support_agent_node` is traced) [`graph.py:224`]
-- [ ] [Review][Patch] Support singletons never reset to `None` on shutdown — add `set_support_adapters(None, None)` in the lifespan `finally` (mirror `set_retriever(None)`) [`main.py` lifespan]
-- [ ] [Review][Patch] No `recursion_limit` on the ReAct loop — a misbehaving mini-model loops `support_agent_node ↔ tools` indefinitely (esp. when tools return `{None, None}`) [`graph.py:228`]
-- [ ] [Review][Patch] `_decode_turns` does not validate dict shape — a non-dict Valkey field (e.g. `"turn_3": "42"`) crashes `_prior_context_messages` with `AttributeError` [`context.py`, `graph.py:113`]
-- [ ] [Review][Patch] `crypto.randomUUID()` session id is lost on reload/remount and throws on a non-secure (plain-HTTP) context — persist to `sessionStorage` and guard `crypto` availability [`Chatbot.tsx:30`]
-- [ ] [Review][Patch] `get_balance` formatting: guard non-int `balance_paise` and format negative balances (`₹-50.00` → `-₹50.00`) [`tools.py:108-109`] (latent; moot until identity flows)
+- [x] [Review][Patch] Supply subscriber identity + session_id from a per-request contextvar set from the JWT in the CopilotKit route handler; remove `msisdn`/`subscriber_id` from `get_balance`/`get_plan`/`get_usage` `@tool` signatures; `support_agent_node` reads `session_id`/`msisdn` from the contextvar (not graph state) [`chat.py`, `tools.py`, `graph.py:128`] **(was decision #1)**
+- [x] [Review][Patch] Manual `__exit__(*sys.exc_info())` + bare `except: pass` reintroduces the anti-pattern Story 5.3 fixed in `retriever.py` — use `with observation_cm as observation:` [`graph.py:174-178`]
+- [x] [Review][Patch] No error handling on the business LLM invoke / ToolNode — raw exceptions propagate through CopilotKit; a tool failure mid-ReAct leaves an orphan user turn and no graceful reply. Wrap in try/except returning a fallback AIMessage; persist in `finally` [`graph.py:144-194`]
+- [x] [Review][Patch] `tools` node has no LangFuse span — FR-72 "every agent node execution" under-covered (only `support_agent_node` is traced) [`graph.py:224`]
+- [x] [Review][Patch] Support singletons never reset to `None` on shutdown — add `set_support_adapters(None, None)` in the lifespan `finally` (mirror `set_retriever(None)`) [`main.py` lifespan]
+- [x] [Review][Patch] No `recursion_limit` on the ReAct loop — a misbehaving mini-model loops `support_agent_node ↔ tools` indefinitely (esp. when tools return `{None, None}`) [`graph.py:228`]
+- [x] [Review][Patch] `_decode_turns` does not validate dict shape — a non-dict Valkey field (e.g. `"turn_3": "42"`) crashes `_prior_context_messages` with `AttributeError` [`context.py`, `graph.py:113`]
+- [x] [Review][Patch] `crypto.randomUUID()` session id is lost on reload/remount and throws on a non-secure (plain-HTTP) context — persist to `sessionStorage` and guard `crypto` availability [`Chatbot.tsx:30`]
+- [x] [Review][Patch] `get_balance` formatting: guard non-int `balance_paise` and format negative balances (`₹-50.00` → `-₹50.00`) [`tools.py:108-109`] (latent; moot until identity flows)
 
 **Deferred (pre-existing / acceptable):**
 

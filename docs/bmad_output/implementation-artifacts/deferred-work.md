@@ -111,6 +111,13 @@
 - Integration `valkey_url` readiness loop yields after 30s even if Valkey never became ready, producing unclear connection errors instead of a clear "container didn't start" failure.
 - Valkey chat context non-atomic read-modify-write (`context.py`: load → reindex → DELETE → HSET) — concurrent turns for one session can lose updates or drop the whole HASH; the DELETE window makes the key vanish mid-write. Deferred from Story 5.4 review: moot until subscriber identity/session_id actually flow into the graph; revisit when chat concurrency is exercised (consider a Lua HSET+trim+EXPIRE or a LIST/STREAM + LTRIM model).
 
+### Pre-existing gate blockers (encountered while verifying 5.4 patches; out of scope but recorded)
+- **FIXED — `main.py` imported `set_guardrail` from the wrong module.** `from agents.guardrails.validator import InputGuardrail, set_guardrail` failed (`set_guardrail` is defined in `agents/support/graph.py`), raising `ImportError` at app import and red-flagging the *entire* Python test suite (131 failures + 35 errors). Corrected the import path to `agents.support.graph`; this is a Story 5.5 wiring defect, not a 5.4 issue, but it had to be fixed to verify any 5.4 patch. [service_webapp/src/main.py:82]
+- **Pre-existing (not fixed):** `just test` frontend has 2 red files unrelated to 5.4 — `App.test.tsx` (Story 5.6 `PlanRecommendationCard.tsx` imports a non-existent `components/ui/Badge`) and `Dashboard.test.tsx > shows error state when balance fetch fails` (unrelated; 5.4 frontend working tree is byte-identical to HEAD).
+- **Pre-existing (not fixed):** `just test` python — 11 `test_synthetic_helpers.py` failures from `ModuleNotFoundError: No module named 'faker'` (missing optional dep in the test env); unrelated to 5.4.
+- **Pre-existing (not fixed):** `just lint` — 7 ruff errors, all in Story 5.5/5.6 guardrail test files (`RUF015`/`RUF001` ambiguous fullwidth chars); none in any 5.4 file.
+
+
 ## Deferred from: code review of stories 5.5 & 5.6 (2026-06-24)
 
 ### Story 5.5 (input-validation-guardrails)

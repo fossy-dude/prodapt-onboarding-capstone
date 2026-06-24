@@ -121,7 +121,7 @@ class SupportIdentityMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
     @staticmethod
-    async def _resolve_msisdn(request: Request, subscriber_id: str) -> str:
+    async def _resolve_msisdn(request: Request, subscriber_id: str) -> str | None:
         """Look up the subscriber's unmasked MSISDN (single PK row)."""
         db = getattr(request.app.state, "db_adapter", None)
         if db is None:
