@@ -61,7 +61,10 @@ function App() {
               <Route path="plans" element={<Plans />} />
               <Route path="recharge" element={<Recharge />} />
               <Route path="profile" element={<Profile />} />
-              <Route path="profile/notifications" element={<NotificationPreferences />} />
+              <Route
+                path="profile/notifications"
+                element={<NotificationPreferences />}
+              />
               <Route
                 path="profile/payment-methods"
                 element={<PaymentMethods />}

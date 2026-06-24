@@ -15,7 +15,6 @@ import {
   type NotificationPreferenceItem,
 } from "../../lib/api";
 
-import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 
 /**
@@ -84,12 +83,17 @@ function PreferenceRow({
   readonly onToggle: (enabled: boolean) => void;
   readonly isLoading: boolean;
 }) {
-  const config = NOTIFICATION_TYPE_CONFIG[preference.notification_type as keyof typeof NOTIFICATION_TYPE_CONFIG];
+  const config =
+    NOTIFICATION_TYPE_CONFIG[
+      preference.notification_type as keyof typeof NOTIFICATION_TYPE_CONFIG
+    ];
 
   return (
     <div className="flex items-center justify-between border-b border-neutral-200 py-4 last:border-0">
       <div className="flex-1">
-        <h3 className="text-sm font-medium text-neutral-900">{config?.label || preference.notification_type}</h3>
+        <h3 className="text-sm font-medium text-neutral-900">
+          {config?.label || preference.notification_type}
+        </h3>
         <p className="text-xs text-neutral-500">{config?.description}</p>
       </div>
       <ToggleSwitch
@@ -122,24 +126,38 @@ export function NotificationPreferences() {
 
   // Mutation for updating preferences
   const updateMutation = useMutation({
-    mutationFn: (variables: { notification_type: string; is_enabled: boolean }) =>
-      patchNotificationPreference(variables),
+    mutationFn: (variables: {
+      notification_type: string;
+      is_enabled: boolean;
+    }) => patchNotificationPreference(variables),
     onMutate: async (variables) => {
-      await queryClient.cancelQueries({ queryKey: ["notification-preferences"] });
-      const previous = queryClient.getQueryData(["notification-preferences"]);
-      queryClient.setQueryData(["notification-preferences"], (old: NotificationPreferenceItem[] | undefined) => {
-        if (!old) return old;
-        return old.map((p) =>
-          p.notification_type === variables.notification_type
-            ? { ...p, is_enabled: variables.is_enabled }
-            : p
-        );
+      await queryClient.cancelQueries({
+        queryKey: ["notification-preferences"],
       });
+      const previous = queryClient.getQueryData(["notification-preferences"]);
+      queryClient.setQueryData(
+        ["notification-preferences"],
+        (old: NotificationPreferenceItem[] | undefined) => {
+          if (!old) return old;
+          return old.map((p) =>
+            p.notification_type === variables.notification_type
+              ? { ...p, is_enabled: variables.is_enabled }
+              : p,
+          );
+        },
+      );
       return { previous };
     },
-    onError: (_err: unknown, _variables: unknown, context: { previous: unknown } | undefined) => {
+    onError: (
+      _err: unknown,
+      _variables: unknown,
+      context: { previous: unknown } | undefined,
+    ) => {
       if (context?.previous !== undefined) {
-        queryClient.setQueryData(["notification-preferences"], context.previous);
+        queryClient.setQueryData(
+          ["notification-preferences"],
+          context.previous,
+        );
       }
     },
     onSettled: () => {
@@ -156,7 +174,9 @@ export function NotificationPreferences() {
       <main className="px-4 py-10">
         <div className="mx-auto max-w-2xl">
           <div className="rounded-md border border-danger-200 bg-danger-50 p-4">
-            <h2 className="text-lg font-medium text-danger-900">Error Loading Preferences</h2>
+            <h2 className="text-lg font-medium text-danger-900">
+              Error Loading Preferences
+            </h2>
             <p className="mt-1 text-sm text-danger-700">
               Failed to load notification preferences. Please try again later.
             </p>
@@ -170,9 +190,12 @@ export function NotificationPreferences() {
     <main className="px-4 py-10">
       <div className="mx-auto max-w-2xl">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-neutral-900">Notification Preferences</h1>
+          <h1 className="text-2xl font-bold text-neutral-900">
+            Notification Preferences
+          </h1>
           <p className="mt-1 text-sm text-neutral-500">
-            Manage which notifications you receive. Only opted-in alerts will be sent to you.
+            Manage which notifications you receive. Only opted-in alerts will be
+            sent to you.
           </p>
         </div>
 
@@ -194,7 +217,9 @@ export function NotificationPreferences() {
                 <PreferenceRow
                   key={preference.notification_type}
                   preference={preference}
-                  onToggle={(enabled) => handleToggle(preference.notification_type, enabled)}
+                  onToggle={(enabled) =>
+                    handleToggle(preference.notification_type, enabled)
+                  }
                   isLoading={updateMutation.isPending}
                 />
               ))}
@@ -204,8 +229,8 @@ export function NotificationPreferences() {
 
         <div className="mt-4 rounded-md border border-info-200 bg-info-50 p-4">
           <p className="text-xs text-info-700">
-            <strong>Note:</strong> Changes to your notification preferences take effect immediately. You can update these
-            settings at any time.
+            <strong>Note:</strong> Changes to your notification preferences take
+            effect immediately. You can update these settings at any time.
           </p>
         </div>
       </div>

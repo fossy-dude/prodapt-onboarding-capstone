@@ -33,6 +33,10 @@ from core.errors import register_exception_handlers
 from core.middleware import OtelTraceMiddleware
 from core.rate_limit import RateLimitMiddleware
 from core.step_up import StepUpOtpService
+
+# Database commands/queries for notification dispatcher
+from db.notifications.commands import insert_notification_event
+from db.notifications.queries import get_preferences
 from routers.account import (
     account_router,
     auth_router,
@@ -50,11 +54,23 @@ from routers.simulator import (
     ws_router as simulator_ws_router,
 )
 from routers.ussd import router as ussd_router
+from services.notification_scheduler import run_plan_expiry_check
 from services.registration import (
     PostgresRegistrationRepository,
     RegistrationRepository,
     RegistrationService,
 )
+
+# Optional apscheduler imports - may not be installed
+try:
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    from apscheduler.triggers.cron import CronTrigger
+except ImportError:
+    AsyncIOScheduler = None  # type: ignore[assignment]
+    CronTrigger = None  # type: ignore[assignment]
+
+# Data nudge consumer
+from services.data_nudge_consumer import run_data_nudge_consumer
 
 if TYPE_CHECKING:
     # Type-only symbols: referenced only in annotations (runtime uses the concrete adapters).
@@ -103,6 +119,36 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.milvus_adapter = None
     if getattr(app.state, "cognito_provider", None) is None:
         app.state.cognito_provider = MinistackCognitoProvider(settings)
+    # RAG retriever (Story 5.3): construct the AzureOpenAI client + HybridRetriever
+    # and register the process-wide singleton so the ``rag_search`` LangGraph tool
+    # callable resolves without DI closures. Azure/LangFuse are optional — missing
+    # config (empty key) degrades gracefully to "no grounding", never crashes boot.
+    if getattr(app.state, "rag_retriever", None) is None:
+        try:
+            from openai import AzureOpenAI
+
+            from agents.rag.retriever import HybridRetriever, set_retriever
+            from core.observability.langfuse import get_langfuse_client
+
+            azure_openai_client = AzureOpenAI(
+                api_key=settings.azure_openai_api_key,
+                azure_endpoint=settings.azure_openai_endpoint,
+                api_version=settings.azure_openai_api_version,
+            )
+            retriever = HybridRetriever(
+                milvus_uri=settings.milvus_db_uri,
+                azure_client=azure_openai_client,
+                embedding_deployment=settings.embedding_model,
+                langfuse_client=get_langfuse_client(),
+            )
+            app.state.azure_openai_client = azure_openai_client
+            app.state.rag_retriever = retriever
+            set_retriever(retriever)
+            owned.append("rag_retriever")
+        except Exception as exc:
+            logging.getLogger(__name__).warning("RAG retriever init failed: %s", exc)
+            app.state.azure_openai_client = None
+            app.state.rag_retriever = None
     # The registration service composes the DB repository + Cognito provider; build
     # it only when not injected (tests inject a service wired to fakes).
     if getattr(app.state, "registration_service", None) is None:
@@ -233,8 +279,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                         # Query subscriber preferences
                         db = app.state.db_adapter
                         async with db.transaction() as conn:
-                            from db.notifications.queries import get_preferences
-
                             prefs = await get_preferences(conn, subscriber_id)
 
                             # Build preference map
@@ -245,10 +289,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
                             if is_enabled:
                                 # Subscriber opted in - insert notification event
-                                from db.notifications.commands import insert_notification_event
-
                                 channel = payload.get("channel", "sms")
-                                trace_id = msg.value.get("trace_id", "unknown")
 
                                 await insert_notification_event(
                                     db=conn,
@@ -276,7 +317,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
                     except Exception as exc:
                         # Log ERROR but don't crash - commit offset and continue
-                        logger.error("Notification dispatch error: %s", exc, exc_info=True)
+                        logger.exception("Notification dispatch error: %s", exc)
                         try:
                             await msg.commit()
                         except Exception:
@@ -300,21 +341,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Plan expiry reminder scheduler (Story 4.1, Task 5)
     plan_expiry_scheduler = None
     try:
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler
-        from apscheduler.triggers.cron import CronTrigger
-
-        from services.notification_scheduler import run_plan_expiry_check
-
-        plan_expiry_scheduler = AsyncIOScheduler()
-        plan_expiry_scheduler.add_job(
-            run_plan_expiry_check,
-            trigger=CronTrigger(hour=2, minute=30, timezone="UTC"),
-            args=[app.state.db_adapter, app.state.kafka_producer],
-            id="plan_expiry_reminder",
-            replace_existing=True,
-        )
-        plan_expiry_scheduler.start()
-        logging.getLogger(__name__).info("plan_expiry_scheduler: started (02:30 UTC daily)")
+        if AsyncIOScheduler is not None and CronTrigger is not None:
+            plan_expiry_scheduler = AsyncIOScheduler()
+            plan_expiry_scheduler.add_job(
+                run_plan_expiry_check,
+                trigger=CronTrigger(hour=2, minute=30, timezone="UTC"),
+                args=[app.state.db_adapter, app.state.kafka_producer],
+                id="plan_expiry_reminder",
+                replace_existing=True,
+            )
+            plan_expiry_scheduler.start()
+            logging.getLogger(__name__).info("plan_expiry_scheduler: started (02:30 UTC daily)")
     except Exception as exc:
         logging.getLogger(__name__).warning("plan_expiry_scheduler: failed to start: %s", exc)
         plan_expiry_scheduler = None
@@ -330,8 +367,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             publishes DATA_NUDGE events when below 10% threshold.
             """
             try:
-                from services.data_nudge_consumer import run_data_nudge_consumer
-
                 db = app.state.db_adapter
                 producer = app.state.kafka_producer
 
@@ -383,6 +418,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await app.state.cache_adapter.close()
         if "milvus_adapter" in owned:
             await app.state.milvus_adapter.close()
+        if "rag_retriever" in owned:
+            await app.state.rag_retriever.close()
 
 
 def create_app(

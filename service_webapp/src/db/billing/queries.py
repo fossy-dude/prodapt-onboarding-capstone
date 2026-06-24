@@ -303,7 +303,7 @@ async def get_active_plan_data_quota(
     if row is None:
         return None
 
-    subscription_id, data_limit_mb, start_date, end_date = row
+    _subscription_id, data_limit_mb, start_date, end_date = row
 
     # Unlimited plan check (data_limit_mb = 0 or NULL)
     if data_limit_mb is None or data_limit_mb == 0:

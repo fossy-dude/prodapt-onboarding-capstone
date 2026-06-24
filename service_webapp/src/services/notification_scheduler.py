@@ -7,9 +7,13 @@ active plan expires within lead_days.
 
 from __future__ import annotations
 
+import json
 import logging
-from datetime import UTC, date
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
+from uuid import UUID
+
+from uuid_extensions import uuid7
 
 logger = logging.getLogger("services.notification_scheduler")
 
@@ -32,8 +36,6 @@ async def run_plan_expiry_check(db, producer) -> None:
                 lead_days = int(row[0])
     except Exception as exc:
         logger.warning("run_plan_expiry_check: could not read lead_days (using default %d): %s", lead_days, exc)
-
-    from uuid_extensions import uuid7
 
     batch_trace_id = str(uuid7())
 
@@ -59,10 +61,6 @@ async def run_plan_expiry_check(db, producer) -> None:
         rows = await cur.fetchall()
 
     logger.info("plan_expiry_check: found %d subscribers with plans expiring within %d days", len(rows), lead_days)
-
-    import json
-    from datetime import datetime
-    from uuid import UUID
 
     for subscriber_id, msisdn, end_date in rows:
         try:

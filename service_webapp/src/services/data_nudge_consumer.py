@@ -10,10 +10,15 @@ Runs as a background task alongside the notification_consumer_task.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 
 from aiokafka import AIOKafkaConsumer
 from uuid_extensions import uuid7
+
+from core.config import settings
+from db.billing.queries import get_active_plan_data_quota
+from models.envelope import EventEnvelope
 
 logger = logging.getLogger("services.data_nudge_consumer")
 
@@ -34,11 +39,6 @@ async def run_data_nudge_consumer(db, producer) -> None:
     producer : Kafka producer
         Kafka producer for publishing notification events.
     """
-    import json
-
-    from core.config import settings
-    from db.billing.queries import get_active_plan_data_quota
-
     # Build consumer
     brokers = [b.strip() for b in settings.kafka_brokers.split(",")]
     consumer = AIOKafkaConsumer(
@@ -96,8 +96,6 @@ async def run_data_nudge_consumer(db, producer) -> None:
 
                                 # Build notification envelope
                                 msisdn = payload.get("from_number", "")[-4:] if payload.get("from_number") else ""
-
-                                from models.envelope import EventEnvelope
 
                                 notification_envelope = EventEnvelope.new(
                                     event_type="notification.balance",

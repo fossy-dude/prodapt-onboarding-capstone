@@ -43,7 +43,6 @@ async def test_dispatcher_inserts_notification_event_when_opted_in():
 
     # Track if insert was called
     insert_called = False
-    original_execute = None
 
     class FakeCursor:
         async def fetchone(self):

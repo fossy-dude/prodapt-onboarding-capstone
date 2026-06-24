@@ -4,7 +4,7 @@ baseline_commit: 3c5d585
 
 # Story 5.3: RAG Pipeline — Milvus Hybrid Search
 
-Status: ready-for-dev
+Status: in-progress
 
 ## Story
 

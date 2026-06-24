@@ -40,25 +40,29 @@ describe("NotificationPreferences", () => {
 
   it("renders loading state initially", () => {
     vi.mocked(api.getNotificationPreferences).mockImplementation(
-      () => new Promise(() => {}) // Never resolves
+      () => new Promise(() => {}), // Never resolves
     );
 
     render(
       <QueryClientProvider client={queryClient}>
         <NotificationPreferences />
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
-    expect(screen.getByRole("heading", { name: /notification preferences/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /notification preferences/i }),
+    ).toBeInTheDocument();
   });
 
   it("renders notification preferences when loaded", async () => {
-    vi.mocked(api.getNotificationPreferences).mockResolvedValue(mockPreferences);
+    vi.mocked(api.getNotificationPreferences).mockResolvedValue(
+      mockPreferences,
+    );
 
     render(
       <QueryClientProvider client={queryClient}>
         <NotificationPreferences />
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     await waitFor(() => {
@@ -70,26 +74,32 @@ describe("NotificationPreferences", () => {
   });
 
   it("displays error state on API failure", async () => {
-    vi.mocked(api.getNotificationPreferences).mockRejectedValue(new Error("API Error"));
+    vi.mocked(api.getNotificationPreferences).mockRejectedValue(
+      new Error("API Error"),
+    );
 
     render(
       <QueryClientProvider client={queryClient}>
         <NotificationPreferences />
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     await waitFor(() => {
-      expect(screen.getByText(/error loading preferences/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/error loading preferences/i),
+      ).toBeInTheDocument();
     });
   });
 
   it("renders all 4 notification types with correct labels", async () => {
-    vi.mocked(api.getNotificationPreferences).mockResolvedValue(mockPreferences);
+    vi.mocked(api.getNotificationPreferences).mockResolvedValue(
+      mockPreferences,
+    );
 
     render(
       <QueryClientProvider client={queryClient}>
         <NotificationPreferences />
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     await waitFor(() => {
@@ -101,12 +111,14 @@ describe("NotificationPreferences", () => {
   });
 
   it("shows toggle switches for each preference", async () => {
-    vi.mocked(api.getNotificationPreferences).mockResolvedValue(mockPreferences);
+    vi.mocked(api.getNotificationPreferences).mockResolvedValue(
+      mockPreferences,
+    );
 
     render(
       <QueryClientProvider client={queryClient}>
         <NotificationPreferences />
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     await waitFor(() => {
@@ -116,7 +128,9 @@ describe("NotificationPreferences", () => {
   });
 
   it("calls patch API when toggle is changed", async () => {
-    vi.mocked(api.getNotificationPreferences).mockResolvedValue(mockPreferences);
+    vi.mocked(api.getNotificationPreferences).mockResolvedValue(
+      mockPreferences,
+    );
     vi.mocked(api.patchNotificationPreference).mockResolvedValue({
       notification_type: "LOW_BALANCE",
       is_enabled: false,
@@ -125,7 +139,7 @@ describe("NotificationPreferences", () => {
     render(
       <QueryClientProvider client={queryClient}>
         <NotificationPreferences />
-      </QueryClientProvider>
+      </QueryClientProvider>,
     );
 
     await waitFor(() => {

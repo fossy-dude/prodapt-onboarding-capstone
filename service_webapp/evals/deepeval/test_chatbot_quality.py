@@ -1,6 +1,8 @@
 """DeepEval quality metrics over the golden fixture set (Story 5.2; FR-74, NFR-12).
 
-DeepEval auto-configures Azure OpenAI from the ``AZURE_OPENAI_*`` env vars.
+Each test receives the ``deepeval_judge_model`` fixture (an ``AzureOpenAIModel``
+built from ``core.config.settings``) and passes it explicitly to every metric —
+DeepEval does NOT auto-configure from ``AZURE_OPENAI_*`` env vars.
 All tests are ``@pytest.mark.slow`` and run ONLY under ``just eval``
 (``pytest evals/``); they are skipped in ``just test`` and when Azure keys are
 absent (see ``conftest.py``).
@@ -23,7 +25,7 @@ HALLUCINATION_MAX = 0.05
 
 
 @pytest.mark.slow
-def test_faithfulness_on_golden_fixtures(golden_fixtures: list[dict]) -> None:
+def test_faithfulness_on_golden_fixtures(golden_fixtures: list[dict], deepeval_judge_model) -> None:
     """Each golden answer must be faithful AND relevant to its question/context.
 
     ``FaithfulnessMetric`` checks the answer is entailed by ``retrieval_context``;
@@ -33,8 +35,8 @@ def test_faithfulness_on_golden_fixtures(golden_fixtures: list[dict]) -> None:
     from deepeval.metrics import AnswerRelevancyMetric, FaithfulnessMetric
     from deepeval.test_case import LLMTestCase
 
-    faithfulness = FaithfulnessMetric(threshold=FAITHFULNESS_THRESHOLD)
-    relevancy = AnswerRelevancyMetric(threshold=RELEVANCY_THRESHOLD)
+    faithfulness = FaithfulnessMetric(threshold=FAITHFULNESS_THRESHOLD, model=deepeval_judge_model)
+    relevancy = AnswerRelevancyMetric(threshold=RELEVANCY_THRESHOLD, model=deepeval_judge_model)
 
     faith_scores: list[float] = []
     rel_scores: list[float] = []
@@ -54,7 +56,7 @@ def test_faithfulness_on_golden_fixtures(golden_fixtures: list[dict]) -> None:
 
 
 @pytest.mark.slow
-def test_hallucination_below_threshold(golden_fixtures: list[dict]) -> None:
+def test_hallucination_below_threshold(golden_fixtures: list[dict], deepeval_judge_model) -> None:
     """No golden answer may hallucinate beyond the 5% gate (NFR-12).
 
     ``HallucinationMetric`` scores contradiction with ``context`` (higher = more
@@ -63,7 +65,7 @@ def test_hallucination_below_threshold(golden_fixtures: list[dict]) -> None:
     from deepeval.metrics import HallucinationMetric
     from deepeval.test_case import LLMTestCase
 
-    metric = HallucinationMetric(threshold=HALLUCINATION_MAX)
+    metric = HallucinationMetric(threshold=HALLUCINATION_MAX, model=deepeval_judge_model)
     scores: list[float] = []
     for fx in golden_fixtures:
         test_case = LLMTestCase(

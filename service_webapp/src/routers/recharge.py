@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import zoneinfo
-from enum import Enum
+from enum import StrEnum
 from io import BytesIO
 from uuid import UUID
 
@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1", tags=["recharge"])
 
 
-class RechargeFailureType(str, Enum):
+class RechargeFailureType(StrEnum):
     """Structured failure types for recharge operations (PATCH 7)."""
 
     PAYMENT_DECLINED = "payment_declined"
@@ -255,11 +255,11 @@ async def create_recharge(
             # Handle specific error codes for plan vs idempotency issues
             error_msg = str(e)
             if "not found" in error_msg.lower():
-                raise NotFoundError("Plan not found or is inactive.")
+                raise NotFoundError("Plan not found or is inactive.") from e
             elif "not active" in error_msg.lower():
                 err = NotFoundError("Plan is not active.")
                 err.code = "PLAN_INACTIVE"
-                raise err
+                raise err from e
             else:
                 raise
 

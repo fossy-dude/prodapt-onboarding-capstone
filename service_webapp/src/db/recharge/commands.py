@@ -19,9 +19,10 @@ completed order result without re-crediting (AC #6).
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from uuid import UUID
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from psycopg import AsyncConnection
 
 

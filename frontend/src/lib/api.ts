@@ -659,7 +659,10 @@ export async function getNotificationPreferences(): Promise<
  */
 export async function patchNotificationPreference(
   payload: PatchNotificationPreferenceRequest,
-): Promise<{ readonly notification_type: string; readonly is_enabled: boolean }> {
+): Promise<{
+  readonly notification_type: string;
+  readonly is_enabled: boolean;
+}> {
   const { data } = await apiClient.patch<PatchNotificationPreferenceResponse>(
     "/subscriber/notification-preferences",
     payload,

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from core.auth import require_role
+from core.errors import DomainError, UnauthenticatedError
 from core.responses import success_envelope
 from db.notifications.commands import upsert_preference
 from db.notifications.queries import get_preferences
@@ -39,8 +40,6 @@ def _require_sub(jwt_payload: dict) -> str:
     """
     sub = jwt_payload.get("sub")
     if not sub:
-        from core.errors import UnauthenticatedError
-
         raise UnauthenticatedError("Access token is missing the 'sub' claim.")
     return str(sub)
 
@@ -49,8 +48,6 @@ def _db(request: Request):
     """Resolve the database adapter from app state."""
     db = getattr(request.app.state, "db_adapter", None)
     if db is None:
-        from core.errors import DomainError
-
         err = DomainError("Database adapter is not initialised — lifespan may not have run.")
         err.code = "NOT_READY"
         err.http_status = 503
