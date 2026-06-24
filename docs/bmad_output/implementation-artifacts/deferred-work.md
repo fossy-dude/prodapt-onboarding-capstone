@@ -92,3 +92,14 @@
 - **Flusher inner loop busy-polls at 10 Hz** — `asyncio.sleep(0.1)` inside `_flusher_loop`; works under MVP load, minor CPU. Replace with an `asyncio.Event` signalled by `deduct` when the dirty threshold is approached.
 - **Unlimited-bundle `cost=0` still performs an `INCRBY 0` round-trip** — every free/unlimited CDR still hits Valkey on the hot path. Chose consistency (key always exists) over micro-optimisation; revisit only if free-call volume dominates measured P95.
 - **`_management_lifespan` dead `finally: pass`** — never closes `JWTValidator` (JWKS HTTP client leak). Story 2.5 management-API scope. [main.py:56-64]
+
+## Deferred from: code review of 5-3-rag-pipeline-milvus-hybrid-search (2026-06-24)
+
+- `_dispatch_notification_events` commits the Kafka offset outside `db.transaction()` — non-atomic with the DB insert; duplicate inserts / lost notifications on broker hiccup. Story 4.x, not 5.3. [service_webapp/src/main.py]
+- `data_nudge_consumer` startup is gated on `notification_dispatcher` being present — conflates two unrelated consumers; DATA_NUDGE never starts if the dispatcher is absent. Story 4.x, not 5.3. [service_webapp/src/main.py]
+- Commit scope hygiene: the Story 5.3 commit bundles unrelated Stories 4.1/4.2/4.3/5.2 changes (rate limit, routers, scheduler, consumers) into `main.py`/`pyproject.toml`. Consider splitting before merge.
+- `RagChunk` is a plain dataclass, not JSON-serializable — Story 5.4's LangGraph tool result will need `dataclasses.asdict()` or the LLM cannot consume the tool output. [service_webapp/src/agents/rag/retriever.py:90-104]
+- `rag_search` is not yet wrapped as a LangGraph `@tool`/`ToolNode` — correctly deferred to Story 5.4 per AC #6; confirm 5.4 owns registration.
+- Two `MilvusClient` instances open the same Milvus Lite file (adapter + retriever) — works today; retriever could reuse `app.state.milvus_adapter`. Design note.
+- Singleton `_retriever` has no lock — `set_retriever` is called once at startup and concurrent reads were verified safe. Theoretical only.
+- Falsy PK `or ""` chain in `_record_hit` — real Milvus PKs are UUID/strings, never falsy. Low-value defensive.

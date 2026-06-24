@@ -1,9 +1,8 @@
 """DeepEval sub-suite guard and fixtures (Story 5.2, Task 3).
 
-Skips every DeepEval test when Azure OpenAI is not configured. DeepEval does NOT
-auto-configure from env vars — callers must pass an explicit model to each metric.
-The ``deepeval_judge_model`` fixture below constructs ``AzureOpenAIModel`` from
-``core.config.settings`` and is injected into every metric instantiation.
+Skips every DeepEval test when Azure OpenAI is not configured. The
+``deepeval_judge_model`` fixture uses the centralized ``get_model`` abstraction
+from ``core.model`` which returns configured AzureOpenAIModel instances.
 
 The parent ``evals/conftest.py`` already applies the same guard to the whole evals
 tree; this restates it for the deepeval/ subtree per the story spec.
@@ -25,14 +24,6 @@ def pytest_collection_modifyitems(config, items):
 
 @pytest.fixture(scope="session")
 def deepeval_judge_model():
-    from deepeval.models.llms.azure_model import AzureOpenAIModel
+    from core.model import ModelComplexity, get_model
 
-    from core.config import settings
-
-    return AzureOpenAIModel(
-        model=settings.chat_deployment_mini,
-        deployment_name=settings.chat_deployment_mini,
-        api_key=settings.azure_openai_api_key,
-        base_url=settings.azure_openai_endpoint,
-        api_version=settings.azure_openai_api_version,
-    )
+    return get_model(ModelComplexity.FAST)

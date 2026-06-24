@@ -50,7 +50,7 @@ async def test_rag_search_returns_list_of_rag_chunks() -> None:
     assert all(isinstance(c, RagChunk) for c in result)
 
 
-async def test_rag_search_raises_when_retriever_not_initialised() -> None:
+async def test_rag_search_returns_empty_when_not_initialised() -> None:
     set_retriever(None)
-    with pytest.raises(RuntimeError, match="set_retriever"):
-        await rag_search("anything")
+    result = await rag_search("anything")
+    assert result == []

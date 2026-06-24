@@ -4,7 +4,7 @@ baseline_commit: 3c5d585
 
 # Story 5.3: RAG Pipeline — Milvus Hybrid Search
 
-Status: review
+Status: done
 
 ## Story
 
@@ -17,8 +17,8 @@ so that I get accurate, grounded answers rather than hallucinated responses.
 1. **Given** a subscriber sends a query to the chatbot, **When** the Support Agent determines a RAG lookup is needed, **Then** the query is embedded using `text-embedding-3-small` (1536 dims) via Azure OpenAI. [Source: epics.md:1552; FR-26]
 2. **And** a hybrid search is performed: HNSW vector search on `faq_chunks` / `plan_vectors` Milvus collections PLUS BM25 keyword search, results re-ranked by RRF (Reciprocal Rank Fusion). [Source: epics.md:1554; architecture.md:ARCH-8 §1.6.1 RAG Pipeline]
 3. **And** the top-3 retrieved chunks are included in the LLM prompt as grounding context. [Source: epics.md:1556]
-4. **And** the retrieval trace (query embedding, top-k results, RRF scores) is logged to LangFuse as a retrieval span. [Source: epics.md:1558; FR-72]
-5. **And** if no relevant chunk is found (all RRF scores below threshold 0.1), the retriever returns an empty list; the agent responds: "I don't have information on that. Would you like to speak to a support agent?" [Source: epics.md:1560]
+4. **And** the retrieval trace (**query text**, **top-k result chunk IDs**, **RRF scores**) is logged to LangFuse as a retrieval span. [the 1536-dim query embedding is intentionally not recorded — query text + scores suffice for observability and avoid ballooning LangFuse storage/egress; see Review Findings] [Source: epics.md:1558; FR-72]
+5. **And** if no relevant chunk is found (all RRF scores below threshold 0.03 [threshold lowered from 0.1 — with k=60 the max reachable RRF is 2/61 ≈ 0.033, so 0.1 is unreachable; see Completion Notes and Review Findings]), the retriever returns an empty list; the agent responds: "I don't have information on that. Would you like to speak to a support agent?" [Source: epics.md:1560]
 6. **And** the `rag_search` function signature is `async def rag_search(query: str, top_k: int = 3) -> list[RagChunk]` and is registered as a LangGraph tool callable for Story 5.4 to wire into the Support Agent graph. [Source: architecture.md §1.6.1]
 
 ## Tasks / Subtasks
@@ -31,7 +31,7 @@ so that I get accurate, grounded answers rather than hallucinated responses.
     - Constructor: `__init__(self, milvus_uri: str, azure_client: AzureOpenAI, embedding_deployment: str, langfuse_client: Langfuse | None = None)`
     - `async def embed(self, text: str) -> list[float]`: calls `azure_client.embeddings.create(model=embedding_deployment, input=text)` — returns 1536-dim vector. Use `settings.embedding_model` ("text-embedding-3-small") and `settings.embedding_dimensions` (1536). [Source: service_webapp/src/core/config.py:67–68]
     - `async def search(self, query: str, top_k: int = 3) -> list[RagChunk]`: (1) embed query; (2) dense search on `faq_chunks` + `plan_vectors` via `pymilvus` client; (3) BM25 sparse search using `pymilvus.model.sparse.BM25EmbeddingFunction`; (4) RRF fusion; (5) return top_k chunks above threshold.
-  - [x] RRF formula: `score_rrf(d) = sum(1 / (k + rank_i(d)))` for each ranked list, `k=60` (standard). Sort descending by RRF score. Filter out chunks with `rrf_score < 0.1` (no-match threshold). [Source: architecture.md §1.6.1 RAG Pipeline]
+  - [x] RRF formula: `score_rrf(d) = sum(1 / (k + rank_i(d)))` for each ranked list, `k=60` (standard). Sort descending by RRF score. Filter out chunks with `rrf_score < 0.03` (no-match threshold). [Source: architecture.md §1.6.1 RAG Pipeline]
   - [x] Milvus client: `from pymilvus import MilvusClient`. Connect with `uri=settings.milvus_db_uri` (Milvus Lite embedded, no separate container). [Source: memory: arch_key_decisions — Milvus Lite]
   - [x] LangFuse span: if `langfuse_client` provided, wrap `search()` in a span: `langfuse_client.trace(...).span(name="rag_retrieval", input={"query": query}, output={"chunks": [c.chunk_id for c in results], "rrf_scores": [c.score for c in results]})`. [Source: epics.md:1558; FR-72]
 
@@ -178,7 +178,62 @@ claude-sonnet-4-6
 - `service_webapp/tests/unit/test_rag_search_tool.py` (NEW)
 - `service_webapp/tests/integration/test_rag_integration.py` (NEW, slow)
 
+### Review Findings
+
+Code review (3-layer adversarial: Blind Hunter, Edge Case Hunter, Acceptance
+Auditor) on 2026-06-24.
+
+Decision-needed:
+
+- [x] [Review][Decision] **RRF no-match threshold — spec/code reconciliation + aggressiveness.** Spec AC #5 still reads `0.1`; code ships `0.03` (verified: with k=60, max reachable RRF for a doc in both lists = 2/61 ≈ 0.0328, so 0.1 is mathematically unreachable — every query would return empty). User already chose 0.03 on 2026-06-24, but the AC text was never amended. Separately, Edge Hunter notes 0.03 is aggressive: a chunk at rank-1 dense-only (no sparse hit) scores 1/61 ≈ 0.0164 and is dropped, so short FAQ queries may return `[]` more often than the support agent expects. Options: (a) keep 0.03 + amend spec AC text; (b) lower threshold to ~0.015 or add an "always keep top-1 dense" fallback; (c) lower k (e.g. k=10 → 0.1 becomes reachable) and restore the literal 0.1. [retriever.py:68, spec AC #5]
+- [x] [Review][Decision] **AC #4 "query embedding" not captured in LangFuse span.** Span input records `{"query": <text>}` only; the 1536-dim embedding is computed (`_search`) but never recorded. AC #4 literally lists "query embedding, top-k results, RRF scores". Options: (a) amend AC #4 to "query text" with a PII/storage rationale note; (b) actually log the embedding (verbose). [retriever.py:160-179]
+- [x] [Review][Decision] **`rag_search` raises `RuntimeError` when Azure unconfigured.** Boot degrades gracefully (`app.state.rag_retriever = None`) but at call time `rag_search` raises because `set_retriever` was never called — every Azure-less deployment's first RAG tool call hard-fails unless Story 5.4 catches it. Options: (a) return `[]` (matches the "no grounding found" empty contract); (b) keep raise and ensure 5.4 catches. [retriever.py:328-329]
+- [x] [Review][Decision] **Cross-collection top-k has no diversity floor.** Final slice is across both collections jointly; if `faq_chunks` matches 5 chunks strongly and `plan_vectors` matches 0, the agent gets all-FAQ grounding even for a plan question. Options: (a) accept (simplest); (b) add a per-collection quota/diversity floor. [retriever.py:225-226]
+
+Patch (unambiguous fixes):
+
+- [x] [Review][Patch] **`top_k<=0` crashes Milvus with `ParamError`** (`limit value 0 is illegal`) — the LangGraph tool exposes `top_k` to the LLM, which may pass 0. Clamp to `max(top_k, 1)`. [retriever.py:192]
+- [x] [Review][Patch] **PK read via `hit.get("id")` is dead code** — real pymilvus returns the PK under its field name (`chunk_id`/`plan_id`), never `"id"`; code only works via the `entity.get(pk_field)` fallback. Unit-test mock injects a fake `"id"` key so tests exercise the wrong branch. Fix mock to key by the real PK name; read `hit.get(pk_field)` directly. [retriever.py:247 + test_rag_retriever.py]
+- [x] [Review][Patch] **Empty-results guard is dead code + mock shape wrong** — real pymilvus always returns a truthy `SearchResult` (even empty → `[[]]`), so `if results else []` never fires; the empty-tolerance test mocks `[]` (falsy), exercising the dead branch. Fix mock to `[[]]` and simplify the guard. [retriever.py:277,299 + test_rag_retriever.py]
+- [x] [Review][Patch] **`embed()` unguarded `response.data[0]`** — `IndexError` if Azure returns empty `data` (filtered/rate-limit). Add a guard. [retriever.py:141]
+- [x] [Review][Patch] **No `metric_type`/`search_params` passed** — diverges from `MilvusAdapter.hybrid_search` which explicitly sets `COSINE`/`BM25`; relies on implicit index inference. Mirror the adapter. [retriever.py:269,291]
+- [x] [Review][Patch] **Singleton never cleared on shutdown** — `app.state.rag_retriever.close()` runs but `set_retriever(None)` is missing, so the module global points at a CLOSED client; a later `rag_search` calls a closed MilvusClient instead of raising "not initialised". Add `set_retriever(None)` in shutdown. [main.py shutdown]
+- [x] [Review][Patch] **Resource leak on partial-init failure** — if `AzureOpenAI(...)` + `HybridRetriever(...)` succeed (Milvus handle open) but a later init line raises, the `except` nulls state without `.close()`-ing the opened retriever. Construct retriever last and close it in the except. [main.py init]
+- [x] [Review][Patch] **`_search_traced` manual `__exit__(*sys.exc_info())` + swallowed failures hide LangFuse errors** — defeats observability; use a proper `with observation_cm as observation:` block (`trace_agent` pattern). [retriever.py:160-187]
+- [x] [Review][Patch] **`_record_hit` builds metadata only on first sighting** — if the first hit's entity lacks a metadata field a later hit carries, it is lost. Merge metadata across sightings. [retriever.py:252]
+- [x] [Review][Patch] **Threshold value not pinned by a test assertion** — the empty-threshold test only asserts `results == []`; changing 0.03 would not fail it. Add an assertion on the actual RRF score / boundary. [test_rag_retriever.py]
+
+Defer (pre-existing / out-of-scope / other-story):
+
+- [x] [Review][Defer] **`_dispatch_notification_events` Kafka offset commit outside `db.transaction()`** — non-atomic; duplicate inserts / lost notifications on broker hiccup. Story 4.x, NOT 5.3. [main.py] — deferred, pre-existing
+- [x] [Review][Defer] **`data_nudge_consumer` gated on `notification_dispatcher`** — conflates two unrelated consumers; DATA_NUDGE never starts if the dispatcher is absent. Story 4.x, NOT 5.3. [main.py] — deferred, pre-existing
+- [x] [Review][Defer] **Commit scope hygiene** — `main.py`/`pyproject.toml` diff bundles unrelated Stories 4.1/4.2/4.3/5.2 changes into the 5.3 commit. Not an AC issue; consider splitting before merge. — deferred, pre-existing
+- [x] [Review][Defer] **`RagChunk` plain dataclass, not JSON-serializable** — Story 5.4's LangGraph tool result will need `dataclasses.asdict()` or the LLM can't consume the output. Flag for 5.4. [retriever.py:90-104] — deferred, downstream (5.4)
+- [x] [Review][Defer] **`rag_search` not yet wrapped as a LangGraph `@tool`/`ToolNode`** — correctly deferred to 5.4 per AC #6; confirm 5.4 owns registration. [retriever.py:322] — deferred, downstream (5.4)
+- [x] [Review][Defer] **Two `MilvusClient` instances on the same Milvus Lite file** (adapter + retriever) — works today; retriever could reuse `app.state.milvus_adapter`. Design note. [main.py] — deferred, design
+- [x] [Review][Defer] **Singleton has no lock** — `set_retriever` called once at startup; concurrent reads verified safe. Theoretical only. [retriever.py:313] — deferred, theoretical
+- [x] [Review][Defer] **Falsy PK `or ""` chain** — real Milvus PKs are UUID/strings, never falsy. Low-value defensive. [retriever.py:247] — deferred, low-value
+
+Dismissed as noise: 2 (speculative future `asyncio.gather` thread-safety; duplicate threshold-assertion note folded into a patch).
+
 ## Change Log
+
+- 2026-06-24 (review): 3-layer adversarial code review (Blind Hunter, Edge Case
+  Hunter, Acceptance Auditor). 4 decisions resolved: (D1) keep threshold 0.03 +
+  amend AC #5/Task 1 text; (D2) amend AC #4 to "query text + chunk IDs + RRF
+  scores" (embedding intentionally omitted); (D3) `rag_search` returns `[]` +
+  warning when uninitialised (graceful degradation, matches empty-grounding
+  contract) — agent fallback handling deferred to 5.4; (D4) accept no
+  per-collection diversity floor (defer). 11 code/test patches applied: top_k
+  clamp (min 1), PK read under real field name + faithful mock, empty-results
+  guard + `[[]]` mock, embed empty-data guard, explicit `metric_type` (COSINE/
+  BM25) `search_params`, `set_retriever(None)` on shutdown + on init failure,
+  init resource-leak close, `_search_traced` proper `with` context-manager,
+  metadata merge across sightings, threshold pinned by assertion. 8 items
+  deferred (pre-existing Story 4.x consumer/offset issues, commit scope hygiene,
+  RagChunk JSON-serialisation + @tool registration for 5.4, two-MilvusClient
+  reuse, singleton locking, falsy-PK guard). Spec AC #4/#5 text reconciled.
+  Status: review -> done.
 
 - 2026-06-24: Story 5.3 developed — hybrid RAG retriever (dense + BM25 + RRF
   k=60, threshold 0.03) + `rag_search` LangGraph tool + FastAPI lifespan wiring

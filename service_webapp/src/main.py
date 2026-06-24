@@ -43,6 +43,7 @@ from routers.account import (
     router as subscriber_router,
 )
 from routers.balance import router as balance_router
+from routers.chat import setup_copilotkit
 from routers.health import router as health_router
 from routers.notifications import router as notifications_router
 from routers.recharge import router as recharge_router
@@ -133,6 +134,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # callable resolves without DI closures. Azure/LangFuse are optional — missing
     # config (empty key) degrades gracefully to "no grounding", never crashes boot.
     if getattr(app.state, "rag_retriever", None) is None:
+        retriever = None
+        azure_openai_client = None
         try:
             if AzureOpenAI is None:
                 raise ImportError("Azure OpenAI client not available")
@@ -153,9 +156,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             set_retriever(retriever)
             owned.append("rag_retriever")
         except Exception as exc:
+            if retriever is not None:
+                try:
+                    await retriever.close()
+                except Exception:
+                    pass
             logging.getLogger(__name__).warning("RAG retriever init failed: %s", exc)
             app.state.azure_openai_client = None
             app.state.rag_retriever = None
+            set_retriever(None)
     # The registration service composes the DB repository + Cognito provider; build
     # it only when not injected (tests inject a service wired to fakes).
     if getattr(app.state, "registration_service", None) is None:
@@ -427,6 +436,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await app.state.milvus_adapter.close()
         if "rag_retriever" in owned:
             await app.state.rag_retriever.close()
+            set_retriever(None)
 
 
 def create_app(
@@ -474,6 +484,12 @@ def create_app(
     app.state.trace_consumer = trace_consumer
     app.state.notification_consumer = notification_consumer
     app.state.notification_dispatcher = notification_dispatcher
+    # CopilotKit Support Agent runtime (Story 5.4): registers POST /api/chat/*
+    # (AC #1, #6) and binds the support tool singletons. The cache/DB adapters are
+    # re-bound in the lifespan once the real adapters exist (tests inject fakes via
+    # app.state). Azure OpenAI is optional — registration is a no-op without it so
+    # the app still boots for lint/test (AC: degrade, never crash).
+    setup_copilotkit(app)
     return app
 
 

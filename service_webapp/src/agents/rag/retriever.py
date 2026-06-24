@@ -40,7 +40,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -138,6 +137,8 @@ class HybridRetriever:
             model=self._embedding_deployment,
             input=text,
         )
+        if not response.data:
+            raise RuntimeError("Azure OpenAI returned no embedding (empty data)")
         return list(response.data[0].embedding)
 
     async def search(self, query: str, top_k: int = 3) -> list[RagChunk]:
@@ -163,12 +164,11 @@ class HybridRetriever:
                 # PII hygiene (§1.11.6): only the query text, never the MSISDN.
                 input={"query": query},
             )
-            observation = observation_cm.__enter__()
         except Exception as exc:  # observability must never break the business call
             logger.warning("LangFuse rag_retrieval span open failed: %s", exc)
             return await self._search(query, top_k)
 
-        try:
+        with observation_cm as observation:
             results = await self._search(query, top_k)
             try:
                 observation.update(
@@ -180,14 +180,10 @@ class HybridRetriever:
             except Exception as exc:
                 logger.warning("LangFuse rag_retrieval span update failed: %s", exc)
             return results
-        finally:
-            try:
-                observation_cm.__exit__(*sys.exc_info())
-            except Exception:
-                pass
 
     async def _search(self, query: str, top_k: int) -> list[RagChunk]:
         """Fuse dense + BM25 results across both collections via RRF."""
+        top_k = max(top_k, 1)  # clamp: top_k<=0 would reach Milvus as illegal limit
         query_vector = await self.embed(query)
         candidate_limit = max(top_k * _CANDIDATE_MULTIPLIER, top_k)
 
@@ -244,7 +240,7 @@ class HybridRetriever:
     ) -> tuple[str, str] | None:
         """Idempotently register a search hit; return its doc-key (or None)."""
         entity = hit.get("entity") or {}
-        chunk_id = hit.get("id") or entity.get(pk_field) or ""
+        chunk_id = hit.get(pk_field) or entity.get(pk_field) or ""
         if not chunk_id:
             return None
         key = (collection, str(chunk_id))
@@ -256,6 +252,13 @@ class HybridRetriever:
                 "text": entity.get("text", ""),
                 "metadata": metadata,
             }
+        else:
+            # Merge any metadata fields not already present (idempotent: text,
+            # collection and chunk_id are intentionally NOT overwritten).
+            existing = docs[key]["metadata"]
+            for fname in _METADATA_FIELDS[collection]:
+                if fname in entity and fname not in existing:
+                    existing[fname] = entity[fname]
         return key
 
     async def _dense_search(
@@ -273,8 +276,12 @@ class HybridRetriever:
             anns_field="embedding",
             limit=limit,
             output_fields=output_fields,
+            search_params={"metric_type": "COSINE"},
         )
-        return list(results[0]) if results else []
+        if not results:
+            return []
+        first = results[0]
+        return list(first) if first else []
 
     async def _sparse_search(
         self,
@@ -295,8 +302,12 @@ class HybridRetriever:
             anns_field="sparse_embedding",
             limit=limit,
             output_fields=output_fields,
+            search_params={"metric_type": "BM25"},
         )
-        return list(results[0]) if results else []
+        if not results:
+            return []
+        first = results[0]
+        return list(first) if first else []
 
     async def close(self) -> None:
         """Best-effort close of the underlying MilvusClient."""
@@ -322,9 +333,11 @@ def set_retriever(retriever: HybridRetriever | None) -> None:
 async def rag_search(query: str, top_k: int = 3) -> list[RagChunk]:
     """LangGraph tool callable: hybrid RAG search returning top-k grounded chunks.
 
-    Raises ``RuntimeError`` if :func:`set_retriever` was not called at startup
-    (the Support Agent in Story 5.4 must not be reachable before wiring).
+    Returns an empty list when :func:`set_retriever` has not been called at
+    startup — matching the "no grounding found" empty contract rather than
+    raising, so a misconfigured Support Agent degrades gracefully.
     """
     if _retriever is None:
-        raise RuntimeError("HybridRetriever not initialised — call set_retriever() at FastAPI startup")
+        logger.warning("rag_search called before set_retriever() — returning empty grounding")
+        return []
     return await _retriever.search(query, top_k=top_k)

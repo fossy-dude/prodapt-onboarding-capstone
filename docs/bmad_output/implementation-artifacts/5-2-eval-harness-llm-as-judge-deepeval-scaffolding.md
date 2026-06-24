@@ -4,7 +4,7 @@ baseline_commit: 3c5d585
 
 # Story 5.2: Eval Harness — LLM-as-Judge & DeepEval Scaffolding
 
-Status: review
+Status: done
 
 ## Story
 
@@ -151,6 +151,13 @@ Per [[app_code_toolchain]]: integration tests marked `slow`+`integration`, skipp
 - [Source: architecture.md:NFR-12 — Hallucination < 5%]
 - [Source: memory: app_code_toolchain — tox per-env-deps discipline]
 - [Source: memory: app_code_toolchain — slow test pattern with rootless podman]
+
+### Review Findings
+
+- [x] [Review][Decision] Manual AzureOpenAIModel instantiation violates spec requirements [service_webapp/evals/deepeval/conftest.py:282-293] — **RESOLVED: Create common `get_model(complexity: enum)` abstraction shared between src/ and evals/, complexity enum with 'fast' (mini) or 'perf' (default) values**
+- [x] [Review][Patch] Create common `get_model(complexity: ModelComplexity)` abstraction [service_webapp/src/core/model.py] — ✅ FIXED: Created `src/core/model.py` with ModelComplexity enum and get_model function; updated `evals/deepeval/conftest.py` to use abstraction
+- [x] [Review][Dismiss] AZURE_DEPLOYMENT_NAME environment variable not implemented [N/A] — Dismissed as not required - not used in codebase
+- [x] [Review][Defer] Manual AzureOpenAIModel instantiation violates spec requirements [service_webapp/evals/deepeval/conftest.py:282-293] — deferred, pre-existing
 
 ## Dev Agent Record
 

@@ -10,12 +10,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agents.rag.retriever import HybridRetriever, RagChunk
+from agents.rag.retriever import _RRF_NO_MATCH_THRESHOLD, HybridRetriever, RagChunk
 
 
-def _hit(chunk_id: str, text: str, **metadata: object) -> dict:
-    """Build a pymilvus-shaped search hit (pk in ``id``, fields in ``entity``)."""
-    return {"id": chunk_id, "entity": {"text": text, **metadata}}
+def _hit(chunk_id: str, text: str, *, pk_field: str = "chunk_id", **metadata: object) -> dict:
+    """Build a pymilvus-shaped search hit.
+
+    Real pymilvus returns the primary key under its field NAME (``pk_field``,
+    e.g. ``chunk_id``/``plan_id``), never under a literal ``"id"`` key. The
+    scalar fields live under ``entity``.
+    """
+    return {pk_field: chunk_id, "entity": {"text": text, **metadata}}
 
 
 def _results(*hits: dict) -> list:
@@ -66,8 +71,8 @@ async def test_search_returns_chunks_sorted_by_rrf_desc(azure_mock: MagicMock, m
     milvus_search_mock.side_effect = [
         _results(_hit("A", "a text"), _hit("B", "b text")),  # faq dense
         _results(_hit("A", "a text"), _hit("B", "b text")),  # faq sparse
-        _results(_hit("D", "d text", plan_type="unlimited")),  # plan dense
-        _results(_hit("X", "x text"), _hit("D", "d text")),  # plan sparse
+        _results(_hit("D", "d text", pk_field="plan_id", plan_type="unlimited")),  # plan dense
+        _results(_hit("X", "x text", pk_field="plan_id"), _hit("D", "d text", pk_field="plan_id")),  # plan sparse
     ]
     retriever = _build(azure_mock)
 
@@ -103,10 +108,15 @@ async def test_search_returns_empty_when_all_below_threshold(
     milvus_search_mock.side_effect = [
         _results(_hit("A", "a text")),  # faq dense
         _results(),  # faq sparse
-        _results(_hit("D", "d text")),  # plan dense
+        _results(_hit("D", "d text", pk_field="plan_id")),  # plan dense
         _results(),  # plan sparse
     ]
     retriever = _build(azure_mock)
+
+    # Pin the threshold value and the math behind the empty result.
+    assert _RRF_NO_MATCH_THRESHOLD == 0.03
+    # A single-list rank-1 chunk scores 1/61 ≈ 0.0164 < 0.03, so it is dropped.
+    assert 1.0 / (60 + 1) < _RRF_NO_MATCH_THRESHOLD
 
     results = await retriever.search("obscure query")
 
@@ -153,8 +163,10 @@ async def test_search_uses_correct_anns_fields_and_collections(
     # Sparse search passes raw query text (native BM25 analyzer), dense passes vector.
     dense_call = next(c for c in calls if c.kwargs["anns_field"] == "embedding")
     assert len(dense_call.kwargs["data"][0]) == 1536
+    assert dense_call.kwargs["search_params"] == {"metric_type": "COSINE"}
     sparse_call = next(c for c in calls if c.kwargs["anns_field"] == "sparse_embedding")
     assert sparse_call.kwargs["data"] == ["query"]
+    assert sparse_call.kwargs["search_params"] == {"metric_type": "BM25"}
 
 
 async def test_search_records_langfuse_span_with_correct_shape(
@@ -216,7 +228,7 @@ async def test_search_falls_back_when_langfuse_span_open_fails(
 async def test_dense_and_sparse_search_tolerate_empty_results(
     azure_mock: MagicMock, milvus_search_mock: MagicMock
 ) -> None:
-    milvus_search_mock.return_value = []  # no query-results list at all
+    milvus_search_mock.return_value = _results()  # real pymilvus empty shape: [[]]
     retriever = _build(azure_mock)
 
     results = await retriever.search("query")
