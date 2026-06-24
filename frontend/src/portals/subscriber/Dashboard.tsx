@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { UsageRing } from "../../components/charts/UsageRing";
 import { useBalance, useRefreshBalance } from "../../hooks/useBalance";
 import { useUsage } from "../../hooks/useUsage";
+import { useActivePlan } from "../../hooks/useActivePlan";
 import { PlanDetailsCard } from "./PlanDetailsCard";
 
 function BalanceCard() {
@@ -143,6 +144,23 @@ function UsageSection() {
 }
 
 function Dashboard() {
+  // Combine loading states from all child components to prevent race conditions
+  const { isLoading: balanceLoading } = useBalance();
+  const { isLoading: usageLoading } = useUsage();
+  const { isLoading: planLoading } = useActivePlan();
+
+  const isGlobalLoading = balanceLoading || usageLoading || planLoading;
+
+  if (isGlobalLoading) {
+    return (
+      <main className="max-w-2xl mx-auto px-4 py-8">
+        <div className="flex items-center justify-center py-12">
+          <div className="text-lg text-gray-600">Loading dashboard...</div>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="max-w-2xl mx-auto px-4 py-8 flex flex-col gap-6">
       <h1 className="text-2xl font-bold text-neutral-900">Dashboard</h1>

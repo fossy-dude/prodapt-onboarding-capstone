@@ -24,6 +24,7 @@ type RechargeError = {
  *
  * On success, invalidates the balance query to refresh wallet display.
  * Returns the transaction result for confirmation screen.
+ * Includes error handling for cache invalidation failures.
  */
 export function useRecharge() {
   const queryClient = useQueryClient();
@@ -32,11 +33,19 @@ export function useRecharge() {
     mutationFn: async (payload: RechargeRequest) => {
       return await createRecharge(payload);
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       // Invalidate balance query to refresh wallet display
-      queryClient.invalidateQueries({ queryKey: ["balance"] });
+      try {
+        await queryClient.invalidateQueries({ queryKey: ["balance"] });
+      } catch (error) {
+        console.error("Failed to invalidate balance query:", error);
+      }
       // Invalidate active plan to show new plan
-      queryClient.invalidateQueries({ queryKey: ["activePlan"] });
+      try {
+        await queryClient.invalidateQueries({ queryKey: ["activePlan"] });
+      } catch (error) {
+        console.error("Failed to invalidate active plan query:", error);
+      }
     },
   });
 }

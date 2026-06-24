@@ -22,6 +22,7 @@ const PLANS = [
     validity_days: 28,
     price_paise: 29900,
     plan_type: null,
+    is_active: true,
   },
   {
     id: "p-28b",
@@ -32,6 +33,7 @@ const PLANS = [
     validity_days: 28,
     price_paise: 19900,
     plan_type: null,
+    is_active: true,
   },
   {
     id: "p-56",
@@ -42,6 +44,7 @@ const PLANS = [
     validity_days: 56,
     price_paise: 49900,
     plan_type: null,
+    is_active: true,
   },
 ];
 

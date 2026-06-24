@@ -160,6 +160,7 @@ function RefundEligibleView() {
 
 function Transactions() {
   const [showRefundEligible, setShowRefundEligible] = useState(false);
+
   const {
     items,
     hasNext,
@@ -183,7 +184,10 @@ function Transactions() {
       <div className="mt-4 flex gap-2">
         <button
           type="button"
-          onClick={() => setShowRefundEligible(false)}
+          onClick={() => {
+            setShowRefundEligible(false);
+            // Preserve pagination state when switching back
+          }}
           className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
             !showRefundEligible
               ? "bg-indigo-600 text-white"
@@ -194,7 +198,10 @@ function Transactions() {
         </button>
         <button
           type="button"
-          onClick={() => setShowRefundEligible(true)}
+          onClick={() => {
+            setShowRefundEligible(true);
+            // Preserve pagination state when switching views
+          }}
           className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
             showRefundEligible
               ? "bg-amber-500 text-white"

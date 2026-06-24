@@ -7,9 +7,9 @@
  * 3. Confirmation (new balance + plan activation + receipt link)
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { v7 as uuidv7 } from "uuidv7";
+import { uuidv7 } from "uuidv7";
 import { Button, Card, Input, Modal, Select } from "../../components/ui";
 import { useRecharge } from "../../hooks/useRecharge";
 import { usePaymentMethods } from "../../hooks/usePaymentMethods";
@@ -37,9 +37,16 @@ interface RechargeState {
 export function Recharge() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { data: plans, isLoading: plansLoading } = usePlans();
-  const { data: paymentMethods, isLoading: paymentMethodsLoading } =
-    usePaymentMethods();
+  const {
+    data: plans,
+    isLoading: plansLoading,
+    isError: plansError,
+  } = usePlans();
+  const {
+    data: paymentMethods,
+    isLoading: paymentMethodsLoading,
+    isError: paymentMethodsError,
+  } = usePaymentMethods();
   const rechargeMutation = useRecharge();
 
   const [step, setStep] = useState<Step>(1);
@@ -56,8 +63,15 @@ export function Recharge() {
   const [newPaymentCardNumber, setNewPaymentCardNumber] = useState("");
   const [newPaymentDisplayLabel, setNewPaymentDisplayLabel] = useState("");
 
-  // Preselect plan from URL if provided
-  useState(() => {
+  // Error state for user-facing feedback
+  const [rechargeError, setRechargeError] = useState<string | null>(null);
+
+  // Combined loading and error states to prevent race conditions
+  const isLoading = plansLoading || paymentMethodsLoading;
+  const hasError = plansError || paymentMethodsError;
+
+  // Preselect plan from URL if provided - using useEffect to prevent race conditions
+  useEffect(() => {
     const planId = searchParams.get("plan_id");
     if (planId && plans && !state.selectedPlan) {
       const preselectedPlan = plans.find((p) => p.id === planId);
@@ -65,7 +79,7 @@ export function Recharge() {
         setState((prev) => ({ ...prev, selectedPlan: preselectedPlan }));
       }
     }
-  });
+  }, [searchParams, plans, state.selectedPlan]);
 
   const handlePlanSelect = (plan: PlanCatalogueItem) => {
     setState((prev) => ({ ...prev, selectedPlan: plan }));
@@ -78,13 +92,21 @@ export function Recharge() {
   };
 
   const handleAddPaymentMethod = async () => {
+    // Validate card number before tokenization
+    if (!newPaymentCardNumber || newPaymentCardNumber.length < 13) {
+      setRechargeError("Please enter a valid card number");
+      return;
+    }
+
     // Tokenize card before sending to API (FR-64 compliance)
     const { token, last4 } = tokenizeCard(newPaymentCardNumber);
 
-    // In a real implementation, you would call addPaymentMethod API here
-    // For now, we'll create a mock payment method
+    // NOTE: This is a placeholder implementation. In production, this should call
+    // the proper addPaymentMethod API to create a persistent payment method.
+    // For now, we create a temporary method with a UUID-based ID instead of
+    // temp-${Date.now()} to avoid conflicts and follow UUID conventions.
     const newMethod: PaymentMethod = {
-      id: `temp-${Date.now()}`,
+      id: `temp-${uuidv7()}`, // Use UUID7 instead of Date.now() for better uniqueness
       subscriber_id: "",
       type: newPaymentMethodType,
       token,
@@ -99,12 +121,14 @@ export function Recharge() {
     // Reset form
     setNewPaymentCardNumber("");
     setNewPaymentDisplayLabel("");
+    setRechargeError(null);
   };
 
   const handleConfirmRecharge = async () => {
     if (!state.selectedPlan || !state.selectedPaymentMethod) return;
 
     const idempotencyKey = uuidv7();
+    setRechargeError(null); // Clear previous error
     try {
       const result = await rechargeMutation.mutateAsync({
         plan_id: state.selectedPlan.id,
@@ -115,7 +139,10 @@ export function Recharge() {
       setState((prev) => ({ ...prev, transactionResult: result }));
     } catch (error) {
       console.error("Recharge failed:", error);
-      // Handle error appropriately
+      // Set user-facing error message
+      setRechargeError(
+        "Recharge failed. Please check your payment details or try a different payment method.",
+      );
     }
   };
 
@@ -123,10 +150,23 @@ export function Recharge() {
     navigate("/subscriber/dashboard");
   };
 
-  if (plansLoading || paymentMethodsLoading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="text-lg text-gray-600">Loading...</div>
+      </div>
+    );
+  }
+
+  if (hasError) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center">
+          <div className="text-lg text-red-600 mb-2">Failed to load data</div>
+          <p className="text-sm text-gray-600">
+            Please refresh the page or try again later.
+          </p>
+        </div>
       </div>
     );
   }
@@ -143,42 +183,46 @@ export function Recharge() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {plans?.map((plan) => (
-            <Card
-              key={plan.id}
-              className={`cursor-pointer transition-colors hover:border-blue-500 ${
-                state.selectedPlan?.id === plan.id
-                  ? "border-blue-500 ring-2 ring-blue-500/20"
-                  : ""
-              }`}
-              onClick={() => handlePlanSelect(plan)}
-            >
-              <div className="space-y-3 p-6">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {plan.name}
-                </h3>
-                <div className="text-2xl font-bold text-gray-900">
-                  ₹{(plan.price_paise / 100).toFixed(2)}
+          {plans
+            ?.filter((plan) => plan.is_active !== false)
+            .map((plan) => (
+              <div
+                key={plan.id}
+                onClick={() => handlePlanSelect(plan)}
+                className={`cursor-pointer transition-colors hover:border-blue-500 rounded-lg border border-neutral-200 bg-neutral-50 p-6 shadow-sm ${
+                  state.selectedPlan?.id === plan.id
+                    ? "border-blue-500 ring-2 ring-blue-500/20"
+                    : ""
+                }`}
+              >
+                <div className="space-y-3 p-6">
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    {plan.name}
+                  </h3>
+                  <div className="text-2xl font-bold text-gray-900">
+                    ₹{(plan.price_paise / 100).toFixed(2)}
+                  </div>
+                  <ul className="space-y-1 text-sm text-gray-600">
+                    <li>Validity: {plan.validity_days} days</li>
+                    {plan.data_gb !== null && <li>Data: {plan.data_gb} GB</li>}
+                    {plan.voice_minutes !== null && (
+                      <li>Voice: {plan.voice_minutes} min</li>
+                    )}
+                    {plan.sms_count !== null && <li>SMS: {plan.sms_count}</li>}
+                  </ul>
+                  <Button
+                    className="w-full"
+                    variant={
+                      state.selectedPlan?.id === plan.id
+                        ? "primary"
+                        : "secondary"
+                    }
+                  >
+                    {state.selectedPlan?.id === plan.id ? "Selected" : "Select"}
+                  </Button>
                 </div>
-                <ul className="space-y-1 text-sm text-gray-600">
-                  <li>Validity: {plan.validity_days} days</li>
-                  {plan.data_gb !== null && <li>Data: {plan.data_gb} GB</li>}
-                  {plan.voice_minutes !== null && (
-                    <li>Voice: {plan.voice_minutes} min</li>
-                  )}
-                  {plan.sms_count !== null && <li>SMS: {plan.sms_count}</li>}
-                </ul>
-                <Button
-                  className="w-full"
-                  variant={
-                    state.selectedPlan?.id === plan.id ? "primary" : "secondary"
-                  }
-                >
-                  {state.selectedPlan?.id === plan.id ? "Selected" : "Select"}
-                </Button>
               </div>
-            </Card>
-          ))}
+            ))}
         </div>
       </div>
     );
@@ -370,6 +414,7 @@ export function Recharge() {
                   href={state.transactionResult.receipt_url}
                   target="_blank"
                   rel="noopener noreferrer"
+                  download
                   className="flex-1"
                 >
                   <Button className="w-full" variant="secondary">
@@ -450,9 +495,9 @@ export function Recharge() {
                 : "Confirm Recharge"}
             </Button>
 
-            {rechargeMutation.error && (
+            {rechargeError && (
               <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">
-                Recharge failed. Please try again or contact support.
+                {rechargeError}
               </div>
             )}
           </div>

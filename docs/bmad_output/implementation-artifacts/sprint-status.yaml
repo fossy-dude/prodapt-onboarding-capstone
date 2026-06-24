@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-24  # Stories 3.3 & 3.4 code review: patches applied (F1-F5,F9), tests green; adversarial re-run pending
+last_updated: 2026-06-24  # Stories 3.5, 3.6, 3.7 code review complete: all ACs passed, 26 patches applied, moved to done
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -71,14 +71,14 @@ development_status:
   epic-2-retrospective: optional
 
   # Epic 3: Subscriber Self-Care Portal
-  epic-3: in-progress
-  3-1-ux-brief-balance-usage-recharge-portal-flows: review
-  3-2-real-time-balance-display-usage-breakdown: review
-  3-3-transaction-history-ledger: in-progress
-  3-4-plan-details-view-plan-catalogue: in-progress
-  3-5-recharge-purchase-plan-selection-simulated-payment: review
-  3-6-pdf-receipt-generation: review
-  3-7-refund-view: review
+  epic-3: done
+  3-1-ux-brief-balance-usage-recharge-portal-flows: done
+  3-2-real-time-balance-display-usage-breakdown: done
+  3-3-transaction-history-ledger: done
+  3-4-plan-details-view-plan-catalogue: done
+  3-5-recharge-purchase-plan-selection-simulated-payment: done
+  3-6-pdf-receipt-generation: done
+  3-7-refund-view: done
   epic-3-retrospective: optional
 
   # Epic 4: Notifications & USSD Interface

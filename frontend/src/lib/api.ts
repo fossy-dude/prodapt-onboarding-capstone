@@ -551,6 +551,7 @@ export interface PlanCatalogueItem {
   readonly validity_days: number;
   readonly price_paise: number;
   readonly plan_type: string | null;
+  readonly is_active: boolean;
 }
 
 interface PlansCatalogueResponse {

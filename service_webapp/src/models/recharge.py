@@ -29,11 +29,14 @@ class RechargeRequest(BaseModel):
     @field_validator("idempotency_key")
     @classmethod
     def validate_idempotency_key(cls, value: str) -> str:
-        """Validate that idempotency_key is a valid UUID (client-generated UUIDv7)."""
+        """Validate that idempotency_key is a valid UUIDv7 (client-generated UUIDv7)."""
         try:
-            UUID(value)
+            uuid_obj = UUID(value)
+            # UUID version 7 is required per FR-16
+            if uuid_obj.version != 7:
+                raise ValueError("idempotency_key must be a valid UUIDv7")
         except (ValueError, TypeError, AttributeError) as exc:
-            raise ValueError("idempotency_key must be a valid UUID") from exc
+            raise ValueError("idempotency_key must be a valid UUIDv7") from exc
         return value
 
 

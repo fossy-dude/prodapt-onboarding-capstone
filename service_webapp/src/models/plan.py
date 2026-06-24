@@ -58,6 +58,7 @@ class PlanCatalogueItem(BaseModel):
     validity_days: int
     price_paise: int
     plan_type: str | None = Field(default=None, description="V1 has no plan_type column; derived or None.")
+    is_active: bool = Field(default=True, description="Plan is available for new subscriptions")
 
 
 __all__ = ["ActivePlanResponse", "PlanCatalogueItem", "PlanQuotas"]

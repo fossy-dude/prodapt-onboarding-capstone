@@ -33,6 +33,12 @@ def _render_template(template: str, ctx: dict) -> str:
         result = result.replace("{{ " + key + " }}", str(value) if value is not None else "")
         result = result.replace("{{" + key + "}}", str(value) if value is not None else "")
     result = re.sub(r"\{%[^%]*?%\}", "", result)
+
+    # Validate that all template keys were replaced - check for unreplaced placeholders
+    unreplaced_keys = re.findall(r"\{\{([^}]+)\}\}", result)
+    if unreplaced_keys:
+        raise ValueError(f"Template keys were not replaced: {unreplaced_keys}")
+
     return result
 
 

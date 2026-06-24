@@ -40,20 +40,48 @@ async def create_recharge_order(
     The ``ON CONFLICT (idempotency_key) DO NOTHING`` ensures that if a
     duplicate idempotency_key is submitted, we return None — the caller
     then fetches the original order to return its result (AC #6).
+
+    Modified to distinguish between duplicate key vs plan inactive/non-existent
+    by checking plan existence first before attempting insert.
     """
+    # First check if plan exists and is active
+    cur = await conn.execute(
+        """
+        SELECT id, price_paise, is_active
+        FROM plans_plans
+        WHERE id = $1
+        """,
+        (plan_id,),
+    )
+    plan_row = await cur.fetchone()
+    if plan_row is None:
+        raise ValueError("Plan not found")
+    if not plan_row[2]:  # is_active
+        raise ValueError("Plan is not active")
+
+    # Check for duplicate idempotency key first
+    cur = await conn.execute(
+        """
+        SELECT id FROM recharge_orders WHERE idempotency_key = $1
+        """,
+        (idempotency_key,),
+    )
+    duplicate_row = await cur.fetchone()
+    if duplicate_row is not None:
+        # Duplicate key exists
+        return None
+
+    # Plan is active and no duplicate key - proceed with insert
     cur = await conn.execute(
         """
         INSERT INTO recharge_orders (
             subscriber_id, plan_id, payment_method_id, idempotency_key,
             amount_paise, status
         )
-        SELECT $1, $2, $3, $4, price_paise, 'pending'
-        FROM plans_plans
-        WHERE id = $2 AND is_active = true
-        ON CONFLICT (idempotency_key) DO NOTHING
+        VALUES ($1, $2, $3, $4, $5, 'pending')
         RETURNING id, subscriber_id, plan_id, amount_paise, status, created_at
         """,
-        (subscriber_id, plan_id, payment_method_id, idempotency_key),
+        (subscriber_id, plan_id, payment_method_id, idempotency_key, plan_row[1]),
     )
     row = await cur.fetchone()
     if row is None:
@@ -126,6 +154,13 @@ async def complete_recharge_transaction(
     5. Insert new active subscription
     6. Create receipt record
 
+    PERF: If this transaction fails mid-execution, there's no cleanup mechanism.
+    Future improvement: Implement compensating transactions to handle partial failures:
+    - If subscription activation fails: rollback wallet credit and billing transaction
+    - If billing transaction fails: rollback wallet credit
+    - If wallet credit fails: retry with exponential backoff
+    Current approach relies on Postgres transaction atomicity.
+
     Returns a dict with:
     - transaction_id (order_id)
     - new_balance_paise
@@ -151,6 +186,10 @@ async def complete_recharge_transaction(
         raise ValueError("Plan not found for order")
 
     validity_days = plan_row[1]
+
+    # Validate validity_days before using in interval calculation
+    if validity_days is None or validity_days <= 0:
+        raise ValueError("Plan validity_days must be a positive integer")
 
     # 1. Mark order as completed
     await conn.execute(
@@ -196,6 +235,12 @@ async def complete_recharge_transaction(
     )
 
     # 4. Deactivate prior subscriptions
+    # PERF: If subsequent steps fail, prior subscriptions are already deactivated.
+    # A compensating transaction should restore previous active subscriptions,
+    # but this requires either:
+    # a) Storing previous subscription state before deactivation, or
+    # b) Using a two-phase commit approach with deferred activation
+    # For now, this runs within a single transaction that will rollback entirely on failure.
     await conn.execute(
         """
         UPDATE plans_subscriptions
@@ -246,21 +291,22 @@ async def get_completed_recharge_result(
 ) -> dict | None:
     """Fetch the original completed recharge result for idempotent retry.
 
-    Returns ``None`` if no completed order exists for this idempotency_key.
-    Returns the original order details otherwise.
+    Returns ``None`` if no order exists for this idempotency_key.
+    Returns the original order details otherwise (includes failed orders).
 
     Used when a duplicate idempotency_key is submitted — we return the
-    original completed result instead of processing a new recharge (AC #6).
+    original result instead of processing a new recharge (AC #6).
+    Modified to also return failed orders to prevent duplicate order creation.
     """
     cur = await conn.execute(
         """
-        SELECT ro.id, ro.subscriber_id, ro.amount_paise, ro.completed_at,
+        SELECT ro.id, ro.subscriber_id, ro.amount_paise, ro.completed_at, ro.status,
                wb.balance_paise, ps.start_date, s.msisdn
         FROM recharge_orders ro
         JOIN billing_wallet_balances wb ON wb.subscriber_id = ro.subscriber_id
         JOIN plans_subscriptions ps ON ps.subscriber_id = ro.subscriber_id AND ps.status = 'active'
         JOIN identity_subscribers s ON s.id = ro.subscriber_id
-        WHERE ro.idempotency_key = $1 AND ro.status = 'completed'
+        WHERE ro.idempotency_key = $1 AND ro.status IN ('completed', 'failed')
         ORDER BY ro.completed_at DESC
         LIMIT 1
         """,
@@ -275,9 +321,10 @@ async def get_completed_recharge_result(
         "subscriber_id": row[1],
         "amount_paise": row[2],
         "completed_at": row[3],
-        "new_balance_paise": row[4],
-        "plan_activation_timestamp": row[5],
-        "msisdn": row[6],
+        "status": row[4],
+        "new_balance_paise": row[5],
+        "plan_activation_timestamp": row[6],
+        "msisdn": row[7],
     }
 
 

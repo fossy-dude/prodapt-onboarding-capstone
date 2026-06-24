@@ -194,7 +194,12 @@ async def get_transactions(
     sub_id = _require_sub(jwt_payload)
     db = _db(request)
 
+    # Validate type parameter - only allow 'FAILED' or None
+    if type is not None and type != "FAILED":
+        raise ValueError("Invalid type parameter. Allowed values: None, 'FAILED'")
+
     if type == "FAILED":
+        # Owner assertion: sub_id from _require_sub ensures JWT sub validation
         async with db.transaction() as conn:
             failed_rows = await get_failed_orders(conn, sub_id)
 

@@ -25,7 +25,7 @@ async def get_active_plans(conn: AsyncConnection) -> list[dict]:
     cur = await conn.execute(
         """
         SELECT id, plan_name, price_paise, validity_days,
-               data_limit_mb, voice_minutes, sms_count
+               data_limit_mb, voice_minutes, sms_count, is_active
           FROM plans_plans
          WHERE is_active = true
          ORDER BY price_paise ASC, validity_days ASC
@@ -42,6 +42,7 @@ async def get_active_plans(conn: AsyncConnection) -> list[dict]:
             "data_limit_mb": row[4],
             "voice_minutes": row[5],
             "sms_count": row[6],
+            "is_active": row[7],
         }
         for row in rows
     ]
@@ -99,8 +100,14 @@ async def get_receipt_data(
 async def get_failed_orders(
     conn: AsyncConnection,
     subscriber_id: str,
+    limit: int = 100,
+    offset: int = 0,
 ) -> list[dict]:
     """Return failed recharge orders for refund-eligible view (Story 3.7).
+
+    PERF: Added pagination to prevent unbounded query results.
+    Default limit of 100 prevents N+1 query issues and excessive memory usage.
+    Callers should implement pagination controls for larger datasets.
 
     Reads recharge_orders WHERE status='failed' — NOT billing_transactions,
     which has no status column and records no failed payments.
@@ -120,8 +127,9 @@ async def get_failed_orders(
          WHERE ro.subscriber_id = %s::uuid
            AND ro.status = 'failed'
          ORDER BY ro.created_at DESC
+         LIMIT %s OFFSET %s
         """,
-        (subscriber_id,),
+        (subscriber_id, limit, offset),
     )
     rows = await cur.fetchall()
     return [

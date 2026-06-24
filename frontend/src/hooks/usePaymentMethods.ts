@@ -12,7 +12,7 @@ import { type PaymentMethod } from "../types/payment-method";
  * Query hook for fetching the subscriber's saved payment methods.
  *
  * Returns the list of payment methods with caching and stale-time
- * to avoid excessive API calls.
+ * to avoid excessive API calls. Includes retry logic with exponential backoff.
  */
 export function usePaymentMethods() {
   return useQuery<readonly PaymentMethod[]>({
@@ -22,5 +22,7 @@ export function usePaymentMethods() {
       return response.data;
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
   });
 }
