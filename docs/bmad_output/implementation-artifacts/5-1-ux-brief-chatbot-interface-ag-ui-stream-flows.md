@@ -4,7 +4,7 @@ baseline_commit: 3c5d585
 
 # Story 5.1: UX Brief — Chatbot Interface & AG-UI Stream Flows
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -23,22 +23,22 @@ so that chatbot frontend stories have a clear design target.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Create UX brief document** (AC: #1–#6)
-  - [ ] Create `docs/bmad_output/planning-artifacts/ux-brief-chatbot.md`.
-  - [ ] Document CopilotChat component placement: `<CopilotChat>` embedded in `/subscriber/Chatbot.tsx` as a bottom-right floating panel (z-index above portal content), collapsible via a chat icon button. Panel width 380px, max-height 600px, scrollable message list. [Source: architecture.md:264–269]
-  - [ ] Define AG-UI event handling: `RunStarted` → show typing indicator; `TextMessageContent` → stream token-by-token; `ToolCallStart/Args/End` → show tool invocation card (collapsible); `StateSnapshot` → update hook state; `RunFinished` → hide typing indicator. [Source: architecture.md:248–252]
-  - [ ] Specify tool-call visualisation patterns:
+- [x] **Task 1: Create UX brief document** (AC: #1–#6)
+  - [x] Create `docs/bmad_output/planning-artifacts/ux-brief-chatbot.md`.
+  - [x] Document CopilotChat component placement: `<CopilotChat>` embedded in `/subscriber/Chatbot.tsx` as a bottom-right floating panel (z-index above portal content), collapsible via a chat icon button. Panel width 380px, max-height 600px, scrollable message list. [Source: architecture.md:264–269]
+  - [x] Define AG-UI event handling: `RunStarted` → show typing indicator; `TextMessageContent` → stream token-by-token; `ToolCallStart/Args/End` → show tool invocation card (collapsible); `StateSnapshot` → update hook state; `RunFinished` → hide typing indicator. [Source: architecture.md:248–252]
+  - [x] Specify tool-call visualisation patterns:
     - `charge_explain` result → collapsible `<ChargeBreakdownTable>` (columns: event_type, duration/data, rate, charge_paise, balance_before/after)
     - `recommend_plan` result → `<PlanRecommendationCard>` with plan name, price, rationale, Accept/Dismiss buttons
     - `ticket_create` result → `<TicketConfirmationBanner>` with ticket ID and "review within 48h" message
     - `recharge_flow` result → inline deeplink button "Recharge now →" navigating to `/subscriber/recharge?plan={plan_id}`
-  - [ ] Specify session-end toast: when `chat_context` TTL expires (2h) or user clicks close, show toast: "Chat session ended. {summary}" — summary is the last message or "Your session has been saved." if Conclusion Agent ran. [Source: epics.md:1503]
-  - [ ] Define `useCopilotReadable` hooks:
+  - [x] Specify session-end toast: when `chat_context` TTL expires (2h) or user clicks close, show toast: "Chat session ended. {summary}" — summary is the last message or "Your session has been saved." if Conclusion Agent ran. [Source: epics.md:1503]
+  - [x] Define `useCopilotReadable` hooks:
     - `useSubscriberBalance`: exposes `{ balance_paise: number, balance_inr: string }` — sourced from React Query `useBalance()` hook (already in Story 3.2)
     - `useActivePlan`: exposes `{ plan_name: string, expiry_date: string, data_remaining_mb: number }` — sourced from React Query `usePlanDetails()`
     - `useChatSession`: exposes `{ session_id: string, turn_count: number }` — generated client-side UUIDv4 on chat open, stored in React state
-  - [ ] Confirm runtime URL: `POST /api/chat/stream` — CopilotKit runtime FastAPI endpoint, streamed SSE/AG-UI events. [Source: architecture.md:ARCH-13]
-  - [ ] Include component tree sketch:
+  - [x] Confirm runtime URL: `POST /api/chat/stream` — CopilotKit runtime FastAPI endpoint, streamed SSE/AG-UI events. [Source: architecture.md:ARCH-13]
+  - [x] Include component tree sketch:
     ```
     <SubscriberPortalLayout>
       <CopilotKit runtimeUrl="/api/chat/stream">
@@ -50,7 +50,7 @@ so that chatbot frontend stories have a clear design target.
       </CopilotKit>
     </SubscriberPortalLayout>
     ```
-  - [ ] Add PII note: chat messages must never display full MSISDN — use last 4 digits only in any confirmation copy. [Source: architecture.md:ARCH-32]
+  - [x] Add PII note: chat messages must never display full MSISDN — use last 4 digits only in any confirmation copy. [Source: architecture.md:ARCH-32]
 
 ## Dev Notes
 
@@ -98,6 +98,24 @@ claude-sonnet-4-6
 
 ### Debug Log References
 
+(none — output-only story, no application code executed)
+
 ### Completion Notes List
 
+- Produced `docs/bmad_output/planning-artifacts/ux-brief-chatbot.md`, the design target for Epic 5 chatbot frontend stories (5.4, 5.6, 5.7, 5.8, 5.9, 5.10).
+- Synthesised architecture.md §1.6.1 (Self-Care Chatbot diagram + CopilotKit details), epics.md §1.8.1 (Story 5.1 ACs), and the ux-brief-portal.md structural pattern + shared conventions (TailwindCSS, portals/subscriber layout, integer-paise money model, PII hygiene).
+- Documented all 6 ACs: (1) CopilotChat bottom-right floating panel placement (380px x max 600px, scrollable, collapsible via FAB, z-index above portal content), `<CopilotKit>` wrapping subscriber portal at root level; (2) AG-UI event handling map (RunStarted/TextMessageContent/ToolCall*/StateSnapshot/RunFinished); (3) tool-call visualisations — charge_explain -> collapsible ChargeBreakdownTable (event_type, duration/data, rate, charge_paise, balance_before/after), recommend_plan -> PlanRecommendationCard (Accept/Dismiss), ticket_create -> TicketConfirmationBanner (ticket ID + 48h), recharge_flow -> inline "Recharge now ->" deeplink; (4) useCopilotReadable hooks useSubscriberBalance/useActivePlan/useChatSession with exact value contracts and React Query sources; (5) runtime URL POST /api/chat/stream (AG-UI, not raw SSE); (6) session-end summary toast behaviour (2h TTL or close, "Chat session ended. {summary}", "Your session has been saved." if Conclusion Agent ran).
+- Resolved conflicts per Dev Notes: recharge_flow is a deeplink to /subscriber/recharge?plan={plan_id} (arch wins over epics wording, user decision 2026-06-23); AG-UI typed event stream replaces prior SSE; session_id is client-generated UUIDv4 on chat open.
+- Added PII hygiene section (ARCH-32): never display full MSISDN, last-4 only; no raw PII in transcript/URLs/telemetry.
+- Brief §8 provides AC traceability table; §10 documents downstream Vitest + RTL testing standards. Validation = checklist review (no test target for this doc-only story).
+- Verified current frontend state: CopilotKit packages not yet installed and Chatbot.tsx not yet created — confirming this brief is the forward-looking design target for Story 5.4.
+
 ### File List
+
+- `docs/bmad_output/planning-artifacts/ux-brief-chatbot.md` (NEW — the UX brief, the sole deliverable)
+- `docs/bmad_output/implementation-artifacts/5-1-ux-brief-chatbot-interface-ag-ui-stream-flows.md` (MODIFIED — tasks checked, Dev Agent Record/File List/Change Log populated, Status -> review)
+- `docs/bmad_output/implementation-artifacts/sprint-status.yaml` (MODIFIED — Story 5.1 status -> review, last_updated)
+
+### Change Log
+
+- 2026-06-24: Story 5.1 implemented — produced ux-brief-chatbot.md design target covering CopilotChat placement, AG-UI event handling, tool-call visualisations, useCopilotReadable hooks, session-end toast, runtime URL, and PII hygiene. Story moved ready-for-dev -> in-progress -> review.

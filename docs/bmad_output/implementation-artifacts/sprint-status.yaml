@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-24  # Story 4.4 → review (USSD Session Handler & Menu Router)
+last_updated: 2026-06-24  # Story 5.1 → review (UX Brief — Chatbot Interface & AG-UI Stream Flows)
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -91,7 +91,7 @@ development_status:
 
   # Epic 5: Self-Care Chatbot — Multi-Agent (TDD-first)
   epic-5: in-progress
-  5-1-ux-brief-chatbot-interface-ag-ui-stream-flows: ready-for-dev
+  5-1-ux-brief-chatbot-interface-ag-ui-stream-flows: review
   5-2-eval-harness-llm-as-judge-deepeval-scaffolding: ready-for-dev
   5-3-rag-pipeline-milvus-hybrid-search: ready-for-dev
   5-4-copilotkit-runtime-support-agent-graph: ready-for-dev
