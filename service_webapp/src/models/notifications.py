@@ -68,6 +68,6 @@ class PatchNotificationPreferenceRequest(BaseModel):
 __all__ = [
     "NotificationPreferenceItem",
     "NotificationPreferencesResponse",
-    "PatchNotificationPreferenceRequest",
     "NotificationTypeLiteral",
+    "PatchNotificationPreferenceRequest",
 ]

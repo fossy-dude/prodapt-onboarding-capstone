@@ -16,11 +16,11 @@ async def test_get_active_plan_data_quota_returns_quota() -> None:
     # Mock DB connection
     conn = AsyncMock()
 
-    # Mock plan query (returns active subscription with data_limit_mb)
+    # Mock plan query cursor — fetchone is async in psycopg3
     plan_result = MagicMock()
-    plan_result.__iter__ = lambda self: iter(["sub-id", 100, "2024-01-01", "2024-12-31"])
+    plan_result.fetchone = AsyncMock(return_value=("sub-id", 100, "2024-01-01", "2024-12-31"))
 
-    # Mock usage query (returns SUM(volume_mb))
+    # Mock usage query cursor
     usage_result = MagicMock()
     usage_result.fetchone = AsyncMock(return_value=(95.0,))
 
@@ -51,7 +51,7 @@ async def test_get_active_plan_data_quota_returns_none_for_unlimited_plan() -> N
 
     conn = AsyncMock()
     plan_result = MagicMock()
-    plan_result.__iter__ = lambda self: iter(["sub-id", 0, "2024-01-01", "2024-12-31"])
+    plan_result.fetchone = AsyncMock(return_value=("sub-id", 0, "2024-01-01", "2024-12-31"))
     conn.execute = AsyncMock(return_value=plan_result)
 
     result = await get_active_plan_data_quota(conn, "sub-123")

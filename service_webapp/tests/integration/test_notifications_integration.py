@@ -26,6 +26,7 @@ class TestNotificationsIntegration:
         try:
             # Setup connection
             import psycopg
+
             from adapters.postgres import conninfo_from
 
             conn_str = postgres.get_connection_url()
@@ -92,6 +93,7 @@ class TestNotificationsIntegration:
 
         try:
             import psycopg
+
             from adapters.postgres import conninfo_from
 
             conn_str = postgres.get_connection_url()

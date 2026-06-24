@@ -12,7 +12,8 @@ async def get_preferences(db, subscriber_id: str) -> list[Mapping]:
         db: Database connection with execute method
         subscriber_id: UUID string of subscriber
 
-    Returns:
+    Returns
+    -------
         List of dicts with keys: notification_type, is_enabled
         Returns empty list if no preferences exist
     """

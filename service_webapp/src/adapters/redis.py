@@ -69,6 +69,20 @@ class ValkeyAdapter(CacheProtocol):
         """
         return await self._client.incrby(f"balance:{msisdn}", delta_paise)
 
+    async def incr_with_expire(self, key: str, ttl_seconds: int) -> int:
+        """INCR key then EXPIRE key ttl_seconds; return new counter value (Story 4.3).
+
+        Two round-trips are acceptable for the MVP stub (rate limiting disabled by
+        default). Target State: replace with a single-round-trip Lua script:
+        # TODO(target-state): eval "local c=redis.call('INCR',KEYS[1])
+        #   redis.call('EXPIRE',KEYS[1],ARGV[1]) return c" 1 key ttl
+        """
+        async with self._client.pipeline(transaction=False) as pipe:
+            pipe.incr(key)
+            pipe.expire(key, ttl_seconds)
+            results = await pipe.execute()
+        return int(results[0])
+
     async def close(self) -> None:
         """Close the underlying client (best-effort)."""
         try:

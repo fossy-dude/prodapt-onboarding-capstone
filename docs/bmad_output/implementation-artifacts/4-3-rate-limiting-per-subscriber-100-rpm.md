@@ -4,7 +4,7 @@ baseline_commit: b1dda60
 
 # Story 4.3: Rate Limiting — Per-Subscriber 100 RPM (MVP Stub)
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -24,32 +24,32 @@ so that no single subscriber can overload the system and the limit is adjustable
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Settings + protocol extension** (AC: #1, #2, #5)
-  - [ ] Add `rate_limiting_enabled: bool = False` to `Settings` in `service_webapp/src/core/config.py`. Field reads from env var `RATE_LIMITING_ENABLED`. [Source: core/config.py — existing Settings pattern]
-  - [ ] Add `incr_with_expire(key: str, ttl_seconds: int) -> int` to `CacheProtocol` in `service_webapp/src/core/protocols/cache.py`. Returns new counter value after increment. [Source: core/protocols/cache.py — existing protocol]
-  - [ ] Implement `incr_with_expire` in `ValkeyAdapter` (`service_webapp/src/adapters/redis.py`): call `INCR key` then `EXPIRE key ttl_seconds` in pipeline. Returns int. [Source: adapters/redis.py — existing valkey[asyncio] client]
+- [x] **Task 1: Settings + protocol extension** (AC: #1, #2, #5)
+  - [x] Add `rate_limiting_enabled: bool = False` to `Settings` in `service_webapp/src/core/config.py`. Field reads from env var `RATE_LIMITING_ENABLED`. [Source: core/config.py — existing Settings pattern]
+  - [x] Add `incr_with_expire(key: str, ttl_seconds: int) -> int` to `CacheProtocol` in `service_webapp/src/core/protocols/cache.py`. Returns new counter value after increment. [Source: core/protocols/cache.py — existing protocol]
+  - [x] Implement `incr_with_expire` in `ValkeyAdapter` (`service_webapp/src/adapters/redis.py`): call `INCR key` then `EXPIRE key ttl_seconds` in pipeline. Returns int. [Source: adapters/redis.py — existing valkey[asyncio] client]
 
-- [ ] **Task 2: RateLimitMiddleware** (AC: #1–#7)
-  - [ ] Create `service_webapp/src/core/rate_limit.py` with `RateLimitMiddleware(BaseHTTPMiddleware)`.
-  - [ ] On startup (via `set_limit` classmethod called from lifespan): read `rate_limit_rpm` from `notification_threshold_config` via DB, store as `RateLimitMiddleware._rpm_limit: int = 100`.
-  - [ ] On each request: skip if path is `/health`, `/ready`, or starts with `/api/v1/ussd/callback`. [Source: AC #6]
-  - [ ] Extract msisdn from `Authorization: Bearer <token>` → decode JWT (no verify — already verified by `require_role` on the route) → `phone_number` claim. If absent: call `call_next(request)`, set pass-through headers, return. [Source: core/auth.py — JWT decode pattern]
-  - [ ] Compute `channel` from `request.url.path` (see AC #7). Compute `minute_bucket = int(time.time()) // 60`.
-  - [ ] If `settings.rate_limiting_enabled` is False: call `call_next(request)`, add `X-RateLimit-Limit: {_rpm_limit}` and `X-RateLimit-Channel: {channel}` headers to response, return. [Source: AC #1]
-  - [ ] If `settings.rate_limiting_enabled` is True: call `cache.incr_with_expire(f"ratelimit:{msisdn}:{channel}:{minute_bucket}", 60)`. If result > `_rpm_limit`: compute `retry_after = 60 - (int(time.time()) % 60)`, return `JSONResponse(status_code=429, content={...})`. [Source: AC #2, #4]
-  - [ ] On 429: include `Retry-After: {retry_after}` header per RFC 6585. [Source: AC #2]
+- [x] **Task 2: RateLimitMiddleware** (AC: #1–#7)
+  - [x] Create `service_webapp/src/core/rate_limit.py` with `RateLimitMiddleware(BaseHTTPMiddleware)`.
+  - [x] On startup (via `set_limit` classmethod called from lifespan): read `rate_limit_rpm` from `notification_threshold_config` via DB, store as `RateLimitMiddleware._rpm_limit: int = 100`.
+  - [x] On each request: skip if path is `/health`, `/ready`, or starts with `/api/v1/ussd/callback`. [Source: AC #6]
+  - [x] Extract msisdn from `Authorization: Bearer <token>` → decode JWT (no verify — already verified by `require_role` on the route) → `phone_number` claim. If absent: call `call_next(request)`, set pass-through headers, return. [Source: core/auth.py — JWT decode pattern]
+  - [x] Compute `channel` from `request.url.path` (see AC #7). Compute `minute_bucket = int(time.time()) // 60`.
+  - [x] If `settings.rate_limiting_enabled` is False: call `call_next(request)`, add `X-RateLimit-Limit: {_rpm_limit}` and `X-RateLimit-Channel: {channel}` headers to response, return. [Source: AC #1]
+  - [x] If `settings.rate_limiting_enabled` is True: call `cache.incr_with_expire(f"ratelimit:{msisdn}:{channel}:{minute_bucket}", 60)`. If result > `_rpm_limit`: compute `retry_after = 60 - (int(time.time()) % 60)`, return `JSONResponse(status_code=429, content={...})`. [Source: AC #2, #4]
+  - [x] On 429: include `Retry-After: {retry_after}` header per RFC 6585. [Source: AC #2]
 
-- [ ] **Task 3: Wire middleware into app** (AC: #1)
-  - [ ] In `service_webapp/src/main.py` `lifespan`: after DB/Valkey pool startup, call `await RateLimitMiddleware.load_config(db=app.state.db)` to populate `_rpm_limit`. [Source: main.py:77 — existing lifespan pattern]
-  - [ ] Add `app.add_middleware(RateLimitMiddleware, cache=..., settings=settings)` in `create_app()` AFTER `OTelTraceMiddleware`. [Source: main.py — existing middleware order]
+- [x] **Task 3: Wire middleware into app** (AC: #1)
+  - [x] In `service_webapp/src/main.py` `lifespan`: after DB/Valkey pool startup, call `await RateLimitMiddleware.load_config(db=app.state.db_adapter)` to populate `_rpm_limit`. [Source: main.py:77 — existing lifespan pattern]
+  - [x] Add `app.add_middleware(RateLimitMiddleware, settings=settings)` in `create_app()` AFTER `OTelTraceMiddleware`. Cache resolved lazily from `request.app.state.cache_adapter` at dispatch time. [Source: main.py — existing middleware order]
 
-- [ ] **Task 4: Tests** (AC: #1–#7)
-  - [ ] Unit `tests/unit/test_rate_limit.py`: mock Valkey + DB. `rate_limiting_enabled=False` → 200 with X-RateLimit-Limit header; no Valkey INCR called. [Source: AC #1]
-  - [ ] Unit: `rate_limiting_enabled=True` → requests 1–100 return 200; request 101 returns 429 with `RATE_LIMIT_EXCEEDED` body and `Retry-After` header. [Source: AC #2]
-  - [ ] Unit: path `/api/v1/ussd/callback` with no JWT → pass-through (no rate-limit header, no 429). [Source: AC #6]
-  - [ ] Unit: channel routing — `/api/v1/ussd/menu` → `ussd`; `/api/chat/stream` → `chatbot`; `/api/v1/subscriber/balance` → `api`. [Source: AC #7]
-  - [ ] Unit: per-channel isolation — api counter at 100 does NOT affect ussd counter. [Source: AC #3]
-  - [ ] Unit: `retry_after` value is `60 - (unix_ts % 60)` (mocked `time.time`). [Source: AC #2]
+- [x] **Task 4: Tests** (AC: #1–#7)
+  - [x] Unit `tests/unit/test_rate_limit.py`: mock Valkey + DB. `rate_limiting_enabled=False` → 200 with X-RateLimit-Limit header; no Valkey INCR called. [Source: AC #1]
+  - [x] Unit: `rate_limiting_enabled=True` → requests 1–100 return 200; request 101 returns 429 with `RATE_LIMIT_EXCEEDED` body and `Retry-After` header. [Source: AC #2]
+  - [x] Unit: path `/api/v1/ussd/callback` with no JWT → pass-through (no rate-limit header, no 429). [Source: AC #6]
+  - [x] Unit: channel routing — `/api/v1/ussd/menu` → `ussd`; `/api/chat/stream` → `chatbot`; `/api/v1/subscriber/balance` → `api`. [Source: AC #7]
+  - [x] Unit: per-channel isolation — api counter at 100 does NOT affect ussd counter. [Source: AC #3]
+  - [x] Unit: `retry_after` value is `60 - (unix_ts % 60)` (mocked `time.time`). [Source: AC #2]
 
 ## Dev Notes
 
@@ -84,3 +84,29 @@ Story 4.3 does not add any migrations. The `notification_threshold_config` row f
 ### Deferred work
 
 The Lua-script single-round-trip optimization for Valkey INCR+EXPIRE should be noted in `deferred-work.md` as a Target State improvement.
+
+## Dev Agent Record
+
+### Implementation Notes
+
+- Dev note said `python-jose` was in deps but only `PyJWT` is installed. Used `pyjwt.decode(..., options={"verify_signature": False})` instead of `jose.jwt.get_unverified_claims`. Both produce the same unverified claims dict.
+- Cache injected via `request.app.state.cache_adapter` at dispatch time rather than constructor — avoids the chicken-and-egg problem where `cache_adapter` is None at `create_app()` time (created in lifespan).
+- Valkey `incr_with_expire` uses `pipeline(transaction=False)` for INCR + EXPIRE in a single round-trip batch. TODO comment added for Lua script Target State upgrade.
+- All 12 unit tests pass. 0 new regressions introduced (pre-existing failures in test_recharge/test_data_nudge confirmed against main branch).
+
+### Completion Notes
+
+All ACs satisfied: MVP disabled mode (AC #1) passes through with observability headers; full enabled mode (AC #2–#7) enforces 100 RPM per-channel with correct 429 body and Retry-After header; bypass paths skip rate limiting; per-channel isolation works correctly.
+
+## File List
+
+- `service_webapp/src/core/config.py` — added `rate_limiting_enabled: bool = False`
+- `service_webapp/src/core/protocols/cache.py` — added `incr_with_expire` to `CacheProtocol`
+- `service_webapp/src/adapters/redis.py` — implemented `incr_with_expire` with pipeline
+- `service_webapp/src/core/rate_limit.py` — new: `RateLimitMiddleware`, `load_config`, `_extract_msisdn`, `_resolve_channel`
+- `service_webapp/src/main.py` — wired `RateLimitMiddleware` import, `load_config` call in lifespan, `add_middleware` in `create_app`
+- `service_webapp/tests/unit/test_rate_limit.py` — new: 12 unit tests covering all ACs
+
+## Change Log
+
+- 2026-06-24: Story 4.3 implemented — rate limit middleware (MVP stub, disabled by default). Added `rate_limiting_enabled` setting, `incr_with_expire` cache op, `RateLimitMiddleware` with Valkey sliding-window, lifespan wiring, 12 unit tests. All ACs satisfied.

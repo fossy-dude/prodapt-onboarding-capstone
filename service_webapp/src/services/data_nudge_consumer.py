@@ -10,8 +10,8 @@ Runs as a background task alongside the notification_consumer_task.
 from __future__ import annotations
 
 import asyncio
-import logging
 import json
+import logging
 
 from aiokafka import AIOKafkaConsumer
 
@@ -32,8 +32,8 @@ async def run_data_nudge_consumer(db, producer) -> None:
     producer : Kafka producer
         Kafka producer for publishing notification events.
     """
-    from db.billing.queries import get_active_plan_data_quota
     from core.config import settings
+    from db.billing.queries import get_active_plan_data_quota
 
     # Build consumer
     brokers = [b.strip() for b in settings.kafka_brokers.split(",")]

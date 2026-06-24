@@ -31,6 +31,7 @@ from core.auth import JWTValidator, _cognito_jwks_url
 from core.config import settings
 from core.errors import register_exception_handlers
 from core.middleware import OtelTraceMiddleware
+from core.rate_limit import RateLimitMiddleware
 from core.step_up import StepUpOtpService
 from routers.account import (
     account_router,
@@ -293,11 +294,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         notification_dispatcher_task = asyncio.create_task(_dispatch_notification_events())
 
+    # Rate limit config (Story 4.3) — read rpm_limit from DB; falls back to 100 on error
+    await RateLimitMiddleware.load_config(db=app.state.db_adapter)
+
     # Plan expiry reminder scheduler (Story 4.1, Task 5)
     plan_expiry_scheduler = None
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from apscheduler.triggers.cron import CronTrigger
+
         from services.notification_scheduler import run_plan_expiry_check
 
         lead_days = 3  # default
@@ -417,6 +422,7 @@ def create_app(
     _setup_tracer()
     app = FastAPI(title="SBOAI Capstone", version="0.1.0", lifespan=lifespan)
     app.add_middleware(OtelTraceMiddleware)
+    app.add_middleware(RateLimitMiddleware, settings=settings)
     register_exception_handlers(app)
     app.include_router(health_router)
     app.include_router(subscriber_router)

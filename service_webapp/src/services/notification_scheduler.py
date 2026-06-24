@@ -8,11 +8,8 @@ active plan expires within lead_days.
 from __future__ import annotations
 
 import logging
-from datetime import date, UTC
+from datetime import UTC, date
 from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger("services.notification_scheduler")
 
@@ -55,10 +52,11 @@ async def run_plan_expiry_check(db, producer, lead_days: int) -> None:
 
     logger.info("plan_expiry_check: found %d subscribers with plans expiring within %d days", len(rows), lead_days)
 
-    from datetime import UTC, datetime
-    from uuid_extensions import uuid7
-    from uuid import UUID
     import json
+    from datetime import datetime
+    from uuid import UUID
+
+    from uuid_extensions import uuid7
 
     for subscriber_id, msisdn, end_date in rows:
         try:
