@@ -34,6 +34,9 @@ class _FakeCursor:
     async def fetchall(self) -> list[tuple]:
         return self._rows
 
+    async def fetchone(self) -> tuple | None:
+        return self._rows[0] if self._rows else None
+
 
 class _FakeConn:
     """Returns scripted ``billing_transactions`` rows; records executed params.
@@ -53,6 +56,9 @@ class _FakeConn:
     async def execute(self, sql: str, params=None):
         self.executed_sql = sql
         self.executed_params = tuple(params or ())
+        if "identity_subscribers" in sql.lower():
+            # resolve_subscriber_id lookup → canonical subscriber id row.
+            return _FakeCursor([(_SUB_A,)])
         if not self.executed_params:
             return _FakeCursor(list(self._rows))
         rows = list(self._rows)

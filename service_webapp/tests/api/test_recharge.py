@@ -94,7 +94,7 @@ async def recharge_client(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[Rech
 
     test_sub = str(uuid.uuid4())
     test_msisdn = "911234567890"
-    mock_jwt_payload = {"sub": test_sub, "cognito:groups": ["subscriber"]}
+    mock_jwt_payload = {"sub": test_sub, "cognito:groups": ["subscriber"], "phone_number": test_msisdn}
 
     # Patch the DB command functions at the router module boundary. monkeypatch
     # restores the originals after the test, so no manual cleanup is required.
@@ -106,6 +106,12 @@ async def recharge_client(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[Rech
     monkeypatch.setattr(recharge_module, "create_recharge_order", mock_create_order)
     monkeypatch.setattr(recharge_module, "get_payment_method_owner", mock_get_owner)
     monkeypatch.setattr(recharge_module, "complete_recharge_transaction", mock_complete)
+
+    # Patch the resolver to return the test subscriber UUID
+    async def _fake_resolve_subscriber_id(conn, jwt_payload):
+        return test_sub
+
+    monkeypatch.setattr(recharge_module, "resolve_subscriber_id", _fake_resolve_subscriber_id)
 
     # The transaction context manager still needs to yield a stand-in conn, but
     # the patched commands never touch it, so a bare AsyncMock suffices.

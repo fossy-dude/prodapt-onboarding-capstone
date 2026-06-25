@@ -13,7 +13,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 from core.auth import require_role
-from core.errors import DomainError, UnauthenticatedError
+from core.errors import DomainError
 from core.responses import success_envelope
 from db.notifications.commands import upsert_preference
 from db.notifications.queries import get_preferences
@@ -22,6 +22,7 @@ from models.notifications import (
     NotificationPreferencesResponse,
     PatchNotificationPreferenceRequest,
 )
+from routers._identity import resolve_subscriber_id
 
 logger = logging.getLogger(__name__)
 
@@ -29,19 +30,6 @@ router = APIRouter(prefix="/api/v1/subscriber", tags=["notifications"])
 
 # All notification types that must be returned by GET endpoint
 _ALL_NOTIFICATION_TYPES = ["LOW_BALANCE", "BALANCE_DEPLETED", "PLAN_EXPIRY_REMINDER", "DATA_NUDGE"]
-
-
-def _require_sub(jwt_payload: dict) -> str:
-    """Extract the subscriber UUID (JWT ``sub``); raise 401 if missing.
-
-    ``require_role`` validates ``cognito:groups`` but never asserts ``sub`` is
-    present, so a valid token lacking ``sub`` would otherwise raise a raw
-    ``KeyError`` → HTTP 500. Surface it as a clean 401 instead.
-    """
-    sub = jwt_payload.get("sub")
-    if not sub:
-        raise UnauthenticatedError("Access token is missing the 'sub' claim.")
-    return str(sub)
 
 
 def _db(request: Request):
@@ -65,10 +53,10 @@ async def get_notification_preferences(
     Returns all 4 notification types with their current opt-in status.
     If no preference row exists for a type, defaults to opted IN (is_enabled=true).
     """
-    subscriber_id = _require_sub(jwt_payload)
     db = _db(request)
 
     async with db.transaction() as conn:
+        subscriber_id = await resolve_subscriber_id(conn, jwt_payload)
         # Fetch existing preferences from DB
         existing_prefs = await get_preferences(conn, subscriber_id)
 
@@ -98,10 +86,10 @@ async def patch_notification_preference(
     Persists the change to notifications_preferences table.
     Returns 422 if notification_type is not one of the 4 known types.
     """
-    subscriber_id = _require_sub(jwt_payload)
     db = _db(request)
 
     async with db.transaction() as conn:
+        subscriber_id = await resolve_subscriber_id(conn, jwt_payload)
         await upsert_preference(
             db=conn,
             subscriber_id=subscriber_id,

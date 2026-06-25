@@ -86,6 +86,9 @@ class _FakeConn:
         lowered = sql.lower()
         if "notifications_preferences" in lowered and "select" in lowered:
             return _FakeCursor(rows=self._pref_rows)
+        if "identity_subscribers" in lowered:
+            # Return the test subscriber UUID for the resolver lookup
+            return _FakeCursor(row=(_SUB_A,))
         return _FakeCursor()
 
 

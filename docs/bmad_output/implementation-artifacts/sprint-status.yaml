@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-25  # Stories 7.1-7.4 → ready-for-dev (Epic 7: Ops & Marketing Dashboard)
+last_updated: 2026-06-25  # Story 7.2 → review (Plan Stock Dashboard & Order Fulfilment View)
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -115,9 +115,9 @@ development_status:
 
   # Epic 7: Ops & Marketing Dashboard (TDD-first)
   epic-7: in-progress
-  7-1-eval-harness-ml-forecast-upsell-quality: ready-for-dev
-  7-2-plan-stock-dashboard-order-fulfilment-view: ready-for-dev
-  7-3-subscriber-growth-forecast-ml-3-month: ready-for-dev
+  7-1-eval-harness-ml-forecast-upsell-quality: skip
+  7-2-plan-stock-dashboard-order-fulfilment-view: review
+  7-3-subscriber-growth-forecast-ml-3-month: skip
   7-4-plan-demand-forecast-30-90-day: ready-for-dev
   7-5-target-base-builder-dynamic-kpi-filter: backlog
   7-6-llm-segment-labelling-rule-induction-agent: backlog

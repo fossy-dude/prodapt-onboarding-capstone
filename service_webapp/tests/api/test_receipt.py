@@ -46,13 +46,15 @@ class ReceiptTestContext:
 
 
 @pytest.fixture
-async def receipt_client() -> AsyncIterator[ReceiptTestContext]:
+async def receipt_client(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[ReceiptTestContext]:
     """App wired with mocked DB + JWT; render_receipt_pdf patched to return fake bytes."""
+    import routers.recharge as recharge_module
     from core.auth import FakeJWTValidator
     from main import create_app
 
     test_sub = str(uuid.uuid4())
-    mock_jwt_payload = {"sub": test_sub, "cognito:groups": ["subscriber"]}
+    test_msisdn = "911234567890"
+    mock_jwt_payload = {"sub": test_sub, "cognito:groups": ["subscriber"], "phone_number": test_msisdn}
 
     mock_conn = AsyncMock()
     mock_conn.execute.return_value = mock_conn
@@ -63,6 +65,12 @@ async def receipt_client() -> AsyncIterator[ReceiptTestContext]:
             __aexit__=AsyncMock(return_value=False),
         )
     )
+
+    # Patch the resolver to return the test subscriber UUID
+    async def _fake_resolve_subscriber_id(conn, jwt_payload):
+        return test_sub
+
+    monkeypatch.setattr(recharge_module, "resolve_subscriber_id", _fake_resolve_subscriber_id)
 
     jwt_validator = FakeJWTValidator(payload=mock_jwt_payload)
     application = create_app()
@@ -89,7 +97,7 @@ def _make_receipt_row(
     """Build a dict matching what get_receipt_data returns."""
     return {
         "transaction_id": transaction_id,
-        "subscriber_id": subscriber_id,
+        "subscriber_id": uuid.UUID(subscriber_id),  # Convert to UUID like real DB would
         "amount_paise": 10000,
         "transaction_date": datetime(2026, 6, 24, 10, 30, 0, tzinfo=UTC),
         "plan_name": "Basic Plan",

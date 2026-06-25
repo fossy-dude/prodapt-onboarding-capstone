@@ -33,22 +33,27 @@ class _FakeCursor:
 
 
 class _FakeConn:
-    """Returns a scripted active-plan row (plans_subscriptions JOIN plans_plans)."""
+    """Routes identity_subscribers lookups to a subscriber id; plans to the plan row."""
 
-    def __init__(self, plan_row: tuple | None) -> None:
+    def __init__(self, *, plan_row: tuple | None, sub_row: tuple | None) -> None:
         self._plan_row = plan_row
+        self._sub_row = sub_row
 
     async def execute(self, sql: str, params=None):
+        lowered = sql.lower()
+        if "identity_subscribers" in lowered:
+            return _FakeCursor(row=self._sub_row)
         return _FakeCursor(row=self._plan_row)
 
 
 class FakeDb:
-    def __init__(self, plan_row: tuple | None = None) -> None:
+    def __init__(self, plan_row: tuple | None = None, sub_row: tuple | None = (_SUB_A,)) -> None:
         self._plan_row = plan_row
+        self._sub_row = sub_row
 
     @asynccontextmanager
     async def transaction(self):
-        yield _FakeConn(plan_row=self._plan_row)
+        yield _FakeConn(plan_row=self._plan_row, sub_row=self._sub_row)
 
     async def ping(self) -> bool:
         return True

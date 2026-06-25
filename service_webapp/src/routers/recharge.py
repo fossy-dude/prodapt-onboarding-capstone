@@ -21,7 +21,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from core.auth import require_role
-from core.errors import ConflictError, DomainError, ForbiddenError, NotFoundError, UnauthenticatedError
+from core.errors import ConflictError, DomainError, ForbiddenError, NotFoundError
 from core.responses import success_envelope
 from core.security import decrypt_pii
 from db.recharge.commands import (
@@ -34,6 +34,7 @@ from db.recharge.queries import get_active_plans, get_receipt_data
 from models.plan import PlanCatalogueItem
 from models.recharge import RechargeRequest, RechargeResponse
 from receipts.render import render_receipt_pdf
+from routers._identity import resolve_subscriber_id
 
 logger = logging.getLogger(__name__)
 
@@ -100,19 +101,6 @@ def _db(request: Request):
 def _trace_id(request: Request) -> str:
     """Return the OTEL trace id from request state, or 'unknown' if absent."""
     return getattr(request.state, "trace_id", "unknown")
-
-
-def _require_sub(jwt_payload: dict) -> str:
-    """Extract the subscriber UUID (JWT ``sub``); 401 if the claim is absent.
-
-    ``require_role`` validates ``cognito:groups`` but never asserts ``sub`` is
-    present, so a valid token lacking ``sub`` would otherwise raise a raw
-    ``KeyError`` → HTTP 500. Surface it as a clean 401 instead.
-    """
-    sub = jwt_payload.get("sub")
-    if not sub:
-        raise UnauthenticatedError("Access token is missing the 'sub' claim.")
-    return str(sub)
 
 
 def _cache(request: Request):
@@ -194,7 +182,6 @@ async def create_recharge(
     """
     db = _db(request)
     cache = _cache(request)
-    subscriber_id = _require_sub(jwt_payload)
 
     # Extract request parameters
     plan_id = payload.plan_id
@@ -202,6 +189,7 @@ async def create_recharge(
     idempotency_key = payload.idempotency_key
 
     async with db.transaction() as conn:
+        subscriber_id = await resolve_subscriber_id(conn, jwt_payload)
         # Check for existing completed order (idempotent retry)
         existing = await get_completed_recharge_result(conn, idempotency_key)
         if existing is not None:
@@ -350,16 +338,16 @@ async def get_receipt(
     No card numbers / full PAN in output (FR-64).
     """
     db = _db(request)
-    subscriber_id = _require_sub(jwt_payload)
 
     async with db.transaction() as conn:
+        subscriber_id = await resolve_subscriber_id(conn, jwt_payload)
         row = await get_receipt_data(conn, transaction_id)
 
     if row is None:
         raise NotFoundError("Receipt not found or order is not completed.")
 
     # Explicit owner assertion with 403 Forbidden for authorization failures
-    if row["subscriber_id"] != subscriber_id:
+    if str(row["subscriber_id"]) != subscriber_id:
         err = ForbiddenError("Receipt does not belong to this subscriber.")
         err.code = "FORBIDDEN"
         raise err

@@ -38,12 +38,14 @@ class RefundTestContext:
 
 
 @pytest.fixture
-async def refund_client() -> AsyncIterator[RefundTestContext]:
+async def refund_client(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[RefundTestContext]:
+    import routers.balance as balance_module
     from core.auth import FakeJWTValidator
     from main import create_app
 
     test_sub = str(uuid.uuid4())
-    mock_jwt_payload = {"sub": test_sub, "cognito:groups": ["subscriber"]}
+    test_msisdn = "911234567890"
+    mock_jwt_payload = {"sub": test_sub, "cognito:groups": ["subscriber"], "phone_number": test_msisdn}
 
     mock_conn = AsyncMock()
     mock_conn.execute.return_value = mock_conn
@@ -54,6 +56,12 @@ async def refund_client() -> AsyncIterator[RefundTestContext]:
             __aexit__=AsyncMock(return_value=False),
         )
     )
+
+    # Patch the resolver to return the test subscriber UUID
+    async def _fake_resolve_subscriber_id(conn, jwt_payload):
+        return test_sub
+
+    monkeypatch.setattr(balance_module, "resolve_subscriber_id", _fake_resolve_subscriber_id)
 
     jwt_validator = FakeJWTValidator(payload=mock_jwt_payload)
     application = create_app()

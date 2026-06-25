@@ -31,9 +31,10 @@ from psycopg.types.json import Json
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from core.auth import require_role
-from core.errors import DomainError, ForbiddenError, NotFoundError, UnauthenticatedError
+from core.errors import DomainError, ForbiddenError, NotFoundError
 from core.responses import success_envelope
 from core.security import mask_msisdn, normalize_login_identifier
+from routers._identity import resolve_subscriber_id
 from services.registration import (
     REGISTRATION_STATUS,
     RegistrationCommand,
@@ -257,19 +258,6 @@ def _db(request: Request):
     return db
 
 
-def _require_sub(jwt_payload: dict) -> str:
-    """Extract the subscriber UUID (JWT ``sub``); 401 if the claim is absent.
-
-    ``require_role`` validates ``cognito:groups`` but never asserts ``sub`` is
-    present, so a valid token lacking ``sub`` would otherwise raise a raw
-    ``KeyError`` → HTTP 500. Surface it as a clean 401 instead.
-    """
-    sub = jwt_payload.get("sub")
-    if not sub:
-        raise UnauthenticatedError("Access token is missing the 'sub' claim.")
-    return str(sub)
-
-
 def _validate_order_id(order_id: str) -> None:
     """Reject non-UUID ``order_id`` path params as 404 before they reach SQL.
 
@@ -299,9 +287,9 @@ async def get_active_order(
     ``order_id: null`` so the tracker can render an empty state rather than an
     error (a missing order is a legitimate state, not a failure).
     """
-    sub = _require_sub(jwt_payload)
     db = _db(request)
     async with db.transaction() as conn:
+        sub = await resolve_subscriber_id(conn, jwt_payload)
         cur = await conn.execute(
             """
             SELECT id::text, fulfilment_status, modified_at
@@ -346,9 +334,9 @@ async def get_order_status(
     (PII hygiene: never log raw MSISDN; use ``msisdn[-4:]`` if needed).
     """
     _validate_order_id(order_id)
-    sub = _require_sub(jwt_payload)
     db = _db(request)
     async with db.transaction() as conn:
+        sub = await resolve_subscriber_id(conn, jwt_payload)
         cur = await conn.execute(
             """
             SELECT o.fulfilment_status,
@@ -365,7 +353,7 @@ async def get_order_status(
     if row is None:
         raise NotFoundError("Order not found.")
     status, updated_at, subscriber_id, msisdn = row
-    if subscriber_id != sub:
+    if str(subscriber_id) != sub:
         logger.info("order-status 403: sub=%s order_id=%s", sub, order_id)
         raise ForbiddenError("You are not authorised to view this order.")
     msisdn_out = msisdn if status == "ACTIVATED" else None
@@ -452,9 +440,9 @@ async def get_profile(
     client-supplied id — so owner-only access is enforced by construction. The KYC
     status comes from the subscriber's latest ``identity_kyc_records`` row.
     """
-    sub = _require_sub(jwt_payload)
     db = _db(request)
     async with db.transaction() as conn:
+        sub = await resolve_subscriber_id(conn, jwt_payload)
         cur = await conn.execute(_PROFILE_SELECT, (sub,))
         row = await cur.fetchone()
     if row is None:
@@ -515,7 +503,6 @@ async def update_profile(
     ``new_value`` carries the changed FIELD NAMES only, never raw PII (§1.11.6).
     Returns HTTP 200 with the updated decrypted profile in the standard envelope.
     """
-    sub = _require_sub(jwt_payload)
     db = _db(request)
     updates = {
         field: getattr(payload, field)
@@ -526,6 +513,7 @@ async def update_profile(
     # SET clause by string is safe — values are still bound via %s parameters.
     set_clause = ", ".join(f"{col} = %s" for col in updates)
     async with db.transaction() as conn:
+        sub = await resolve_subscriber_id(conn, jwt_payload)
         cur = await conn.execute(
             f"UPDATE identity_subscribers SET {set_clause} WHERE id = %s::uuid",
             (*updates.values(), sub),
@@ -617,10 +605,10 @@ async def add_payment_method(
     the token is a UUID generated client-side; the raw PAN never reaches the server.
     Non-card methods (UPI, net banking, mobile wallet) store the identifier as-is.
     """
-    sub = _require_sub(jwt_payload)
     db = _db(request)
 
     async with db.transaction() as conn:
+        sub = await resolve_subscriber_id(conn, jwt_payload)
         cur = await conn.execute(
             """
             INSERT INTO recharge_payment_methods (subscriber_id, type, token, display_label, is_default)
@@ -662,10 +650,10 @@ async def list_payment_methods(
     Returns an array of payment methods with most recent first. Each method includes
     a type icon in the UI and a ``Set Default`` action (unless already default).
     """
-    sub = _require_sub(jwt_payload)
     db = _db(request)
 
     async with db.transaction() as conn:
+        sub = await resolve_subscriber_id(conn, jwt_payload)
         cur = await conn.execute(
             """
             SELECT id::text, type, token, display_label, is_default, created_at
@@ -708,7 +696,6 @@ async def set_default_payment_method(
     Clears the ``is_default`` flag on all other methods for this subscriber in a
     single transaction (ensuring exactly one default at a time).
     """
-    sub = _require_sub(jwt_payload)
     db = _db(request)
 
     try:
@@ -717,6 +704,7 @@ async def set_default_payment_method(
         raise NotFoundError("Payment method not found.") from exc
 
     async with db.transaction() as conn:
+        sub = await resolve_subscriber_id(conn, jwt_payload)
         # First verify ownership
         cur = await conn.execute(
             """
@@ -729,7 +717,7 @@ async def set_default_payment_method(
         if row is None:
             raise NotFoundError("Payment method not found.")
         owner_id = row[0]
-        if owner_id != sub:
+        if str(owner_id) != sub:
             logger.info("set-default 403: sub=%s method_id=%s owner=%s", sub, method_id, owner_id)
             raise ForbiddenError("You are not authorised to modify this payment method.")
 
@@ -794,7 +782,6 @@ async def delete_payment_method(
     Authorises that the JWT ``sub`` matches the method's ``subscriber_id``; mismatches
     yield HTTP 403. Returns HTTP 204 on success (no body).
     """
-    sub = _require_sub(jwt_payload)
     db = _db(request)
 
     try:
@@ -803,6 +790,7 @@ async def delete_payment_method(
         raise NotFoundError("Payment method not found.") from exc
 
     async with db.transaction() as conn:
+        sub = await resolve_subscriber_id(conn, jwt_payload)
         # Verify ownership before delete
         cur = await conn.execute(
             """
@@ -815,7 +803,7 @@ async def delete_payment_method(
         if row is None:
             raise NotFoundError("Payment method not found.")
         owner_id = row[0]
-        if owner_id != sub:
+        if str(owner_id) != sub:
             logger.info("delete 403: sub=%s method_id=%s owner=%s", sub, method_id, owner_id)
             raise ForbiddenError("You are not authorised to delete this payment method.")
 

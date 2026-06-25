@@ -19,11 +19,12 @@ from pydantic import BaseModel
 
 from agents.conclusion import get_conclusion_graph
 from core.auth import require_role
-from core.errors import DomainError, ForbiddenError, UnauthenticatedError
+from core.errors import DomainError, ForbiddenError
 from core.responses import success_envelope
 from db.support.commands import create_ticket, log_recommendation_feedback
 from db.support.queries import get_tickets_by_subscriber
 from models.support import SupportTicketItem, TicketCreateRequest, TicketCreateResponse
+from routers._identity import resolve_subscriber_id
 
 logger = logging.getLogger(__name__)
 
@@ -82,18 +83,6 @@ async def post_recommendation_feedback(
 # ── Story 5.8: billing-dispute support tickets ────────────────────────────────
 
 
-def _require_sub(jwt_payload: dict) -> str:
-    """Extract the subscriber UUID (JWT ``sub``); raise 401 if missing.
-
-    ``require_role`` validates ``cognito:groups`` but never asserts ``sub`` is
-    present, so a valid token lacking ``sub`` would otherwise surface as a 500.
-    """
-    sub = jwt_payload.get("sub")
-    if not sub:
-        raise UnauthenticatedError("Access token is missing the 'sub' claim.")
-    return str(sub)
-
-
 @router.post("/api/v1/support/tickets", status_code=201)
 async def create_support_ticket(
     request: Request,
@@ -102,16 +91,16 @@ async def create_support_ticket(
 ) -> JSONResponse:
     """Create a billing-dispute support ticket (AC #2, #3).
 
-    The subscriber is taken from the JWT ``sub`` (authoritative); a body
+    The subscriber is resolved from the token's phone number (authoritative); a body
     ``subscriber_id`` that does not match is rejected (403) to prevent IDOR. The
     ticket is stored with ``category = 'billing_dispute'`` and the dispute values
     serialised into ``description`` — no migration (AC #7).
     """
-    subscriber_id = _require_sub(jwt_payload)
-    if body.subscriber_id != UUID(subscriber_id):
-        raise ForbiddenError("Cannot create a ticket for a different subscriber.")
     db = _db(request)
     async with db.transaction() as conn:
+        subscriber_id = await resolve_subscriber_id(conn, jwt_payload)
+        if body.subscriber_id != UUID(subscriber_id):
+            raise ForbiddenError("Cannot create a ticket for a different subscriber.")
         ticket = await create_ticket(
             conn,
             subscriber_id=subscriber_id,
@@ -143,9 +132,9 @@ async def list_support_tickets(
     decoded from the ticket ``description``. ``status`` is matched
     case-insensitively, so ``OPEN`` matches the stored ``open``.
     """
-    subscriber_id = _require_sub(jwt_payload)
     db = _db(request)
     async with db.transaction() as conn:
+        subscriber_id = await resolve_subscriber_id(conn, jwt_payload)
         tickets = await get_tickets_by_subscriber(conn, subscriber_id=subscriber_id, status=status)
     items = [SupportTicketItem(**t) for t in tickets]
     return JSONResponse(
@@ -178,7 +167,10 @@ async def end_chat_session(
     This is the explicit-close trigger; the background TTL poll (main.py) handles
     sessions that expire due to 2-hour idle timeout.
     """
-    subscriber_id = _require_sub(jwt_payload)
+    db = _db(request)
+    async with db.transaction() as conn:
+        subscriber_id = await resolve_subscriber_id(conn, jwt_payload)
+
     conclusion_graph = get_conclusion_graph()
 
     if conclusion_graph is None:

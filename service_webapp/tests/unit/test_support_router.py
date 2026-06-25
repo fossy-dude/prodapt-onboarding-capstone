@@ -47,7 +47,7 @@ class _FakeCursor:
 
 
 class _FakeConn:
-    """Routes INSERT/SELECT on support_tickets to scripted results; records SQL."""
+    """Routes INSERT/SELECT on support_tickets and identity_subscribers to scripted results; records SQL."""
 
     def __init__(self, *, insert_row: tuple | None, select_rows: list[tuple]) -> None:
         self._insert_row = insert_row
@@ -61,6 +61,8 @@ class _FakeConn:
             return _FakeCursor(row=self._insert_row)
         if "from support_tickets" in lowered and "select" in lowered:
             return _FakeCursor(rows=self._select_rows)
+        if "identity_subscribers" in lowered:
+            return _FakeCursor(row=(str(_SUB_A),))
         return _FakeCursor()
 
 

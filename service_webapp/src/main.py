@@ -60,6 +60,7 @@ from routers.balance import router as balance_router
 from routers.chat import setup_copilotkit
 from routers.health import router as health_router
 from routers.notifications import router as notifications_router
+from routers.ops import router as ops_router
 from routers.recharge import router as recharge_router
 from routers.simulator import (
     connection_manager as _trace_connection_manager,
@@ -676,6 +677,7 @@ def create_app(
     app.include_router(balance_router)
     app.include_router(recharge_router)
     app.include_router(notifications_router)
+    app.include_router(ops_router)
     app.include_router(ussd_router)
     app.include_router(support_router)
     app.include_router(simulator_router)

@@ -64,7 +64,7 @@ class FakeDb:
         self,
         *,
         wallet_row: tuple | None = (50000, _MSISDN, _NOW, None),
-        sub_row: tuple | None = (_MSISDN,),
+        sub_row: tuple | None = (_SUB_A,),
         plan_row: tuple | None = None,
         usage_row: tuple | None = None,
     ) -> None:
@@ -222,6 +222,17 @@ async def test_balance_invalid_token_401():
 async def test_balance_wallet_not_found_404():
     """Subscriber has no wallet row → 404."""
     db = FakeDb(wallet_row=None)
+    app = _make_app(db=db)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        r = await ac.get("/api/v1/subscriber/balance", headers={"Authorization": "Bearer tok"})
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_balance_subscriber_not_found_404():
+    """Token phone number does not resolve to a subscriber → 404."""
+    db = FakeDb(sub_row=None)
     app = _make_app(db=db)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

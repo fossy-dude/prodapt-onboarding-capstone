@@ -30,14 +30,21 @@ class _FakeCursor:
     async def fetchall(self) -> list[tuple]:
         return self._rows
 
+    async def fetchone(self) -> tuple | None:
+        return self._rows[0] if self._rows else None
+
 
 class _FakeConn:
-    """Returns scripted ``plans_plans`` rows."""
+    """Routes queries to scripted results based on the SQL table name."""
 
     def __init__(self, rows: list[tuple]) -> None:
         self._rows = rows
+        self._sub_row = ("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",)  # TEST_SUB
 
     async def execute(self, sql: str, params=None):
+        lowered = sql.lower()
+        if "identity_subscribers" in lowered:
+            return _FakeCursor(rows=[self._sub_row])
         return _FakeCursor(self._rows)
 
 
@@ -69,7 +76,7 @@ def _plan_row(
 
 def _sub_payload(groups: list[str] | None = None) -> dict:
     return {
-        "sub": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        "sub": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",  # Cognito UUID (different from DB UUID)
         "cognito:groups": groups or ["subscriber"],
         "phone_number": _MSISDN,
     }

@@ -22,6 +22,7 @@ import { CdrSimulator } from "./portals/simulator/CdrSimulator";
 import { NotificationPortal } from "./portals/simulator/NotificationPortal";
 import { SimActivation as SimActivationOrderTool } from "./portals/simulator/SimActivation";
 import { SimActivationSimulator } from "./portals/simulator/SimActivationSimulator";
+import { Dashboard as OpsDashboard } from "./portals/ops/Dashboard";
 import { Register } from "./portals/subscriber/Register";
 import { SimActivation } from "./portals/subscriber/SimActivation";
 
@@ -127,7 +128,10 @@ function App() {
         path="/ops/*"
         element={
           <RoleGuard allowedRoles={["ops", "admin", "marketing"]}>
-            <PortalPlaceholder role="Ops" />
+            <Routes>
+              <Route path="dashboard" element={<OpsDashboard />} />
+              <Route path="*" element={<PortalPlaceholder role="Ops" />} />
+            </Routes>
           </RoleGuard>
         }
       />

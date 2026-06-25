@@ -3,8 +3,9 @@
 GET /api/v1/subscriber/balance  — current wallet balance (Valkey-authoritative).
 GET /api/v1/subscriber/usage    — per-type CDR usage vs plan allowances.
 
-Both endpoints enforce subscriber ownership via ``_require_sub`` (deferred-work D3;
-``require_role`` validates groups but does not assert JWT ``sub``).
+Subscriber ownership is resolved from the token's phone number via
+``resolve_subscriber_id`` — the JWT ``sub`` is a Cognito UUID, not the internal
+``identity_subscribers.id`` keyed on wallet/subscription rows.
 MSISDN is always masked to last-4 in responses and logs (PII hygiene §1.11.6).
 """
 
@@ -19,7 +20,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 from core.auth import require_role
-from core.errors import DomainError, NotFoundError, UnauthenticatedError
+from core.errors import DomainError, NotFoundError
 from core.responses import success_envelope
 from core.security import mask_msisdn
 from db.billing.queries import (
@@ -34,6 +35,7 @@ from models.balance import UsageAllowance, UsagePeriod, UsageResponse, WalletBal
 from models.failed_recharge import FailedRechargeItem
 from models.plan import ActivePlanResponse, PlanQuotas
 from models.transaction import TransactionItem, canonical_transaction_type
+from routers._identity import resolve_subscriber_id
 
 logger = logging.getLogger(__name__)
 
@@ -41,14 +43,6 @@ logger = logging.getLogger(__name__)
 _IST = ZoneInfo("Asia/Kolkata")
 
 router = APIRouter(prefix="/api/v1/subscriber", tags=["balance"])
-
-
-def _require_sub(jwt_payload: dict) -> str:
-    """Extract the subscriber UUID (JWT ``sub``); 401 if the claim is absent."""
-    sub = jwt_payload.get("sub")
-    if not sub:
-        raise UnauthenticatedError("Access token is missing the 'sub' claim.")
-    return str(sub)
 
 
 def _cache(request: Request):
@@ -87,13 +81,13 @@ async def get_balance(
 
     Reads from Valkey ``balance:{msisdn}`` (authoritative, ARCH-6). On cache miss
     falls back to ``billing_wallet_balances.balance_paise``. Owner assertion
-    (``subscriber_id == jwt.sub``) is enforced via ``_require_sub``.
+    (resolved from the token phone number via ``resolve_subscriber_id``).
     """
-    sub_id = _require_sub(jwt_payload)
     cache = _cache(request)
     db = _db(request)
 
     async with db.transaction() as conn:
+        sub_id = await resolve_subscriber_id(conn, jwt_payload)
         wallet = await get_wallet_balance_from_db(conn, UUID(sub_id))
 
     if wallet is None:
@@ -132,10 +126,10 @@ async def get_usage(
     active ``plans_subscriptions`` window. Allowances come from ``plans_plans``.
     Null/0 quota → unlimited=True per PRD FR-10.
     """
-    sub_id = _require_sub(jwt_payload)
     db = _db(request)
 
     async with db.transaction() as conn:
+        sub_id = await resolve_subscriber_id(conn, jwt_payload)
         sub = await get_active_subscription(conn, UUID(sub_id))
         if sub is None:
             raise NotFoundError("No active plan subscription found.")
@@ -189,9 +183,9 @@ async def get_transactions(
     ``recharge_orders WHERE status='failed'`` — a separate source with a different
     response shape (``FailedRechargeItem``).
 
-    Owner assertion: ``subscriber_id`` is always the JWT ``sub`` (``_require_sub``).
+    Owner assertion: ``subscriber_id`` is resolved from the token phone number
+    (``resolve_subscriber_id``).
     """
-    sub_id = _require_sub(jwt_payload)
     db = _db(request)
 
     # Validate type parameter - only allow 'FAILED' or None
@@ -199,8 +193,8 @@ async def get_transactions(
         raise ValueError("Invalid type parameter. Allowed values: None, 'FAILED'")
 
     if type == "FAILED":
-        # Owner assertion: sub_id from _require_sub ensures JWT sub validation
         async with db.transaction() as conn:
+            sub_id = await resolve_subscriber_id(conn, jwt_payload)
             failed_rows = await get_failed_orders(conn, sub_id)
 
         items = [
@@ -222,6 +216,7 @@ async def get_transactions(
         )
 
     async with db.transaction() as conn:
+        sub_id = await resolve_subscriber_id(conn, jwt_payload)
         rows = await get_transactions_page(conn, UUID(sub_id), cursor, page_size)
 
     has_more = len(rows) > page_size
@@ -270,12 +265,13 @@ async def get_plan(
     Used-vs-allowance is NOT aggregated here — the frontend composes it from
     GET /usage (Story 3.2).
 
-    Owner assertion: ``subscriber_id`` is the JWT ``sub`` (``_require_sub``).
+    Owner assertion: ``subscriber_id`` is resolved from the token phone number
+    (``resolve_subscriber_id``).
     """
-    sub_id = _require_sub(jwt_payload)
     db = _db(request)
 
     async with db.transaction() as conn:
+        sub_id = await resolve_subscriber_id(conn, jwt_payload)
         plan = await get_active_plan(conn, UUID(sub_id))
 
     if plan is None:
