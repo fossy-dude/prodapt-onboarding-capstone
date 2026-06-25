@@ -243,7 +243,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         repo = PostgresRegistrationRepository(app.state.db_adapter)
         app.state.registration_service = RegistrationService(repo, app.state.cognito_provider)
     if getattr(app.state, "jwt_validator", None) is None:
-        app.state.jwt_validator = JWTValidator(_cognito_jwks_url(settings))
+        app.state.jwt_validator = JWTValidator(_cognito_jwks_url(settings), dev_mode=settings.dev_mode)
     if getattr(app.state, "step_up_service", None) is None:
         app.state.step_up_service = StepUpOtpService(app.state.cache_adapter, settings.otp_step_up_ttl_seconds)
     if getattr(app.state, "kafka_producer", None) is None:

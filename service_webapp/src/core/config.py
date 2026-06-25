@@ -123,6 +123,13 @@ class Settings(BaseSettings):
     otel_exporter_otlp_protocol: str = "http/protobuf"
     otel_service_name: str = "service_webapp"
 
+    # ── Optional: Dev mode (local / CI only) ─────────────────────────────────
+    # Skips RS256 signature verification against the Cognito JWKS endpoint.
+    # LocalStack Community does not serve /.well-known/jwks.json, so JWKS fetches
+    # fail in local dev. Claims (expiry, groups, sub) are still validated.
+    # Never set True in production.
+    dev_mode: bool = False
+
     # ── Optional: Rate limiting (Story 4.3) ───────────────────────────────────
     # Default False (MVP stub — architecture §1.7.3: "not in MVP"). Set True to
     # activate Valkey-backed per-subscriber-per-channel 100 RPM enforcement.

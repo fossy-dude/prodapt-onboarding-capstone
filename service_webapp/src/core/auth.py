@@ -53,10 +53,16 @@ class JWTValidator:
 
     ``PyJWT`` is imported lazily so importing this module at test collection time
     does not require the library to be installed in lightweight envs.
+
+    When *dev_mode* is True (LocalStack / CI), signature verification is skipped
+    because LocalStack Community does not serve the JWKS endpoint. Claims (expiry,
+    groups, sub) are still decoded and checked; only the RS256 signature is trusted
+    implicitly. Never enable in production.
     """
 
-    def __init__(self, jwks_url: str) -> None:
+    def __init__(self, jwks_url: str, *, dev_mode: bool = False) -> None:
         self._jwks_url = jwks_url
+        self._dev_mode = dev_mode
         self._jwks_client: Any = None  # jwt.PyJWKClient — initialised lazily
 
     def _client(self) -> Any:
@@ -73,6 +79,23 @@ class JWTValidator:
         leaks token internals in the error message.
         """
         import jwt  # noqa: PLC0415
+
+        if self._dev_mode:
+            # LocalStack Community does not implement the Cognito JWKS endpoint.
+            # Decode without signature verification; expiry is still enforced.
+            logger.warning("JWT validation: dev mode active — RS256 signature not verified")
+            try:
+                return jwt.decode(
+                    token,
+                    algorithms=["RS256"],
+                    options={"verify_signature": False, "verify_exp": True, "verify_aud": False},
+                )
+            except jwt.ExpiredSignatureError as exc:
+                logger.info("JWT validation: token expired")
+                raise UnauthenticatedError("Access token has expired.") from exc
+            except jwt.InvalidTokenError as exc:
+                logger.info("JWT validation: invalid token (%s)", type(exc).__name__)
+                raise UnauthenticatedError("Access token is invalid.") from exc
 
         try:
             signing_key = self._client().get_signing_key_from_jwt(token)
