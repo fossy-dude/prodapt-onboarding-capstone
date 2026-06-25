@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Literal
 from uuid import UUID
@@ -16,6 +17,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from agents.conclusion import get_conclusion_graph
 from core.auth import require_role
 from core.errors import DomainError, ForbiddenError, UnauthenticatedError
 from core.responses import success_envelope
@@ -29,6 +31,8 @@ router = APIRouter(tags=["support"])
 
 
 class FeedbackRequest(BaseModel):
+    """Request body for plan recommendation feedback (Story 5.9)."""
+
     subscriber_id: UUID
     plan_id: UUID
     action: Literal["ACCEPTED", "DISMISSED"]
@@ -174,10 +178,6 @@ async def end_chat_session(
     This is the explicit-close trigger; the background TTL poll (main.py) handles
     sessions that expire due to 2-hour idle timeout.
     """
-    import asyncio
-
-    from agents.conclusion import get_conclusion_graph
-
     subscriber_id = _require_sub(jwt_payload)
     conclusion_graph = get_conclusion_graph()
 
@@ -188,7 +188,7 @@ async def end_chat_session(
         raise err
 
     # Fire Conclusion Agent asynchronously (fire-and-forget)
-    asyncio.create_task(
+    _task = asyncio.create_task(  # noqa: RUF006
         conclusion_graph.ainvoke(
             {
                 "session_id": str(body.session_id),

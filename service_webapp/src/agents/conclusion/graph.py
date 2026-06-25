@@ -35,19 +35,25 @@ an LLM, stores them in the database, and triggers the Notification Agent.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
-from langchain_core.language_models.chat_models import BaseChatModel
+from core.adapters.valkey import get_valkey_client
+from db.transaction import get_db_adapter
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 
+from agents.notification import get_notification_graph
 from core.config import settings
 from core.observability.langfuse import get_langfuse_client
 from core.security import mask_msisdn
+from db.support.commands import store_session_learning
 
 if TYPE_CHECKING:
+    from langchain_core.language_models.chat_models import BaseChatModel
     from langgraph.graph.state import CompiledStateGraph
 
 logger = logging.getLogger(__name__)
@@ -99,8 +105,6 @@ async def load_session_history(state: ConclusionAgentState) -> ConclusionAgentSt
     ConclusionAgentState
         Updated state with ``session_history`` populated (empty list if key expired).
     """
-    from core.adapters.valkey import get_valkey_client
-
     client = get_valkey_client()
     key = f"chat_context:{state['session_id']}"
 
@@ -149,8 +153,6 @@ async def summarise_session(state: ConclusionAgentState) -> ConclusionAgentState
     ConclusionAgentState
         Updated state with ``summary`` set to a JSON string (the LLM's raw output).
     """
-    from langchain_openai import ChatOpenAI
-
     # Format history for LLM: build a concise conversation transcript
     history_lines = []
     for turn in state["session_history"]:
@@ -224,10 +226,6 @@ async def store_learning(state: ConclusionAgentState) -> ConclusionAgentState:
     ConclusionAgentState
         State unchanged (side-effect: DB insert).
     """
-    from db.transaction import get_db_adapter
-
-    from db.support.commands import store_session_learning
-
     db = get_db_adapter()
     if db is None:
         logger.error("Conclusion Agent: database adapter not initialized")
@@ -263,17 +261,14 @@ async def trigger_notification(state: ConclusionAgentState) -> ConclusionAgentSt
     ConclusionAgentState
         State unchanged (side-effect: A2A invocation).
     """
-    from agents.notification import get_notification_graph
-
     notification_graph = get_notification_graph()
     if notification_graph is None:
         logger.warning("Conclusion Agent: notification graph not initialized")
         return state
 
     # Invoke Notification Agent asynchronously (fire-and-forget)
-    import asyncio
-
-    asyncio.create_task(
+    # Keep reference to prevent task from being garbage collected
+    _task = asyncio.create_task(  # noqa: RUF006
         notification_graph.ainvoke(
             {
                 "session_summary": state["summary"],

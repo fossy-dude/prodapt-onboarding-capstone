@@ -25,6 +25,18 @@ from adapters.milvus import MilvusAdapter
 from adapters.postgres import Psycopg3AsyncAdapter, conninfo_from
 from adapters.redis import ValkeyAdapter
 
+# Story 5.10: Agent imports
+from agents.conclusion import (
+    create_conclusion_graph,
+    get_conclusion_graph,
+    set_conclusion_graph,
+)
+from agents.notification import (
+    create_notification_graph,
+    set_kafka_producer,
+    set_notification_graph,
+)
+
 # Importing settings eager-loads + validates config at boot (fail-fast, AC #1); it is
 # also consumed in the lifespan below, so the import is not merely a side effect.
 from core.auth import JWTValidator, _cognito_jwks_url
@@ -128,9 +140,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     set_support_adapters(app.state.cache_adapter, app.state.db_adapter)
 
     # Story 5.10: Wire Conclusion and Notification Agents at startup
-    from agents.conclusion import create_conclusion_graph, set_conclusion_graph
-    from agents.notification import create_notification_graph, set_kafka_producer, set_notification_graph
-
     if getattr(app.state, "conclusion_graph", None) is None:
         try:
             conclusion_graph = create_conclusion_graph()
@@ -461,9 +470,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             for MVP per architecture.md).
             """
             try:
-                from agents.conclusion import get_conclusion_graph
-
-                cache = app.state.cache_adapter
                 conclusion_graph = get_conclusion_graph()
 
                 if conclusion_graph is None:
@@ -508,7 +514,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                                     session_id,
                                 )
 
-                                asyncio.create_task(
+                                _task = asyncio.create_task(  # noqa: RUF006
                                     conclusion_graph.ainvoke(
                                         {
                                             "session_id": session_id,
@@ -577,6 +583,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await trace_consumer_task
             except asyncio.CancelledError:
                 pass
+        if ttl_poll_task is not None:
+            ttl_poll_task.cancel()
+            try:
+                await ttl_poll_task
+            except asyncio.CancelledError:
+                pass
         if "kafka_producer" in owned:
             await app.state.kafka_producer.stop()
         if "db_adapter" in owned:
@@ -590,12 +602,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             set_retriever(None)
         # Story 5.10: Clear Conclusion/Notification Agent singletons
         if "conclusion_graph" in owned:
-            from agents.conclusion import set_conclusion_graph
-
             set_conclusion_graph(None)
         if "notification_graph" in owned:
-            from agents.notification import set_notification_graph
-
             set_notification_graph(None)
         # Clear the Support Agent tool singletons so no in-flight tool call can
         # touch a closed adapter after shutdown (mirrors set_retriever(None)).

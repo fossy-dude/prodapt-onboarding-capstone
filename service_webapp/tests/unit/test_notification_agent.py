@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from uuid import uuid4
 
 import pytest
@@ -156,7 +156,7 @@ async def test_publish_notification_with_send(mock_kafka_producer):
     mock_producer_obj.producer = mock_kafka_producer
 
     with patch("agents.notification.graph._kafka_producer", mock_producer_obj):
-        result = await publish_notification(state)
+        await publish_notification(state)
 
     # Verify Kafka producer was called
     mock_kafka_producer.send.assert_called_once()
@@ -198,7 +198,7 @@ async def test_publish_notification_without_send():
     mock_producer_obj.producer = mock_producer
 
     with patch("agents.notification.graph._kafka_producer", mock_producer_obj):
-        result = await publish_notification(state)
+        await publish_notification(state)
 
     # Should log warning and not call Kafka
     mock_producer.send.assert_not_called()
@@ -308,6 +308,4 @@ async def test_notification_graph_full_flow_without_send():
     assert result["notification_type"] == "NONE"
 
 
-__all__ = [
-    "test_notification_agent",
-]
+__all__ = []

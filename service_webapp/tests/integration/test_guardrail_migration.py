@@ -118,7 +118,7 @@ def test_v8_enforces_rejection_reason_check_constraint(pg_conninfo: str) -> None
             )
 
         # Should fail with invalid rejection_reason
-        with pytest.raises(Exception):  # psycopg.errors.CheckViolation
+        with pytest.raises(Exception, match="CheckViolation"):  # psycopg.errors.CheckViolation
             conn.execute(
                 "INSERT INTO support_guardrail_rejections "
                 "(session_id, rejection_reason, message_hash) "
@@ -145,7 +145,7 @@ def test_v8_creates_indexes_on_session_id_and_created_at(pg_conninfo: str) -> No
 
         # Validate created_at index (DESC order)
         assert "idx_sgr_created_at" in index_names
-        created_at_index_def = [row[1] for row in indexes if row[0] == "idx_sgr_created_at"][0]
+        created_at_index_def = next(row[1] for row in indexes if row[0] == "idx_sgr_created_at")
         assert "DESC" in created_at_index_def.upper()
 
 

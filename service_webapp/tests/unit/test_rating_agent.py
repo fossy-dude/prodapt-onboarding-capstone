@@ -8,7 +8,7 @@ skipped by default.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 from uuid import UUID
 
 import pytest
@@ -47,7 +47,7 @@ class FakeConnection:
             self.balance_after,
         )
 
-    async def __aenter__(self) -> FakeConnection:
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, *args: object) -> None:
@@ -354,8 +354,6 @@ class TestCDRNotFound:
 
     def test_none_result_serializes_gracefully(self) -> None:
         """None result should be handled in tool response."""
-        result = None
-
         # Tool response should indicate not found
         response = {
             "found": False,

@@ -10,7 +10,7 @@ summary and decides: should we notify? If so, what type, channel, and delay?
             │
             ▼
         should_send?
-       ╱             ╲
+       /             \
       YES             NO
       │                │
       ▼                ▼
@@ -32,11 +32,12 @@ summary and decides: should we notify? If so, what type, channel, and delay?
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING, Literal, TypedDict
 
-from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 
 from core.config import settings
@@ -44,6 +45,7 @@ from core.observability.langfuse import get_langfuse_client
 from models.envelope import EventEnvelope
 
 if TYPE_CHECKING:
+    from langchain_core.language_models.chat_models import BaseChatModel
     from langgraph.graph.state import CompiledStateGraph
 
 logger = logging.getLogger(__name__)
@@ -111,8 +113,6 @@ async def decide_notification(state: NotificationAgentState) -> NotificationAgen
         Updated state with ``should_send``, ``notification_type``, ``channel``,
         and ``delay_hours`` set from the LLM response.
     """
-    from langchain_openai import ChatOpenAI
-
     system_prompt = """You are a telecom notification decision agent. Based on this chat session summary, decide if a follow-up notification is warranted.
 
 Return ONLY a JSON object with this exact structure:
@@ -156,8 +156,6 @@ Decide: should we send a follow-up notification?"""
         decision_text = response.content
 
         # Parse JSON response
-        import json
-
         try:
             decision = json.loads(decision_text)
             should_send = bool(decision.get("should_send", False))

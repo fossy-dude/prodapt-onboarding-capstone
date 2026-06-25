@@ -9,10 +9,10 @@ No ``billing_usage_summary`` view exists in V1 migrations.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from datetime import datetime
     from uuid import UUID
 
     from psycopg import AsyncConnection
@@ -401,11 +401,11 @@ async def get_charge_breakdown(
         duration_seconds,
         volume_mb,
         charge_paise,
-        start_time,
-        plan_name,
-        voice_minutes,
-        data_limit_mb,
-        sms_count,
+        _start_time,
+        _plan_name,
+        _voice_minutes,
+        _data_limit_mb,
+        _sms_count,
     ) = row
 
     # Get per-unit rates from plan config (fallback to defaults if not configured)
@@ -550,8 +550,6 @@ async def get_subscriber_usage_profile(
     days: int = 30,
 ) -> dict:
     """Aggregate 30-day CDR usage profile for plan recommendation (Story 5.9 AC #1)."""
-    from datetime import UTC, datetime, timedelta
-
     start = datetime.now(UTC) - timedelta(days=days)
     cur = await conn.execute(
         """

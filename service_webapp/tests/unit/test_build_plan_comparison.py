@@ -47,7 +47,6 @@ def test_comparison_with_voice_difference():
         "plan_name": "Basic",
         "data_limit_mb": 1024,
         "voice_minutes": 100,
-        "voice_minutes": 100,
         "price_paise": 5000,
     }
     rec = {"data_limit_mb": 1024, "voice_minutes": 500, "price": 5000}

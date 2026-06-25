@@ -159,7 +159,7 @@ async def test_log_rejection_unicode_message(pg_conninfo: str) -> None:
         # Use unique session_id for this test to avoid conflicts
         session_id = str(uuid.uuid4())
         reason = "OFF_TOPIC"
-        raw_message = "我的余额是多少？ẞ"  # Chinese and German characters
+        raw_message = "我的余额是多少?ẞ"  # Chinese and German characters
 
         # Compute expected hash
         expected_hash = hashlib.sha256(raw_message.encode()).hexdigest()

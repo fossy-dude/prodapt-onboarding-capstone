@@ -169,7 +169,7 @@ async def test_store_learning(mock_db):
     }
 
     with patch("agents.conclusion.graph.get_db_adapter", return_value=mock_db):
-        result = await store_learning(state)
+        await store_learning(state)
 
     # Verify DB was called
     mock_db.transaction.__aenter__.assert_called_once()
@@ -211,7 +211,7 @@ async def test_trigger_notification(mock_notification_graph):
     }
 
     with patch("agents.conclusion.graph.get_notification_graph", return_value=mock_notification_graph):
-        result = await trigger_notification(state)
+        await trigger_notification(state)
 
     # Verify notification was invoked
     mock_notification_graph.ainvoke.assert_called_once()
@@ -283,6 +283,4 @@ async def test_conclusion_graph_integration():
     mock_notification.ainvoke.assert_called_once()  # Notification triggered
 
 
-__all__ = [
-    "test_conclusion_agent",
-]
+__all__ = []

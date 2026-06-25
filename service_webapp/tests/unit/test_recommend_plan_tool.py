@@ -1,10 +1,13 @@
 """Tests for recommend_plan tool (Story 5.9 Task 8)."""
 
 import uuid
-from contextvars import Token
+from typing import TYPE_CHECKING
 
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
+
+if TYPE_CHECKING:
+    from contextvars import Token
 
 from agents.rag.retriever import RagChunk
 from agents.support.tools import (

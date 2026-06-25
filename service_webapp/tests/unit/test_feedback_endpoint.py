@@ -89,7 +89,7 @@ async def test_feedback_request_validation():
     assert payload.action == "DISMISSED"
 
     # Invalid action should raise validation error
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Invalid action"):
         FeedbackRequest(
             subscriber_id=uuid.uuid4(),
             plan_id=uuid.uuid4(),

@@ -66,7 +66,6 @@ def test_post_chat_end_returns_202(client, mock_jwt_payload, mock_conclusion_gra
 def test_post_chat_end_fires_conclusion_agent(client, mock_jwt_payload, mock_conclusion_graph):
     """Test POST /api/v1/support/chat/end fires Conclusion Agent as background task."""
     session_id = str(uuid4())
-    subscriber_id = mock_jwt_payload["sub"]
 
     with (
         patch("routers.support.require_role", return_value=mock_jwt_payload),
@@ -105,7 +104,7 @@ def test_post_chat_end_passes_correct_state_to_agent(client, mock_jwt_payload, m
     with (
         patch("routers.support.require_role", return_value=mock_jwt_payload),
         patch("routers.support.get_conclusion_graph", return_value=mock_conclusion_graph),
-        patch("asyncio.create_task", side_effect=lambda coro: asyncio.create_task(coro)),
+        patch("asyncio.create_task", side_effect=asyncio.create_task),
     ):
         response = client.post(
             "/api/v1/support/chat/end",
@@ -157,6 +156,4 @@ def test_post_chat_end_requires_authentication(client):
     assert response.status_code == 401
 
 
-__all__ = [
-    "test_chat_end_endpoint",
-]
+__all__ = []
