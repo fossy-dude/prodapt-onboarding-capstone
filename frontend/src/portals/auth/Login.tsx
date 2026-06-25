@@ -41,29 +41,20 @@ function Login() {
   const [step, setStep] = useState<Step>("identifier");
   const [identifier, setIdentifier] = useState("");
   const [normalizedIdentifier, setNormalizedIdentifier] = useState("");
-  const [session, setSession] = useState("");
   const [otp, setOtp] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
 
   // P19: server state via TanStack Query useMutation (spec Task 4 / Dev Notes §1.9.3).
   const initiateMutation = useMutation({
     mutationFn: (id: string) => initiateLogin(id),
-    onSuccess: (result) => {
-      setSession(result.session);
+    onSuccess: () => {
       setStep("otp");
     },
   });
 
   const verifyMutation = useMutation({
-    mutationFn: ({
-      id,
-      sess,
-      code,
-    }: {
-      id: string;
-      sess: string;
-      code: string;
-    }) => verifyLoginOtp(id, sess, code),
+    mutationFn: ({ id, code }: { id: string; code: string }) =>
+      verifyLoginOtp(id, code),
     onSuccess: (tokens) => {
       saveToken(tokens.access_token);
       const role = getRole();
@@ -101,11 +92,7 @@ function Login() {
 
   function handleVerify(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    verifyMutation.mutate({
-      id: normalizedIdentifier,
-      sess: session,
-      code: otp,
-    });
+    verifyMutation.mutate({ id: normalizedIdentifier, code: otp });
   }
 
   const error =

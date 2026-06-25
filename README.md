@@ -128,23 +128,34 @@ Login using these **usernames** (passwordless OTP — OTP appears on the Notific
 | `ops` | ops | +91999900003 |
 | `fraud` | fraud | +91999900004 |
 
-**To login as a test user:**
-1. Go to `http://localhost:5173/login`
-2. Enter the username (e.g., `dev`, `marketing`, `ops`)
-3. Click "Continue" — an OTP will be generated
-4. Go to `http://localhost:5173/simulator/notifications` (login as `dev` first to access)
-5. Copy the OTP for your user
-6. Return to login and enter the OTP
+**To login as a test user — first bootstrap:**
+
+The Notification Portal requires a `dev` JWT, but you need the OTP to get a JWT.
+Break the cycle with the dev-open flag:
+
+1. Add `NOTIFICATION_PORTAL_OPEN_IN_DEV=true` to `service_webapp/.env` and restart the backend (`just backend`).
+2. Open `http://localhost:5173/simulator/notifications` — it now accepts anonymous connections.
+3. In a new tab, go to `http://localhost:5173/login` and enter the username (e.g. `dev`).
+4. Click "Continue" — the OTP appears as a `LOGIN_OTP` row on the Notification Portal tab.
+5. Copy the 6-digit code and enter it in the login form.
+6. After your first login you can turn the flag off (the Notification Portal will then require the `dev` JWT).
+
+**Alternative — read OTP from Redpanda directly (no flag needed):**
+
+```bash
+podman exec redpanda rpk topic consume notification.events -n 5
+```
 
 **Subscriber Login:**
 - **Pre-activation:** Enter Registration ID (format: `REG-YYYYMMDD-xxxxxxxx`)
-- **Post-activation:** Enter MSISDN (mobile number)
-- OTP for test subscribers also appears on the Notification Portal
+- **Post-activation:** Enter MSISDN (mobile number, national format e.g. `9876543210`)
+- OTP appears on the Notification Portal or via `rpk` as above
 
 **Notification Portal — View All SMS OTPs and Notifications:**
 - URL: `http://localhost:5173/simulator/notifications`
-- Requires: `dev` role
-- Shows: All SMS OTPs, push notifications, and system events in real-time
+- Normally requires: `dev` role JWT
+- With `NOTIFICATION_PORTAL_OPEN_IN_DEV=true`: accessible without a token (dev bootstrap only)
+- Shows: all `LOGIN_OTP`, `SIM_ACTIVATION`, and other notification events in real-time
 
 > **MVP note:** `/health` is implemented in Story 1.4 and the cdr management API in Epic 2 (story 2-5). Until then these endpoints are not yet live. The ops/fraud/admin/marketing portals show placeholders pending their epic implementation.
 
@@ -222,10 +233,13 @@ Idempotent — re-running refreshes this section.
 - **User Pool:** `sboai-subscribers` — ID: `ap-south-1_RqEFMnEjO`
 - **App Client:** `sboai-webapp` — ID: `RnxOQc5rB5ITY8abDvwVbvhXen`
 - **Endpoint / region:** `http://localhost:4566` / `ap-south-1` (MiniStack / LocalStack)
-- **Auth model:** passwordless Custom Auth Flow (Story 1.8). Roles surface as the
-  `cognito:groups` claim — the backend auth layer reads `cognito:groups`, not `role`.
-- **No SNS in MVP:** login OTP is published to the Redpanda `notification.events`
-  stream and surfaced on the Notification Portal (Story 1.8 / Notification-Portal epic).
+- **Auth model:** backend-driven passwordless OTP (Epic 3). OTP is minted server-side,
+  stored in Valkey (`login_otp:{identifier}`), published to `notification.events`, then
+  verified before tokens are minted via `admin_initiate_auth(ADMIN_NO_SRP_AUTH)`.
+  Roles surface as the `cognito:groups` claim — the backend reads `cognito:groups`, not `role`.
+- **No SNS in MVP:** login OTP is published to Redpanda `notification.events` and
+  surfaced on the Notification Portal. Staff users have a deterministic local password
+  (`sboai-local-{username}-pw`) seeded by `provision_cognito.py` for token minting.
 
 Seeded test users (one per non-subscriber role; subscriber users come from registration):
 

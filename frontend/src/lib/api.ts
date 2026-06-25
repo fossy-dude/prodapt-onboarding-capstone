@@ -100,7 +100,7 @@ export async function registerSubscriber(
 // ── Auth / Login (Story 1.8) ─────────────────────────────────────────────────
 
 interface LoginInitiateResponse {
-  readonly data: { readonly session: string };
+  readonly data: Record<string, never>;
   readonly meta: { readonly trace_id: string; readonly timestamp: string };
 }
 
@@ -115,32 +115,26 @@ interface LoginVerifyResponse {
 }
 
 /**
- * POST /auth/login/initiate — start Cognito Custom Auth Flow (AC #1, #2).
- * Returns `{ session }` to pass to `verifyLoginOtp`.
+ * POST /auth/login/initiate — mint an OTP and publish it to notification.events (AC #1, #2).
+ * The OTP appears on the Notification Portal; no session is returned.
  */
-export async function initiateLogin(
-  identifier: string,
-): Promise<{ session: string }> {
-  const { data } = await apiClient.post<LoginInitiateResponse>(
-    "/auth/login/initiate",
-    { identifier },
-  );
-  return data.data;
+export async function initiateLogin(identifier: string): Promise<void> {
+  await apiClient.post<LoginInitiateResponse>("/auth/login/initiate", {
+    identifier,
+  });
 }
 
 /**
- * POST /auth/login/verify — respond to OTP challenge and receive JWT tokens (AC #1, #2).
+ * POST /auth/login/verify — verify OTP and receive JWT tokens (AC #1, #2).
  */
 export async function verifyLoginOtp(
   identifier: string,
-  session: string,
   otp: string,
 ): Promise<LoginVerifyResponse["data"]> {
   const { data } = await apiClient.post<LoginVerifyResponse>(
     "/auth/login/verify",
     {
       identifier,
-      session,
       otp,
     },
   );

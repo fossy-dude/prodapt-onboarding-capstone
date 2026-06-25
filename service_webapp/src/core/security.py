@@ -67,6 +67,19 @@ def normalize_login_identifier(raw: str) -> str:
     return s
 
 
+_INDIA_CC = "+91"
+
+
+def to_e164(national_digits: str) -> str:
+    """Convert a 10-digit national MSISDN to E.164 format (+91XXXXXXXXXX).
+
+    Used when querying Cognito by phone_number attribute, which stores E.164.
+    Strips all non-digit characters first so callers need not pre-clean input.
+    """
+    digits = re.sub(r"\D", "", national_digits)
+    return f"{_INDIA_CC}{digits[-10:]}"
+
+
 def sha256_hex(data: str | bytes) -> str:
     """Hex SHA-256 digest of ``data`` (strings encoded as UTF-8)."""
     if isinstance(data, str):
@@ -162,4 +175,5 @@ __all__ = [
     "mask_msisdn",
     "normalize_login_identifier",
     "sha256_hex",
+    "to_e164",
 ]

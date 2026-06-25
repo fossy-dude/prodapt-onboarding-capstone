@@ -176,7 +176,6 @@ class LoginVerifyRequest(BaseModel):
     identifier: str = Field(
         min_length=1, max_length=128, description="Registration ID or MSISDN (must match initiation)."
     )
-    session: str = Field(min_length=1, description="Session string returned by the initiate endpoint.")
     otp: str = Field(min_length=6, max_length=6, description="6-digit OTP delivered via the Notification Portal.")
 
     @field_validator("identifier")
@@ -196,35 +195,48 @@ def _cognito(request: Request):
     return provider
 
 
+def _login_otp_service(request: Request):
+    """Resolve the login OTP service from app state (injected by lifespan or tests)."""
+    svc = getattr(request.app.state, "login_otp_service", None)
+    if svc is None:
+        err = DomainError("Login OTP service is not initialised.")
+        err.code = "NOT_READY"
+        err.http_status = 503
+        raise err
+    return svc
+
+
 @auth_router.post("/login/initiate", status_code=200)
 async def login_initiate(payload: LoginInitiateRequest, request: Request) -> JSONResponse:
-    """Initiate Cognito Custom Auth Flow (passwordless login — no password, AC #1, #2).
+    """Initiate passwordless login — mint an OTP, store in Valkey, publish to notification.events.
 
-    The OTP challenge is issued by the Cognito Custom Auth Lambdas and surfaced
-    on the Notification Portal for testing. The returned ``session`` must be passed
-    to ``/login/verify``.
+    The OTP appears on the Notification Portal (/simulator/notifications). No session
+    string is returned; the client sends only identifier + otp to /login/verify.
     """
     provider = _cognito(request)
-    session = await provider.initiate_login(payload.identifier)
+    otp_svc = _login_otp_service(request)
+    trace_id = getattr(request.state, "trace_id", "unknown")
+    await provider.initiate_login(payload.identifier, trace_id, otp_svc)
     return JSONResponse(
         status_code=200,
         content=success_envelope(
-            {"session": session},
-            trace_id=getattr(request.state, "trace_id", "unknown"),
+            {},
+            trace_id=trace_id,
         ),
     )
 
 
 @auth_router.post("/login/verify", status_code=200)
 async def login_verify(payload: LoginVerifyRequest, request: Request) -> JSONResponse:
-    """Verify the OTP challenge and return JWT access + refresh tokens (AC #1, #2).
+    """Verify the OTP and return JWT access + refresh tokens (AC #1, #2).
 
     On success the access token (30 min TTL) and refresh token (30 days) are returned.
     The caller stores the access token and sends it as ``Authorization: Bearer {token}``
     on subsequent requests.
     """
     provider = _cognito(request)
-    tokens = await provider.verify_login_otp(payload.identifier, payload.session, payload.otp)
+    otp_svc = _login_otp_service(request)
+    tokens = await provider.verify_login_otp(payload.identifier, payload.otp, otp_svc)
     return JSONResponse(
         status_code=200,
         content=success_envelope(

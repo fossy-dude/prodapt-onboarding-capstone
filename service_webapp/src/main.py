@@ -43,6 +43,7 @@ from agents.notification import (
 from core.auth import JWTValidator, _cognito_jwks_url
 from core.config import settings
 from core.errors import register_exception_handlers
+from core.login_otp import LoginOtpService
 from core.middleware import OtelTraceMiddleware, SupportIdentityMiddleware
 from core.rate_limit import RateLimitMiddleware
 from core.step_up import StepUpOtpService
@@ -249,6 +250,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Story 5.10: Wire Kafka producer to Notification Agent
         set_kafka_producer(_producer)
         logging.getLogger(__name__).info("Kafka producer wired to Notification Agent")
+
+    if getattr(app.state, "login_otp_service", None) is None:
+        app.state.login_otp_service = LoginOtpService(
+            cache=app.state.cache_adapter,
+            producer=app.state.kafka_producer,
+            ttl_seconds=settings.otp_login_ttl_seconds,
+        )
 
     trace_consumer_task: asyncio.Task | None = None
     if getattr(app.state, "trace_consumer", None) is None:
@@ -624,6 +632,7 @@ def create_app(
     registration_service: RegistrationService | RegistrationRepository | None = None,
     jwt_validator: JWTValidator | None = None,
     step_up_service: StepUpOtpService | None = None,
+    login_otp_service: LoginOtpService | None = None,
     kafka_producer: object | None = None,
     trace_consumer: object | None = None,
     notification_consumer: object | None = None,
@@ -669,6 +678,7 @@ def create_app(
     app.state.registration_service = registration_service
     app.state.jwt_validator = jwt_validator
     app.state.step_up_service = step_up_service
+    app.state.login_otp_service = login_otp_service
     app.state.kafka_producer = kafka_producer
     app.state.trace_consumer = trace_consumer
     app.state.notification_consumer = notification_consumer

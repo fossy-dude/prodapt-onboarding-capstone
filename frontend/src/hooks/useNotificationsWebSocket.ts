@@ -46,11 +46,9 @@ export function useNotificationsWebSocket(): UseNotificationsWebSocketResult {
     function connect() {
       if (cancelled) return;
       const token = getToken();
-      if (!token) {
-        setStatus("error");
-        return;
-      }
-      const url = `${WS_BASE_URL}/ws/notifications?token=${encodeURIComponent(token)}`;
+      const url = token
+        ? `${WS_BASE_URL}/ws/notifications?token=${encodeURIComponent(token)}`
+        : `${WS_BASE_URL}/ws/notifications`;
       const ws = new WebSocket(url);
       wsRef.current = ws;
       setStatus("connecting");

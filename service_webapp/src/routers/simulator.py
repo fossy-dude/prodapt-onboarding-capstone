@@ -43,6 +43,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, TypeAdapter
 
 from core.auth import require_role
+from core.config import settings
 from core.errors import DomainError, NotFoundError, UnauthenticatedError
 from core.responses import success_envelope
 from core.security import mask_msisdn
@@ -491,7 +492,19 @@ async def notifications_ws(ws: WebSocket) -> None:
     The broadcaster task (lifespan) fans incoming ``notification.events`` Kafka
     messages — with MSISDN masked to ``[-4:]`` server-side (PII hygiene) — to all
     active connections. This endpoint only manages the WS lifecycle.
+
+    Dev bootstrap: when ``NOTIFICATION_PORTAL_OPEN_IN_DEV=true``, anonymous
+    connections are accepted so the first login OTP is visible before a token exists.
     """
+    if settings.notification_portal_open_in_dev:
+        await notification_connection_manager.connect(ws)
+        try:
+            while True:
+                await ws.receive_text()
+        except WebSocketDisconnect:
+            notification_connection_manager.disconnect(ws)
+        return
+
     token = ws.query_params.get("token")
     if not token:
         await ws.close(code=4001)

@@ -13,20 +13,26 @@ provisioning itself is real and routed at the provisioned MiniStack endpoint.
   routes to its URL". ``boto3`` is imported lazily so boot, the lint/test toolchain
   and the unit tests (which inject :class:`FakeCognitoProvider`) never require it.
 * :class:`FakeCognitoProvider` — deterministic in-memory impl for fast unit tests.
+
+Epic 3: login OTP is now minted server-side and stored in Valkey (via
+:class:`~core.login_otp.LoginOtpService`); tokens are minted via
+``admin_initiate_auth(ADMIN_NO_SRP_AUTH)`` after a deterministic per-user password
+is seeded at provisioning time. The Cognito Custom Auth Lambda path is removed.
 """
 
 from __future__ import annotations
 
 import asyncio
-import hmac
 import logging
 import secrets
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from core.errors import AccountNotFoundError, CognitoProvisioningError, OtpVerificationError
+from core.security import to_e164
 
 if TYPE_CHECKING:
     from core.config import Settings
+    from core.login_otp import LoginOtpService
 
 logger = logging.getLogger(__name__)
 
@@ -45,19 +51,21 @@ class CognitoProvider(Protocol):
         """Trigger the Step-3 verification OTP; return the captured code (MVP)."""
         ...
 
-    async def initiate_login(self, identifier: str) -> str:
-        """Initiate Cognito Custom Auth Flow (CUSTOM_AUTH); return the session string.
+    async def initiate_login(self, identifier: str, trace_id: str, otp_service: LoginOtpService) -> None:
+        """Issue a login OTP via ``otp_service`` and publish it to notification.events.
 
-        ``identifier`` is the Registration ID (pre-activation) or MSISDN (post-activation).
-        The flow issues an OTP challenge surfaced by the Notification Portal.
+        ``identifier`` is the Registration ID, plain username, or national MSISDN
+        (pre-normalised by the router). No session string is returned — the OTP
+        flow is now fully server-side.
         """
         ...
 
-    async def verify_login_otp(self, identifier: str, session: str, otp: str) -> dict:
-        """Respond to the CUSTOM_CHALLENGE with ``otp``; return the JWT token dict.
+    async def verify_login_otp(self, identifier: str, otp: str, otp_service: LoginOtpService) -> dict:
+        """Verify the OTP via ``otp_service``, resolve the Cognito username, mint tokens.
 
         On success returns ``{access_token, refresh_token, id_token, token_type}``.
         Raises :class:`~core.errors.OtpVerificationError` on wrong/expired OTP.
+        Raises :class:`~core.errors.AccountNotFoundError` if identifier is unknown.
         """
         ...
 
@@ -71,7 +79,6 @@ class FakeCognitoProvider:
     """
 
     OTP = "123456"
-    SESSION = "fake-session-abc123"
     # DN1: fake tokens include phone_number to satisfy AC #2 (MSISDN in token payload).
     # In production a PreTokenGeneration Lambda adds phone_number to the access token;
     # the fake simulates that claim so tests can assert its presence.
@@ -101,19 +108,17 @@ class FakeCognitoProvider:
         self.verifications.append(phone_number)
         return self.OTP
 
-    async def initiate_login(self, identifier: str) -> str:
-        """Return a fixed session string and record the identifier."""
+    async def initiate_login(self, identifier: str, trace_id: str, otp_service: LoginOtpService) -> None:
+        """Issue OTP via otp_service and record the identifier."""
         if self.fail:
             raise CognitoProvisioningError("fake login initiation disabled")
         self.login_initiations.append(identifier)
-        return self.SESSION
+        await otp_service.issue(identifier, trace_id)
 
-    async def verify_login_otp(self, identifier: str, session: str, otp: str) -> dict:
-        """Validate the OTP and session; return fake tokens on success."""
-        # P6: validate session matches so tests catch session-mismatch bugs.
-        if session != self.SESSION:
-            raise OtpVerificationError("Invalid session.")
-        if not hmac.compare_digest(otp, self.OTP):
+    async def verify_login_otp(self, identifier: str, otp: str, otp_service: LoginOtpService) -> dict:
+        """Verify OTP via otp_service; return fake tokens on success."""
+        ok = await otp_service.verify(identifier, otp)
+        if not ok:
             raise OtpVerificationError(f"Invalid OTP for {_safe_phone(identifier)}")
         return dict(self.TOKENS)
 
@@ -164,7 +169,7 @@ class MinistackCognitoProvider:
             created_client = client.create_user_pool_client(
                 ClientName=f"{pool_name}-client",
                 UserPoolId=pool_id,
-                ExplicitAuthFlows=["CUSTOM_AUTH_FLOW_ONLY"],
+                ExplicitAuthFlows=["ALLOW_ADMIN_USER_PASSWORD_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"],
             )
             client_id = created_client["UserPoolClient"]["ClientId"]
         return pool_id, client_id
@@ -210,9 +215,19 @@ class MinistackCognitoProvider:
                 error_code = exc.response["Error"]["Code"]  # type: ignore[attr-defined]
             except (AttributeError, KeyError, TypeError):
                 pass
-            if error_code == "UsernameExistsException":
-                return
-            raise
+            if error_code != "UsernameExistsException":
+                raise
+        # Set a deterministic permanent password so admin_initiate_auth(ADMIN_NO_SRP_AUTH) works.
+        seed = self._settings.cognito_local_admin_password_seed.format(username=username)
+        try:
+            client.admin_set_user_password(
+                UserPoolId=pool_id,
+                Username=username,
+                Password=seed,
+                Permanent=True,
+            )
+        except Exception:
+            logger.warning("admin_set_user_password failed for username=%s — login may not work", username)
 
     async def start_verification(self, phone_number: str | None) -> str:
         """Generate + capture the verification OTP (delivery simulated per Story 1.6).
@@ -225,81 +240,91 @@ class MinistackCognitoProvider:
         logger.info("Cognito verification OTP dispatched to alternate mobile %s", _safe_phone(phone_number))
         return code
 
-    async def initiate_login(self, identifier: str) -> str:
-        """Initiate Cognito Custom Auth Flow for ``identifier``; return the session string.
+    async def initiate_login(self, identifier: str, trace_id: str, otp_service: LoginOtpService) -> None:
+        """Issue a login OTP for ``identifier`` via ``otp_service``."""
+        await otp_service.issue(identifier, trace_id)
+        logger.info("Login OTP issued for identifier=%s", _safe_phone(identifier))
 
-        MiniStack (LocalStack) routes the ``CUSTOM_AUTH`` initiate call; the
-        DefineAuthChallenge / CreateAuthChallenge Lambdas must be provisioned for the
-        challenge to be issued. The session string is returned to the client so it can
-        respond with the OTP in the verify step.
-        """
+    async def verify_login_otp(self, identifier: str, otp: str, otp_service: LoginOtpService) -> dict:
+        """Verify OTP, resolve Cognito username, mint tokens via ADMIN_NO_SRP_AUTH."""
+        ok = await otp_service.verify(identifier, otp)
+        if not ok:
+            raise OtpVerificationError(f"Invalid OTP for {_safe_phone(identifier)}")
+
         try:
-            _, client_id = await self._ensure_pool()
-            resp = await asyncio.to_thread(
-                self._boto_client().initiate_auth,
-                AuthFlow="CUSTOM_AUTH",
-                AuthParameters={"USERNAME": identifier},
-                ClientId=client_id,
+            pool_id, client_id = await self._ensure_pool()
+            username, seed_password = await asyncio.to_thread(
+                self._resolve_username_and_password_sync, pool_id, identifier
             )
-            session: str = resp.get("Session", "")
-            # P11: an empty session means Cognito didn't issue a challenge — fail loudly.
-            if not session:
-                raise CognitoProvisioningError("Cognito returned empty session — check Custom Auth Lambda triggers.")
-            logger.info("Cognito Custom Auth initiated for identifier=%s", _safe_phone(identifier))
-            return session
+            resp = await asyncio.to_thread(
+                self._boto_client().admin_initiate_auth,
+                UserPoolId=pool_id,
+                ClientId=client_id,
+                AuthFlow="ADMIN_NO_SRP_AUTH",
+                AuthParameters={"USERNAME": username, "PASSWORD": seed_password},
+            )
+        except (OtpVerificationError, AccountNotFoundError):
+            raise
         except Exception as exc:
             err_code = ""
             try:
                 err_code = exc.response["Error"]["Code"]  # type: ignore[attr-defined]
             except (AttributeError, KeyError, TypeError):
                 pass
-            if err_code == "UserNotFoundException":
-                # Unknown identifier is a client error, not a provisioning/infra failure.
-                raise AccountNotFoundError() from exc
-            logger.exception("Cognito login initiation failed for identifier=%s", _safe_phone(identifier))
-            raise CognitoProvisioningError(f"Login initiation failed: {exc}") from exc
-
-    async def verify_login_otp(self, identifier: str, session: str, otp: str) -> dict:
-        """Respond to the Custom Auth challenge with ``otp``; return JWT tokens on success.
-
-        On success returns ``{access_token, refresh_token, id_token, token_type}``.
-        Raises :class:`~core.errors.OtpVerificationError` on wrong/expired OTP.
-        """
-        try:
-            _, client_id = await self._ensure_pool()
-            resp = await asyncio.to_thread(
-                self._boto_client().respond_to_auth_challenge,
-                ClientId=client_id,
-                ChallengeName="CUSTOM_CHALLENGE",
-                Session=session,
-                ChallengeResponses={"USERNAME": identifier, "ANSWER": otp},
-            )
-        except Exception as exc:
-            err_code = ""
-            try:
-                err_code = exc.response["Error"]["Code"]  # type: ignore[attr-defined]
-            except (AttributeError, KeyError, TypeError):
-                pass
-            # P12: ExpiredCodeException means the session (not the OTP digit) timed out.
-            if err_code in ("NotAuthorizedException", "CodeMismatchException", "ExpiredCodeException"):
-                raise OtpVerificationError("OTP verification failed.") from exc
-            logger.exception("Cognito OTP verify failed for identifier=%s", _safe_phone(identifier))
-            raise CognitoProvisioningError(f"OTP verification error: {exc}") from exc
+            if err_code == "NotAuthorizedException":
+                raise OtpVerificationError("Token mint failed — check Cognito password seed.") from exc
+            logger.exception("Cognito token mint failed for identifier=%s", _safe_phone(identifier))
+            raise CognitoProvisioningError(f"Token mint failed: {exc}") from exc
 
         auth_result = resp.get("AuthenticationResult", {})
         if not auth_result:
-            raise OtpVerificationError("OTP challenge not completed — check Cognito Lambda triggers.")
-        # P10: missing token fields mean Cognito returned a partial result — raise rather
-        # than propagating empty strings that would silently break the caller.
+            raise CognitoProvisioningError("Cognito returned no AuthenticationResult.")
         access_token = auth_result.get("AccessToken", "")
         if not access_token:
-            raise OtpVerificationError("Cognito did not return an access token.")
+            raise CognitoProvisioningError("Cognito did not return an access token.")
         return {
             "access_token": access_token,
             "refresh_token": auth_result.get("RefreshToken", ""),
             "id_token": auth_result.get("IdToken", ""),
             "token_type": auth_result.get("TokenType", "Bearer"),
         }
+
+    def _resolve_username_and_password_sync(self, pool_id: str, identifier: str) -> tuple[str, str]:
+        """Resolve the Cognito username for ``identifier`` and compute the seed password.
+
+        Tries direct username lookup first (covers Registration IDs and staff usernames),
+        then falls back to phone_number E.164 search for MSISDN-based login.
+        """
+        client = self._boto_client()
+        username: str | None = None
+
+        try:
+            resp = client.admin_get_user(UserPoolId=pool_id, Username=identifier)
+            username = resp["Username"]
+        except Exception as exc:
+            err_code = ""
+            try:
+                err_code = exc.response["Error"]["Code"]  # type: ignore[attr-defined]
+            except (AttributeError, KeyError, TypeError):
+                pass
+            if err_code != "UserNotFoundException":
+                raise
+
+        if username is None:
+            # MSISDN path: search by phone_number attribute in E.164.
+            e164 = to_e164(identifier)
+            resp = client.list_users(
+                UserPoolId=pool_id,
+                Filter=f'phone_number = "{e164}"',
+                Limit=1,
+            )
+            users = resp.get("Users", [])
+            if not users:
+                raise AccountNotFoundError()
+            username = users[0]["Username"]
+
+        seed = self._settings.cognito_local_admin_password_seed.format(username=username)
+        return username, seed
 
     # ── helpers ───────────────────────────────────────────────────────────────
     @staticmethod
