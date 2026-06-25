@@ -9,6 +9,7 @@ port 8000 — ``curl http://localhost:8000/health`` (architecture §1.15.1).
 from __future__ import annotations
 
 import asyncio
+
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -17,6 +18,7 @@ from typing import TYPE_CHECKING
 import uvicorn
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 
@@ -635,6 +637,14 @@ def create_app(
     """
     _setup_tracer()
     app = FastAPI(title="SBOAI Capstone", version="0.1.0", lifespan=lifespan)
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Allows all source domains
+        allow_credentials=True,  # Allows cookies and authentication headers
+        allow_methods=["*"],  # Allows all HTTP methods (GET, POST, OPTIONS, etc.)
+        allow_headers=["*"],  # Allows all custom request headers
+    )
     app.add_middleware(OtelTraceMiddleware)
     app.add_middleware(RateLimitMiddleware, settings=settings)
     # Support Agent identity (Story 5.4): bind the authenticated subscriber (JWT

@@ -90,16 +90,63 @@ just up
 # Starts: cdr-pipeline, service_webapp (Milvus Lite embedded), frontend.
 ```
 
-### 2.6 Verify
+### 2.6 Access the application
 
 ```bash
+# Health check endpoints
 curl http://localhost:8000/health    # service_webapp (Story 1.4)
 curl http://localhost:8001/health    # cdr-pipeline management API (Epic 2)
+
+# Frontend URL
 open http://localhost:5173           # React frontend
 ```
 
-> **MVP note:** `/health` is implemented in Story 1.4 and the cdr management API in
-> Epic 2 (story 2-5). Until then these endpoints are not yet live.
+#### Login URLs and User Access
+
+**All users login at the same URL:**
+- **Login:** `http://localhost:5173/login`
+- **Registration:** `http://localhost:5173/register` (for new subscribers)
+
+**After login, users are redirected based on their role:**
+
+| Role | Portal URL | Description |
+|------|-----------|-------------|
+| **Subscriber** | `/subscriber/*` | Self-care portal (dashboard, recharge, plans, profile, chatbot) |
+| **Dev** | `/simulator/*` | Dev tools (Notification Portal, SIM activation simulator, CDR simulator) |
+| **Ops/Admin/Marketing** | `/ops/*` | Operations dashboards (placeholder in MVP) |
+| **Fraud** | `/fraud/*` | Fraud investigation tools (placeholder in MVP) |
+
+**Test Users for Non-Subscriber Roles:**
+
+Login using these **usernames** (passwordless OTP — OTP appears on the Notification Portal):
+
+| Username | Role | Phone Number (for reference) |
+|----------|------|------------------------------|
+| `dev` | dev | +91999900000 |
+| `admin` | admin → ops | +91999900001 |
+| `marketing` | marketing → ops | +91999900002 |
+| `ops` | ops | +91999900003 |
+| `fraud` | fraud | +91999900004 |
+
+**To login as a test user:**
+1. Go to `http://localhost:5173/login`
+2. Enter the username (e.g., `dev`, `marketing`, `ops`)
+3. Click "Continue" — an OTP will be generated
+4. Go to `http://localhost:5173/simulator/notifications` (login as `dev` first to access)
+5. Copy the OTP for your user
+6. Return to login and enter the OTP
+
+**Subscriber Login:**
+- **Pre-activation:** Enter Registration ID (format: `REG-YYYYMMDD-xxxxxxxx`)
+- **Post-activation:** Enter MSISDN (mobile number)
+- OTP for test subscribers also appears on the Notification Portal
+
+**Notification Portal — View All SMS OTPs and Notifications:**
+- URL: `http://localhost:5173/simulator/notifications`
+- Requires: `dev` role
+- Shows: All SMS OTPs, push notifications, and system events in real-time
+
+> **MVP note:** `/health` is implemented in Story 1.4 and the cdr management API in Epic 2 (story 2-5). Until then these endpoints are not yet live. The ops/fraud/admin/marketing portals show placeholders pending their epic implementation.
 
 ---
 

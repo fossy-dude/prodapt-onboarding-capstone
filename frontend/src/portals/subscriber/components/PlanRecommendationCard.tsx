@@ -1,6 +1,5 @@
+import { Badge } from "@/components/ui/Badge";
 import { useNavigate } from "react-router-dom";
-
-import { Badge } from "../../../../components/ui/Badge";
 
 interface PlanRecommendationCardProps {
   readonly plan_id: string;
