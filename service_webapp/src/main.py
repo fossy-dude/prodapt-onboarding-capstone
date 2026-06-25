@@ -363,7 +363,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
                         if not subscriber_id or not notification_type:
                             logger.debug("Missing subscriber_id or notification_type in payload")
-                            await msg.commit()  # type: ignore[attr-defined]
+                            await _dconsumer.commit()
                             continue
 
                         # Query subscriber preferences
@@ -403,13 +403,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                                 )
 
                         # Commit offset after successful processing
-                        await msg.commit()  # type: ignore[attr-defined]
+                        await _dconsumer.commit()
 
                     except Exception as exc:
                         # Log ERROR but don't crash - commit offset and continue
                         logger.exception("Notification dispatch error: %s", exc)
                         try:
-                            await msg.commit()  # type: ignore[attr-defined]
+                            await _dconsumer.commit()
                         except Exception:
                             pass  # Best-effort commit
 

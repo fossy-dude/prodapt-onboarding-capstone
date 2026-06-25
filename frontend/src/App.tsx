@@ -42,8 +42,9 @@ function PortalPlaceholder({ role }: { readonly role: string }) {
  * Route table (§1.9.1, UX-DR7).
  *
  * Public routes (no auth required):
- *   /login    — passwordless OTP login (Story 1.8)
- *   /register — subscriber registration (Story 1.6)
+ *   /login                — passwordless OTP login (Story 1.8)
+ *   /register             — subscriber registration (Story 1.6)
+ *   /simulator/notifications — notification portal (dev-only when VITE_NOTIFICATION_PORTAL_OPEN_IN_DEV=true)
  *
  * Role-gated subtrees (Story 1.8 RoleGuard):
  *   /subscriber/* — role: subscriber
@@ -57,11 +58,21 @@ function App() {
   // the X-Chat-Session-Id header that the backend identity middleware reads.
   const [sessionId] = useState(getOrCreateChatSessionId);
 
+  const notificationPortalOpenInDev =
+    import.meta.env.VITE_NOTIFICATION_PORTAL_OPEN_IN_DEV === "true";
+
   return (
     <Routes>
       {/* Public routes */}
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
+      {/* Dev-only public route: Notification Portal (when VITE_NOTIFICATION_PORTAL_OPEN_IN_DEV=true) */}
+      {notificationPortalOpenInDev && (
+        <Route
+          path="/simulator/notifications"
+          element={<NotificationPortal />}
+        />
+      )}
 
       {/* Role-gated subtrees */}
       <Route
