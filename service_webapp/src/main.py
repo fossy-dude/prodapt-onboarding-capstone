@@ -54,8 +54,8 @@ from routers.simulator import (
     to_notification_broadcast,
     ws_router as simulator_ws_router,
 )
-from routers.ussd import router as ussd_router
 from routers.support import router as support_router
+from routers.ussd import router as ussd_router
 from services.notification_scheduler import run_plan_expiry_check
 from services.registration import (
     PostgresRegistrationRepository,

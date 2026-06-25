@@ -367,6 +367,6 @@ __all__ = [
     "NotificationAgentState",
     "create_notification_graph",
     "get_notification_graph",
-    "set_notification_graph",
     "set_kafka_producer",
+    "set_notification_graph",
 ]

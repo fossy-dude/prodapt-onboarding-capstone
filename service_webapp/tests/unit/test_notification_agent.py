@@ -166,6 +166,7 @@ async def test_publish_notification_with_send(mock_kafka_producer):
 
     # Verify payload structure
     import json
+
     from models.envelope import EventEnvelope
 
     envelope_bytes = call_args[1]["value"]

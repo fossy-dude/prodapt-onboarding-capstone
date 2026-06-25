@@ -6,13 +6,13 @@ from contextvars import Token
 import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
+from agents.rag.retriever import RagChunk
 from agents.support.tools import (
+    _DOMINANT_THRESHOLD,
     _PREF_MAP,
     _build_plan_comparison,
-    _DOMINANT_THRESHOLD,
     _run_recommend_plan,
 )
-from agents.rag.retriever import RagChunk
 
 
 @pytest.fixture

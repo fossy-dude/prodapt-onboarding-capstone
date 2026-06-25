@@ -44,7 +44,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
 
 from core.config import settings
-from core.observability.langfuse import get_langfuse_client, update_langfuse_state
+from core.observability.langfuse import get_langfuse_client
 from core.security import mask_msisdn
 
 if TYPE_CHECKING:
@@ -224,8 +224,9 @@ async def store_learning(state: ConclusionAgentState) -> ConclusionAgentState:
     ConclusionAgentState
         State unchanged (side-effect: DB insert).
     """
-    from db.support.commands import store_session_learning
     from db.transaction import get_db_adapter
+
+    from db.support.commands import store_session_learning
 
     db = get_db_adapter()
     if db is None:

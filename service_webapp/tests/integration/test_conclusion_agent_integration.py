@@ -10,12 +10,12 @@ import json
 from uuid import uuid4
 
 import pytest
+from core.adapters.postgres import Psycopg3AsyncAdapter
+from core.adapters.redis import ValkeyAdapter
 from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
 
 from agents.conclusion.graph import create_conclusion_graph
-from core.adapters.postgres import Psycopg3AsyncAdapter
-from core.adapters.redis import ValkeyAdapter
 from db.support.queries import get_session_learning
 
 
@@ -109,7 +109,7 @@ async def test_conclusion_agent_integration(db_adapter, cache_adapter, setup_sch
         }
     )
 
-    from unittest.mock import MagicMock, AsyncMock, patch
+    from unittest.mock import AsyncMock, MagicMock, patch
 
     mock_llm = MagicMock()
     mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content=mock_summary))
@@ -176,7 +176,7 @@ async def test_conclusion_agent_empty_history(db_adapter, cache_adapter, setup_s
         }
     )
 
-    from unittest.mock import MagicMock, AsyncMock, patch
+    from unittest.mock import AsyncMock, MagicMock, patch
 
     mock_llm = MagicMock()
     mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content=mock_summary))

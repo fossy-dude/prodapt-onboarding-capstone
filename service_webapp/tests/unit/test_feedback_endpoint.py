@@ -3,6 +3,7 @@
 import uuid
 
 import pytest
+
 from db.support.commands import log_recommendation_feedback
 
 
@@ -14,7 +15,6 @@ async def test_log_recommendation_feedback_accepted():
     class MockConnection:
         async def execute(self, sql, params=None):
             executed.append((sql, params))
-            return None
 
         async def __aenter__(self):
             return self
@@ -45,7 +45,6 @@ async def test_log_recommendation_feedback_dismissed():
     class MockConnection:
         async def execute(self, sql, params=None):
             executed.append((sql, params))
-            return None
 
         async def __aenter__(self):
             return self

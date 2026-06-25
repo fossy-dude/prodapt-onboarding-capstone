@@ -1,6 +1,6 @@
 """Tests for percentile rank and classification helpers (Story 5.9 Task 8)."""
 
-from agents.support.tools import _DOMINANT_THRESHOLD, _percentile_rank, _PREF_MAP
+from agents.support.tools import _DOMINANT_THRESHOLD, _PREF_MAP, _percentile_rank
 
 
 def test_percentile_rank_below_p25():
