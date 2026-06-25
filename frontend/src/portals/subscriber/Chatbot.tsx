@@ -5,6 +5,7 @@ import "@copilotkit/react-ui/styles.css";
 
 import { useActivePlan } from "../../hooks/useActivePlan";
 import { useBalance } from "../../hooks/useBalance";
+import { endChatSession } from "../../lib/api";
 import { PlanRecommendationCard } from "./components/PlanRecommendationCard";
 import { ChargeBreakdownTable } from "./components/ChargeBreakdownTable";
 import { TicketConfirmationBanner } from "./components/TicketConfirmationBanner";
@@ -68,6 +69,16 @@ interface ChatbotProps {
 function Chatbot({ sessionId }: ChatbotProps) {
   const { data: balance } = useBalance();
   const { data: activePlan } = useActivePlan();
+
+  // Story 5.10 AC #7: trigger Conclusion Agent when chat panel closes.
+  const handleChatClose = async () => {
+    try {
+      await endChatSession({ session_id: sessionId });
+    } catch (error) {
+      // Best-effort: log failure but don't block UI
+      console.error("Failed to trigger session end:", error);
+    }
+  };
 
   // ARCH-23: expose live subscriber context to the agent graph (AC #4).
   useCopilotReadable({
@@ -143,6 +154,7 @@ function Chatbot({ sessionId }: ChatbotProps) {
       <CopilotChat
         className="h-[520px] rounded-xl shadow-2xl border border-neutral-200 bg-white"
         instructions={SUPPORT_INSTRUCTIONS}
+        onClose={handleChatClose}
         labels={{
           title: "Billing Assistant",
           initial: "Hi! Ask me about your balance, plan or usage.",

@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-25  # Story 5.10 → in-progress (Conclusion Agent & Notification Agent)
+last_updated: 2026-06-25  # Story 5.10 → review (Conclusion Agent & Notification Agent)
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -100,7 +100,7 @@ development_status:
   5-7-rating-agent-charge-breakdown-explanation: review
   5-8-dispute-workflow-balance-management-agent: review
   5-9-plan-recommendation-tool-feedback-loop: review
-  5-10-conclusion-agent-notification-agent-session-end: in-progress
+  5-10-conclusion-agent-notification-agent-session-end: review
   epic-5-retrospective: optional
 
   # Epic 6: Fraud Detection (TDD-first)

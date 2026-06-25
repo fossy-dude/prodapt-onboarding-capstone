@@ -101,4 +101,38 @@ async def create_ticket(
     }
 
 
-__all__ = ["create_ticket", "encode_dispute_description", "log_recommendation_feedback"]
+# ── Story 5.10: session learnings ────────────────────────────────────────────────
+# Session summary stored in ``support_session_learnings.learning_type='session_summary'``.
+
+
+async def store_session_learning(
+    conn: AsyncConnection,
+    *,
+    session_id: str,
+    summary_text: str,
+) -> None:
+    """Insert a session learning summary into ``support_session_learnings``.
+
+    The V1 ``support_session_learnings`` table uses ``learning_type`` to categorize
+    learnings and ``content`` for the payload. Session summaries use ``learning_type='session_summary'``
+    and store the JSON-structured summary (topics, actions, unresolved) in ``content`` (AC #1).
+
+    Parameters
+    ----------
+    conn : AsyncConnection
+        Database connection from ``db.transaction()``.
+    session_id : str
+        The support chat session ID (UUID from ``support_chat_sessions.id``).
+    summary_text : str
+        JSON-structured session summary produced by the Conclusion Agent LLM.
+    """
+    await conn.execute(
+        """INSERT INTO support_session_learnings
+               (session_id, learning_type, content)
+           VALUES (%s::uuid, 'session_summary', %s)
+        """,
+        (session_id, summary_text),
+    )
+
+
+__all__ = ["create_ticket", "encode_dispute_description", "log_recommendation_feedback", "store_session_learning"]

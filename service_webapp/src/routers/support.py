@@ -1,8 +1,9 @@
-"""Support-domain API endpoints (Story 5.8 dispute tickets, Story 5.9 recommendation feedback).
+"""Support-domain API endpoints (Story 5.8 dispute tickets, Story 5.9 recommendation feedback, Story 5.10 session-end).
 
 - POST /api/v1/support/tickets             — create a billing-dispute ticket (Story 5.8)
 - GET  /api/v1/support/tickets              — list the subscriber's tickets (Story 5.8)
 - POST /api/v1/recommendations/feedback     — log Accept/Dismiss on a plan recommendation (Story 5.9)
+- POST /api/v1/support/chat/end             — trigger Conclusion Agent on session end (Story 5.10)
 """
 
 from __future__ import annotations
@@ -146,4 +147,66 @@ async def list_support_tickets(
     return JSONResponse(
         status_code=200,
         content=success_envelope([i.model_dump(mode="json") for i in items], trace_id=_trace_id(request)),
+    )
+
+
+# ── Story 5.10: session-end trigger ────────────────────────────────────────────────
+
+
+class ChatEndRequest(BaseModel):
+    """Request body for POST /api/v1/support/chat/end (Story 5.10 AC #7)."""
+
+    session_id: UUID
+
+
+@router.post("/api/v1/support/chat/end", status_code=202)
+async def end_chat_session(
+    request: Request,
+    body: ChatEndRequest,
+    jwt_payload: dict = require_role("subscriber"),
+) -> JSONResponse:
+    """Trigger the Conclusion Agent when a chat session ends (explicit close) (AC #7).
+
+    The endpoint returns 202 Accepted immediately and fires the Conclusion Agent as
+    a background task (asyncio.create_task). The agent loads session history from
+    Valkey, summarizes it, stores learnings, and triggers the Notification Agent.
+
+    This is the explicit-close trigger; the background TTL poll (main.py) handles
+    sessions that expire due to 2-hour idle timeout.
+    """
+    import asyncio
+
+    from agents.conclusion import get_conclusion_graph
+
+    subscriber_id = _require_sub(jwt_payload)
+    conclusion_graph = get_conclusion_graph()
+
+    if conclusion_graph is None:
+        err = DomainError("Conclusion Agent graph is not initialised.")
+        err.code = "NOT_READY"
+        err.http_status = 503
+        raise err
+
+    # Fire Conclusion Agent asynchronously (fire-and-forget)
+    asyncio.create_task(
+        conclusion_graph.ainvoke(
+            {
+                "session_id": str(body.session_id),
+                "subscriber_id": subscriber_id,
+                "session_history": [],  # Will be loaded by load_session_history node
+                "summary": None,  # Will be set by summarise_session node
+                "trace_id": _trace_id(request),
+            }
+        )
+    )
+
+    logger.info(
+        "Chat session ended: session=%s subscriber=%s trigger=explicit_close",
+        body.session_id,
+        subscriber_id,
+    )
+
+    return JSONResponse(
+        status_code=202,
+        content=success_envelope({"status": "accepted"}, trace_id=_trace_id(request)),
     )

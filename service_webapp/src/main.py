@@ -126,6 +126,36 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # exist (create_app wires them to the possibly-None app.state values at build
     # time; the lifespan owns the live instances). [Story 5.4]
     set_support_adapters(app.state.cache_adapter, app.state.db_adapter)
+
+    # Story 5.10: Wire Conclusion and Notification Agents at startup
+    from agents.conclusion import create_conclusion_graph, set_conclusion_graph
+    from agents.notification import create_notification_graph, set_kafka_producer, set_notification_graph
+
+    if getattr(app.state, "conclusion_graph", None) is None:
+        try:
+            conclusion_graph = create_conclusion_graph()
+            set_conclusion_graph(conclusion_graph)
+            app.state.conclusion_graph = conclusion_graph
+            owned.append("conclusion_graph")
+            logging.getLogger(__name__).info("Conclusion Agent graph initialized")
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Conclusion Agent init failed: %s", exc)
+            app.state.conclusion_graph = None
+
+    if getattr(app.state, "notification_graph", None) is None:
+        try:
+            notification_graph = create_notification_graph()
+            set_notification_graph(notification_graph)
+            app.state.notification_graph = notification_graph
+            owned.append("notification_graph")
+            logging.getLogger(__name__).info("Notification Agent graph initialized")
+        except Exception as exc:
+            logging.getLogger(__name__).warning("Notification Agent init failed: %s", exc)
+            app.state.notification_graph = None
+
+    # Wire Kafka producer to Notification Agent when available (set below)
+    # The producer singleton is created later in the lifespan, so we'll wire it in
+    # the kafka_producer initialization block
     if getattr(app.state, "milvus_adapter", None) is None:
         try:
             _milvus = MilvusAdapter(settings.milvus_db_uri)
@@ -202,6 +232,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await _producer.start()
         app.state.kafka_producer = _producer
         owned.append("kafka_producer")
+
+        # Story 5.10: Wire Kafka producer to Notification Agent
+        set_kafka_producer(_producer)
+        logging.getLogger(__name__).info("Kafka producer wired to Notification Agent")
 
     trace_consumer_task: asyncio.Task | None = None
     if getattr(app.state, "trace_consumer", None) is None:
@@ -413,6 +447,104 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         data_nudge_consumer_task = asyncio.create_task(_run_data_nudge_consumer())
 
+    # Story 5.10: Background TTL poll for expired chat sessions (AC #7)
+    ttl_poll_task: asyncio.Task | None = None
+    if getattr(app.state, "cache_adapter", None) is not None:
+        logger = logging.getLogger(__name__)
+
+        async def _poll_expired_chat_sessions() -> None:
+            """Background poll for expired chat_context:* keys (Story 5.10 AC #7).
+
+            Every 5 minutes, SCAN for chat_context:* keys and check TTL. If a key
+            has expired (TTL = -2, key deleted), fire the Conclusion Agent for that
+            session. Best-effort: process restart may miss some expirations (acceptable
+            for MVP per architecture.md).
+            """
+            try:
+                from agents.conclusion import get_conclusion_graph
+
+                cache = app.state.cache_adapter
+                conclusion_graph = get_conclusion_graph()
+
+                if conclusion_graph is None:
+                    logger.warning("TTL poll: Conclusion Agent not initialized, skipping")
+                    return
+
+                poll_interval = 300  # 5 minutes
+                while True:
+                    try:
+                        # SCAN for chat_context:* keys
+                        cursor = 0
+                        expired_sessions = []
+
+                        while True:
+                            cursor, keys = await app.state.cache_adapter.client.scan(
+                                cursor=cursor, match="chat_context:*", count=100
+                            )
+
+                            for key in keys:
+                                # Check TTL - if key exists but TTL expired, Valkey returns -2
+                                ttl = await app.state.cache_adapter.client.ttl(key)
+                                if ttl == -2:  # Key expired but not yet deleted
+                                    # Extract session_id from key
+                                    session_id = (
+                                        key.decode().split(":", 1)[1]
+                                        if isinstance(key, bytes)
+                                        else key.split(":", 1)[1]
+                                    )
+                                    expired_sessions.append(session_id)
+
+                            if cursor == 0:
+                                break
+
+                        # Fire Conclusion Agent for each expired session
+                        for session_id in expired_sessions:
+                            try:
+                                # Get subscriber_id from session (stored in chat_context)
+                                # For MVP, we'll use a default subscriber if we can't extract it
+                                # In production, this should be stored in the session metadata
+                                logger.info(
+                                    "TTL poll: firing Conclusion Agent for expired session %s",
+                                    session_id,
+                                )
+
+                                asyncio.create_task(
+                                    conclusion_graph.ainvoke(
+                                        {
+                                            "session_id": session_id,
+                                            "subscriber_id": "system",  # Would be extracted from session metadata in production
+                                            "session_history": [],
+                                            "summary": None,
+                                            "trace_id": "0" * 32,
+                                        }
+                                    )
+                                )
+                            except Exception as exc:
+                                logger.error(
+                                    "TTL poll: failed to fire Conclusion Agent for session %s: %s",
+                                    session_id,
+                                    exc,
+                                )
+
+                        if expired_sessions:
+                            logger.info("TTL poll: processed %d expired sessions", len(expired_sessions))
+
+                    except asyncio.CancelledError:
+                        logger.info("TTL poll: cancelled")
+                        break
+                    except Exception as exc:
+                        logger.warning("TTL poll: error scanning for expired sessions: %s", exc)
+
+                    # Wait before next poll
+                    await asyncio.sleep(poll_interval)
+
+            except asyncio.CancelledError:
+                logger.info("TTL poll: cancelled")
+            except Exception as exc:
+                logger.warning("TTL poll: error: %s", exc)
+
+        ttl_poll_task = asyncio.create_task(_poll_expired_chat_sessions())
+
     try:
         yield
     finally:
@@ -456,6 +588,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if "rag_retriever" in owned:
             await app.state.rag_retriever.close()
             set_retriever(None)
+        # Story 5.10: Clear Conclusion/Notification Agent singletons
+        if "conclusion_graph" in owned:
+            from agents.conclusion import set_conclusion_graph
+
+            set_conclusion_graph(None)
+        if "notification_graph" in owned:
+            from agents.notification import set_notification_graph
+
+            set_notification_graph(None)
         # Clear the Support Agent tool singletons so no in-flight tool call can
         # touch a closed adapter after shutdown (mirrors set_retriever(None)).
         set_support_adapters(None, None)

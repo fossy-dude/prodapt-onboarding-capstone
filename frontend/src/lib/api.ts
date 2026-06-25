@@ -670,4 +670,29 @@ export async function patchNotificationPreference(
   return data.data;
 }
 
+// ── Support Chat (Story 5.10) ──────────────────────────────────────────────────────
+
+export interface ChatEndRequest {
+  readonly session_id: string;
+}
+
+interface ChatEndResponse {
+  readonly data: { readonly status: string };
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/**
+ * POST /api/v1/support/chat/end — trigger Conclusion Agent on session end (Story 5.10 AC #7).
+ * Returns 202 Accepted immediately; agent runs as background task.
+ */
+export async function endChatSession(
+  payload: ChatEndRequest,
+): Promise<{ status: string }> {
+  const { data } = await apiClient.post<ChatEndResponse>(
+    "/support/chat/end",
+    payload,
+  );
+  return data.data;
+}
+
 export { apiClient };

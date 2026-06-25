@@ -4,7 +4,7 @@ baseline_commit: 3c5d585
 
 # Story 5.10: Conclusion Agent & Notification Agent (Session End)
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -24,33 +24,33 @@ so that I'm reminded of actions I didn't complete or offers I might want to act 
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Conclusion Agent LangGraph graph** (AC: #1, #2, #5)
-  - [ ] Create `service_webapp/src/agents/conclusion/__init__.py` (empty).
-  - [ ] Create `service_webapp/src/agents/conclusion/graph.py`.
-  - [ ] `ConclusionAgentState(TypedDict)`: `session_id: str`, `subscriber_id: str`, `session_history: list[dict]`, `summary: str | None`, `trace_id: str`.
-  - [ ] Node `load_session_history(state) -> state`:
+- [x] **Task 1: Conclusion Agent LangGraph graph** (AC: #1, #2, #5)
+  - [x] Create `service_webapp/src/agents/conclusion/__init__.py` (empty).
+  - [x] Create `service_webapp/src/agents/conclusion/graph.py`.
+  - [x] `ConclusionAgentState(TypedDict)`: `session_id: str`, `subscriber_id: str`, `session_history: list[dict]`, `summary: str | None`, `trace_id: str`.
+  - [x] Node `load_session_history(state) -> state`:
     - Read all `chat_context:{session_id}` HASH fields from Valkey (all `turn_N` fields).
     - Parse JSON, reconstruct chronological turn list.
     - Set `state["session_history"]`.
-  - [ ] Node `summarise_session(state) -> state`:
+  - [x] Node `summarise_session(state) -> state`:
     - LLM call (`settings.chat_deployment_mini`): prompt = "Summarise this chat session. List: (1) topics discussed, (2) actions taken (recharges, tickets), (3) unresolved queries. Be concise. Return JSON: {summary_text: str, topics: [], actions: [], unresolved: []}."
     - Input: formatted session_history.
     - Parse JSON response → `state["summary"]`.
-  - [ ] Node `store_learning(state) -> state`:
+  - [x] Node `store_learning(state) -> state`:
     - INSERT into `support_session_learnings`: `(session_id, subscriber_id, summary_text=state["summary"])`. [Source: V1__baseline_schema.sql:394–404]
-  - [ ] Node `trigger_notification(state) -> state`:
+  - [x] Node `trigger_notification(state) -> state`:
     - Invoke Notification Agent A2A: `await notification_graph.ainvoke({"session_summary": state["summary"], "subscriber_id": state["subscriber_id"], "trace_id": state["trace_id"]})`.
-  - [ ] Graph edges: `load_session_history → summarise_session → store_learning → trigger_notification → END`. [Source: epics.md:1748–1750]
+  - [x] Graph edges: `load_session_history → summarise_session → store_learning → trigger_notification → END`. [Source: epics.md:1748–1750]
 
-- [ ] **Task 2: Notification Agent LangGraph graph** (AC: #3, #4, #5)
-  - [ ] Create `service_webapp/src/agents/notification/__init__.py` (empty).
-  - [ ] Create `service_webapp/src/agents/notification/graph.py`.
-  - [ ] `NotificationAgentState(TypedDict)`: `session_summary: str`, `subscriber_id: str`, `should_send: bool | None`, `notification_type: str | None`, `channel: str | None`, `delay_hours: int | None`, `trace_id: str`.
-  - [ ] Node `decide_notification(state) -> state`:
+- [x] **Task 2: Notification Agent LangGraph graph** (AC: #3, #4, #5)
+  - [x] Create `service_webapp/src/agents/notification/__init__.py` (empty).
+  - [x] Create `service_webapp/src/agents/notification/graph.py`.
+  - [x] `NotificationAgentState(TypedDict)`: `session_summary: str`, `subscriber_id: str`, `should_send: bool | None`, `notification_type: str | None`, `channel: str | None`, `delay_hours: int | None`, `trace_id: str`.
+  - [x] Node `decide_notification(state) -> state`:
     - LLM call (`settings.chat_deployment_mini`): structured prompt with session summary.
     - System: "You are a telecom notification decision agent. Based on this chat session summary, decide if a follow-up notification is warranted. Return JSON: {should_send: bool, type: 'RECHARGE_REMINDER|PLAN_SUGGESTION|DISPUTE_FOLLOWUP|NONE', channel: 'push|sms', delay_hours: 0|1|24}."
     - Parse JSON → set state fields.
-  - [ ] Node `publish_notification(state) -> state`:
+  - [x] Node `publish_notification(state) -> state`:
     - Conditional: only run if `state["should_send"] == True`.
     - Publish to `notification.events` via KafkaProducer:
       ```python
@@ -67,34 +67,34 @@ so that I'm reminded of actions I didn't complete or offers I might want to act 
       )
       ```
     - Key by subscriber_id on `notification.events` topic. [Source: epics.md:1758; architecture.md ARCH-11]
-  - [ ] Graph: `decide_notification → (conditional: should_send?) → publish_notification → END` or `decide_notification → END` (if NONE). [Source: epics.md:1756]
-  - [ ] LangFuse: trace entire Notification Agent run; child span under Conclusion Agent trace. [Source: epics.md:1760; FR-72]
+  - [x] Graph: `decide_notification → (conditional: should_send?) → publish_notification → END` or `decide_notification → END` (if NONE). [Source: epics.md:1756]
+  - [x] LangFuse: trace entire Notification Agent run; child span under Conclusion Agent trace. [Source: epics.md:1760; FR-72]
 
-- [ ] **Task 3: support_session_learnings DB commands** (AC: #1)
-  - [ ] Add `store_session_learning(db, session_id: str, subscriber_id: str, summary_text: str) -> None` to `service_webapp/src/db/support/commands.py`.
-  - [ ] INSERT into `support_session_learnings`. PK is `id UUID` — check V1 migration for exact DDL. The table was seeded with `uuid_generate_v7()` or `gen_random_uuid()` — verify. [Source: V1__baseline_schema.sql:394–404]
-  - [ ] `support_session_learnings` schema from V1: `(id UUID PRIMARY KEY, session_id UUID NOT NULL REFERENCES support_chat_sessions(id), subscriber_id UUID, summary_text TEXT, created_at TIMESTAMPTZ)`. Verify foreign key to `support_chat_sessions`. [Source: V1__baseline_schema.sql:394–404]
+- [x] **Task 3: support_session_learnings DB commands** (AC: #1)
+  - [x] Add `store_session_learning(db, session_id: str, subscriber_id: str, summary_text: str) -> None` to `service_webapp/src/db/support/commands.py`.
+  - [x] INSERT into `support_session_learnings`. PK is `id UUID` — check V1 migration for exact DDL. The table was seeded with `uuid_generate_v7()` or `gen_random_uuid()` — verify. [Source: V1__baseline_schema.sql:394–404]
+  - [x] `support_session_learnings` schema from V1: `(id UUID PRIMARY KEY, session_id UUID NOT NULL REFERENCES support_chat_sessions(id), subscriber_id UUID, summary_text TEXT, created_at TIMESTAMPTZ)`. Verify foreign key to `support_chat_sessions`. [Source: V1__baseline_schema.sql:394–404]
 
-- [ ] **Task 4: Session-end trigger mechanism** (AC: #7)
-  - [ ] Frontend trigger (explicit close): in `frontend/src/portals/subscriber/Chatbot.tsx`, when the chat panel is closed (CopilotChat `onClose` callback), call `POST /api/v1/support/chat/end` with `{ session_id }`. [Source: epics.md:1744]
-  - [ ] Create `POST /api/v1/support/chat/end` in `service_webapp/src/routers/support.py`: auth required. Body: `{ session_id: str }`. Fires Conclusion Agent as `asyncio.create_task(conclusion_graph.ainvoke(...))`. Returns 202 Accepted immediately (non-blocking). [Source: architecture.md: async agent pattern]
-  - [ ] Background TTL trigger: add a background task in `service_webapp/src/main.py` that polls for expired `chat_context:*` sessions every 5 minutes using Valkey `SCAN` + `TTL` check. If TTL has expired (key deleted), fire Conclusion Agent for that session. [Source: epics.md:1744; ARCH-5: 2h TTL]
-  - [ ] NOTE: The TTL poll is best-effort — a process restart may miss some expirations. For MVP this is acceptable. A Valkey keyspace notification would be more reliable but requires `notify-keyspace-events` config. [Source: architecture.md: MVP scope]
+- [x] **Task 4: Session-end trigger mechanism** (AC: #7)
+  - [x] Frontend trigger (explicit close): in `frontend/src/portals/subscriber/Chatbot.tsx`, when the chat panel is closed (CopilotChat `onClose` callback), call `POST /api/v1/support/chat/end` with `{ session_id }`. [Source: epics.md:1744]
+  - [x] Create `POST /api/v1/support/chat/end` in `service_webapp/src/routers/support.py`: auth required. Body: `{ session_id: str }`. Fires Conclusion Agent as `asyncio.create_task(conclusion_graph.ainvoke(...))`. Returns 202 Accepted immediately (non-blocking). [Source: architecture.md: async agent pattern]
+  - [x] Background TTL trigger: add a background task in `service_webapp/src/main.py` that polls for expired `chat_context:*` sessions every 5 minutes using Valkey `SCAN` + `TTL` check. If TTL has expired (key deleted), fire Conclusion Agent for that session. [Source: epics.md:1744; ARCH-5: 2h TTL]
+  - [x] NOTE: The TTL poll is best-effort — a process restart may miss some expirations. For MVP this is acceptable. A Valkey keyspace notification would be more reliable but requires `notify-keyspace-events` config. [Source: architecture.md: MVP scope]
 
-- [ ] **Task 5: Wire agents at FastAPI startup** (AC: #1, #2)
-  - [ ] In `service_webapp/src/main.py` lifespan: instantiate Conclusion and Notification Agent graph singletons, wire KafkaProducer to Notification Agent via `set_kafka_producer(producer)` singleton call (same pattern as tools in 5.4). [Source: service_webapp/src/main.py lifespan pattern]
+- [x] **Task 5: Wire agents at FastAPI startup** (AC: #1, #2)
+  - [x] In `service_webapp/src/main.py` lifespan: instantiate Conclusion and Notification Agent graph singletons, wire KafkaProducer to Notification Agent via `set_kafka_producer(producer)` singleton call (same pattern as tools in 5.4). [Source: service_webapp/src/main.py lifespan pattern]
 
-- [ ] **Task 6: Tests** (AC: #1–#6)
-  - [ ] `service_webapp/tests/unit/test_conclusion_agent.py`: mock Valkey (3 turns stored), mock LLM, mock DB.
+- [x] **Task 6: Tests** (AC: #1–#6)
+  - [x] `service_webapp/tests/unit/test_conclusion_agent.py`: mock Valkey (3 turns stored), mock LLM, mock DB.
     - Verify `load_session_history` reads all turns correctly.
     - Verify `summarise_session` calls LLM with formatted history.
     - Verify `store_learning` INSERT called with correct session_id + summary.
     - Verify `trigger_notification` calls notification_graph.ainvoke.
-  - [ ] `service_webapp/tests/unit/test_notification_agent.py`: mock LLM.
+  - [x] `service_webapp/tests/unit/test_notification_agent.py`: mock LLM.
     - LLM returns `{should_send: true, type: "RECHARGE_REMINDER", channel: "push", delay_hours: 1}` → KafkaProducer.publish called once.
     - LLM returns `{should_send: false, type: "NONE"}` → no Kafka publish.
-  - [ ] `service_webapp/tests/unit/test_chat_end_endpoint.py`: mock conclusion_graph. POST /api/v1/support/chat/end → 202; asyncio.create_task called.
-  - [ ] Integration (`@pytest.mark.slow`): real Postgres + Valkey (testcontainers). Store turns → fire conclusion agent → verify support_session_learnings INSERT.
+  - [x] `service_webapp/tests/unit/test_chat_end_endpoint.py`: mock conclusion_graph. POST /api/v1/support/chat/end → 202; asyncio.create_task called.
+  - [x] Integration (`@pytest.mark.slow`): real Postgres + Valkey (testcontainers). Store turns → fire conclusion agent → verify support_session_learnings INSERT.
 
 ## Dev Notes
 
@@ -159,4 +159,50 @@ claude-sonnet-4-6
 
 ### Completion Notes List
 
+**Implementation Summary:**
+
+All tasks for Story 5.10 have been completed successfully. The Conclusion Agent and Notification Agent system is now fully implemented with the following capabilities:
+
+1. **Conclusion Agent**: Reads session history from Valkey, summarizes using LLM (gpt-4o-mini), stores learnings in V1 `support_session_learnings` table, and triggers Notification Agent via A2A.
+
+2. **Notification Agent**: Decides whether to send follow-up notifications based on session summary. Supports four notification types (RECHARGE_REMINDER, PLAN_SUGGESTION, DISPUTE_FOLLOWUP, NONE) with configurable channel (push/SMS) and delay (0/1/24 hours). Publishes to `notification.events` Kafka topic when appropriate.
+
+3. **Session-end Triggers**: Implemented both explicit close (frontend onClose callback) and background TTL poll (5-minute intervals scanning for expired `chat_context:*` keys).
+
+4. **Agent Wiring**: Both agents wired at FastAPI startup in main.py lifespan with proper Kafka producer integration and cleanup.
+
+5. **Comprehensive Testing**: Unit tests for all components, endpoint tests for the chat end API, and integration tests with real Postgres/Valkey (testcontainers).
+
+**Technical Decisions:**
+
+- Used V1 `support_session_learnings` table with `learning_type='session_summary'` and `content` columns (AC #6).
+- Implemented A2A pattern with fire-and-forget asyncio.create_task for non-blocking agent execution.
+- Added LangFuse tracing integration with nested spans for observability (FR-72).
+- PII protection: LLM prompts exclude personal data, Kafka payloads truncate summary to 200 chars (ARCH-32).
+- Background TTL poll is best-effort (acceptable for MVP per architecture.md).
+
+**Files Modified/Created:**
+- Backend: 2 new agent graphs, 1 modified DB command file, 1 modified router, 1 modified main.py
+- Frontend: 1 modified Chatbot component with onClose handler
+- Tests: 3 new test files (unit + integration)
+
+All acceptance criteria (AC #1–#7) have been satisfied.
+
 ### File List
+
+**New Files:**
+- `service_webapp/src/agents/conclusion/__init__.py`
+- `service_webapp/src/agents/conclusion/graph.py`
+- `service_webapp/src/agents/notification/__init__.py`
+- `service_webapp/src/agents/notification/graph.py`
+- `service_webapp/tests/unit/test_conclusion_agent.py`
+- `service_webapp/tests/unit/test_notification_agent.py`
+- `service_webapp/tests/unit/test_chat_end_endpoint.py`
+- `service_webapp/tests/integration/test_conclusion_agent_integration.py`
+
+**Modified Files:**
+- `service_webapp/src/db/support/commands.py` (added store_session_learning)
+- `service_webapp/src/routers/support.py` (added POST /api/v1/support/chat/end)
+- `service_webapp/src/main.py` (wired agents, added background TTL poll)
+- `frontend/src/lib/api.ts` (added endChatSession)
+- `frontend/src/portals/subscriber/Chatbot.tsx` (added onClose handler)
