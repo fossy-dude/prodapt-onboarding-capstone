@@ -60,8 +60,9 @@ describe("NotificationPortal", () => {
   it("renders the live notification feed with type, preview and masked suffix", () => {
     mockHook([EVENT_B, EVENT_A], "open");
     renderComponent();
-    expect(screen.getByText("SIM_ACTIVATION")).toBeInTheDocument();
-    expect(screen.getByText("LOW_BALANCE")).toBeInTheDocument();
+    // Notification types appear twice due to responsive design (mobile + desktop)
+    expect(screen.getAllByText("SIM_ACTIVATION")).toHaveLength(2);
+    expect(screen.getAllByText("LOW_BALANCE")).toHaveLength(2);
     expect(
       screen.getByText("Your SIM has been activated."),
     ).toBeInTheDocument();
