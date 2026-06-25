@@ -55,6 +55,7 @@ __all__ = [
     "HybridRetriever",
     "RagChunk",
     "rag_search",
+    "search_plans",
     "set_retriever",
 ]
 
@@ -316,6 +317,51 @@ class HybridRetriever:
         except Exception:
             pass
 
+    async def search_plans(
+        self,
+        query_text: str,
+        top_k: int = 10,
+        filter_expr: str | None = None,
+    ) -> list[RagChunk]:
+        """Dense search on plan_vectors with optional metadata filter for plan recommendation."""
+        query_vector = await self.embed(query_text)
+        output_fields = ["text", "plan_type", "price", "validity", "usage_category", "data_limit_mb", "voice_minutes"]
+        results = await asyncio.to_thread(
+            self._milvus.search,
+            collection_name="plan_vectors",
+            data=[query_vector],
+            anns_field="embedding",
+            limit=top_k,
+            output_fields=output_fields,
+            filter=filter_expr,
+            search_params={"metric_type": "COSINE"},
+        )
+        if not results or not results[0]:
+            return []
+        chunks = []
+        for hit in results[0]:
+            entity = hit.get("entity") or {}
+            chunk_id = hit.get("plan_id") or entity.get("plan_id") or ""
+            if not chunk_id:
+                continue
+            chunks.append(
+                RagChunk(
+                    collection="plan_vectors",
+                    chunk_id=str(chunk_id),
+                    text=entity.get("text", ""),
+                    score=float(hit.get("distance", 0.0)),
+                    metadata={
+                        "plan_id": str(chunk_id),
+                        "price": entity.get("price", 0),
+                        "validity": entity.get("validity", 0),
+                        "usage_category": entity.get("usage_category", ""),
+                        "data_limit_mb": entity.get("data_limit_mb", 0),
+                        "voice_minutes": entity.get("voice_minutes", 0),
+                    },
+                )
+            )
+        return chunks
+
 
 # ── LangGraph tool surface (AC #6) ────────────────────────────────────────────
 # A lazily-initialised singleton set once at FastAPI startup, so the module-level
@@ -341,3 +387,11 @@ async def rag_search(query: str, top_k: int = 3) -> list[RagChunk]:
         logger.warning("rag_search called before set_retriever() — returning empty grounding")
         return []
     return await _retriever.search(query, top_k=top_k)
+
+
+async def search_plans(query_text: str, top_k: int = 10, filter_expr: str | None = None) -> list[RagChunk]:
+    """Module-level plan search using the process-wide retriever singleton."""
+    if _retriever is None:
+        logger.warning("search_plans called before set_retriever() — returning empty results")
+        return []
+    return await _retriever.search_plans(query_text, top_k=top_k, filter_expr=filter_expr)

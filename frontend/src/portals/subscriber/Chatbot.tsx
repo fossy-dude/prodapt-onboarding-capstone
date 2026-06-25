@@ -7,6 +7,7 @@ import { useActivePlan } from "../../hooks/useActivePlan";
 import { useBalance } from "../../hooks/useBalance";
 import { PlanRecommendationCard } from "./components/PlanRecommendationCard";
 import { ChargeBreakdownTable } from "./components/ChargeBreakdownTable";
+import { TicketConfirmationBanner } from "./components/TicketConfirmationBanner";
 
 /**
  * Floating billing assistant chat panel for the subscriber portal (Story 5.4;
@@ -118,6 +119,22 @@ function Chatbot({ sessionId }: ChatbotProps) {
         return null;
       }
       return <ChargeBreakdownTable {...result.breakdown} />;
+    },
+  });
+
+  // Story 5.8 AC #2/#3: render ticket confirmation banner when ticket_create tool is called.
+  useCopilotAction({
+    name: "ticket_create",
+    render: ({ result }) => {
+      if (!result?.ticket_id) {
+        return null;
+      }
+      return (
+        <TicketConfirmationBanner
+          ticket_id={result.ticket_id}
+          message={result.message ?? ""}
+        />
+      );
     },
   });
 

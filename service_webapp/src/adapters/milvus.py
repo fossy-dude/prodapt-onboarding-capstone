@@ -34,6 +34,9 @@ _COLLECTION_EXTRA_FIELDS: dict[str, list[dict[str, Any]]] = {
         {"field_name": "plan_type", "datatype": DataType.VARCHAR, "max_length": 128},
         {"field_name": "price", "datatype": DataType.INT64},
         {"field_name": "validity", "datatype": DataType.INT64},
+        {"field_name": "usage_category", "datatype": DataType.VARCHAR, "max_length": 16},
+        {"field_name": "data_limit_mb", "datatype": DataType.INT64},
+        {"field_name": "voice_minutes", "datatype": DataType.INT64},
     ],
     "sop_chunks": [
         {"field_name": "rule_id", "datatype": DataType.VARCHAR, "max_length": 512},

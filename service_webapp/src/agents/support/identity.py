@@ -96,3 +96,19 @@ def current_msisdn() -> str:
 def current_session_id() -> str:
     """Return the chat session id for this request (may be empty in tests)."""
     return _session_id.get()
+
+
+def _set_subscriber_id_context(value: str | None) -> contextvars.Token[str | None]:
+    """Bind ``subscriber_id`` directly (test helper).
+
+    The production path uses :func:`support_context` via the identity middleware;
+    this bare setter exists so unit tests can populate the contextvar without
+    constructing a full request. Returns the reset token so a test can restore
+    the prior value.
+    """
+    return _subscriber_id.set(value)
+
+
+def _set_session_id_context(value: str) -> contextvars.Token[str]:
+    """Bind ``session_id`` directly (test helper); returns the reset token."""
+    return _session_id.set(value)

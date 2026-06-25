@@ -544,12 +544,114 @@ async def _get_balance_impact(
     return (row[0], row[1])
 
 
+async def get_subscriber_usage_profile(
+    conn: AsyncConnection,
+    subscriber_id: UUID,
+    days: int = 30,
+) -> dict:
+    """Aggregate 30-day CDR usage profile for plan recommendation (Story 5.9 AC #1)."""
+    from datetime import UTC, datetime, timedelta
+
+    start = datetime.now(UTC) - timedelta(days=days)
+    cur = await conn.execute(
+        """
+        SELECT
+            COALESCE(SUM(CASE WHEN cdr_type = 'data' THEN volume_mb ELSE 0 END), 0)                              AS total_data_mb,
+            COALESCE(SUM(CASE WHEN cdr_type = 'voice' AND NOT roaming THEN duration_seconds ELSE 0 END), 0)      AS total_voice_seconds,
+            COALESCE(SUM(CASE WHEN cdr_type = 'voice' AND roaming     THEN duration_seconds ELSE 0 END), 0)      AS total_intl_seconds,
+            COALESCE(SUM(CASE WHEN cdr_type = 'sms'   THEN 1 ELSE 0 END), 0)                                     AS total_sms_count,
+            COALESCE(SUM(charge_paise), 0)                                                                        AS total_spend_paise
+          FROM billing_cdr_events
+         WHERE subscriber_id = %s::uuid
+           AND start_time >= %s::timestamptz
+        """,
+        (str(subscriber_id), start),
+    )
+    row = await cur.fetchone()
+    if row is None:
+        return {
+            "total_data_mb": 0.0,
+            "total_voice_seconds": 0,
+            "total_intl_seconds": 0,
+            "total_sms_count": 0,
+            "total_spend_paise": 0,
+        }
+    return {
+        "total_data_mb": float(row[0]),
+        "total_voice_seconds": int(row[1]),
+        "total_intl_seconds": int(row[2]),
+        "total_sms_count": int(row[3]),
+        "total_spend_paise": int(row[4]),
+    }
+
+
+async def get_last_recharge_amount(
+    conn: AsyncConnection,
+    subscriber_id: UUID,
+) -> int | None:
+    """Return the amount_paise of the last completed recharge, or None (Story 5.9 AC #1)."""
+    cur = await conn.execute(
+        """
+        SELECT amount_paise FROM recharge_orders
+         WHERE subscriber_id = %s::uuid
+           AND status = 'completed'
+         ORDER BY created_at DESC
+         LIMIT 1
+        """,
+        (str(subscriber_id),),
+    )
+    row = await cur.fetchone()
+    return int(row[0]) if row else None
+
+
+async def get_current_plan_details(
+    conn: AsyncConnection,
+    subscriber_id: UUID,
+) -> dict | None:
+    """Return the plan details from the last completed recharge, or None (Story 5.9 AC #4)."""
+    cur = await conn.execute(
+        """
+        SELECT p.plan_name, p.data_limit_mb, p.voice_minutes, p.price_paise
+          FROM recharge_orders r
+          JOIN plans_plans p ON r.plan_id = p.id
+         WHERE r.subscriber_id = %s::uuid
+           AND r.status = 'completed'
+         ORDER BY r.created_at DESC
+         LIMIT 1
+        """,
+        (str(subscriber_id),),
+    )
+    row = await cur.fetchone()
+    if row is None:
+        return None
+    return {
+        "plan_name": row[0],
+        "data_limit_mb": row[1],
+        "voice_minutes": row[2],
+        "price_paise": int(row[3]),
+    }
+
+
+async def get_population_usage_stats(conn: AsyncConnection) -> dict:
+    """Return percentile stats from mv_usage_population_stats, or empty dict (Story 5.9 AC #1)."""
+    cur = await conn.execute("SELECT * FROM mv_usage_population_stats")
+    row = await cur.fetchone()
+    if row is None:
+        return {}
+    desc = cur.description or []
+    return {col.name: (float(val) if val is not None else 0.0) for col, val in zip(desc, row)}
+
+
 __all__ = [
     "get_active_plan",
     "get_active_plan_data_quota",
     "get_active_subscription",
     "get_charge_breakdown",
+    "get_current_plan_details",
+    "get_last_recharge_amount",
     "get_msisdn_for_subscriber",
+    "get_population_usage_stats",
+    "get_subscriber_usage_profile",
     "get_transactions_page",
     "get_usage_for_period",
     "get_wallet_balance_from_db",

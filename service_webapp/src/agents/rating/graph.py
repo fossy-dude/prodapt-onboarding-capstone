@@ -7,12 +7,15 @@ from Postgres and returns structured charge breakdown data. No LLM calls.
 from __future__ import annotations
 
 import dataclasses
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 from langgraph.graph import StateGraph
 
 from agents.support.tools import get_support_db
 from db.billing.queries import get_charge_breakdown
+
+if TYPE_CHECKING:
+    from langgraph.graph.state import CompiledStateGraph
 
 
 @dataclasses.dataclass
@@ -104,7 +107,7 @@ async def fetch_breakdown(state: RatingAgentState) -> RatingAgentState:
     return state
 
 
-def build_rating_graph() -> StateGraph:
+def build_rating_graph() -> CompiledStateGraph:
     """Build and compile the Rating Agent LangGraph.
 
     The Rating Agent is a single-node deterministic graph:
@@ -114,10 +117,12 @@ def build_rating_graph() -> StateGraph:
 
     Returns
     -------
-    StateGraph
+    CompiledStateGraph
         Compiled LangGraph ready for invocation.
     """
-    graph = StateGraph(RatingAgentState)
+    # TypedDict state — pyrefly's langgraph stubs don't recognise the TypedDict as
+    # a valid StateT at static-analysis time (runtime is correct).
+    graph = StateGraph(RatingAgentState)  # type: ignore[bad-specialization]
 
     # Add the single node
     graph.add_node("fetch_breakdown", fetch_breakdown)

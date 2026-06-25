@@ -10,19 +10,19 @@ interface PlanRecommendationCardProps {
   readonly voice_minutes: number | null;
   readonly sms_count: number | null;
   readonly recharge_url: string;
+  readonly comparison?: string | null;
+  readonly onAccept?: () => void;
+  readonly onDismiss?: () => void;
 }
 
-/** Render a quota value, or "Unlimited" when the allowance is null. */
 function quotaText(value: number | null, unit: string): string {
   return value === null ? "Unlimited" : `${value} ${unit}`;
 }
 
-/** Format data from MB to GB for display. */
 function formatData(mb: number | null): string {
   return mb === null ? "Unlimited" : `${(mb / 1024).toFixed(1)} GB`;
 }
 
-/** Plan recommendation card for chat UI (Story 5.6 AC #3). */
 function PlanRecommendationCard({
   name,
   price_inr,
@@ -30,18 +30,35 @@ function PlanRecommendationCard({
   voice_minutes,
   sms_count,
   recharge_url,
+  comparison,
+  onAccept,
+  onDismiss,
 }: PlanRecommendationCardProps) {
   const navigate = useNavigate();
 
-  const handleClick = () => {
+  const handleAccept = () => {
+    if (onAccept) {
+      onAccept();
+    }
     navigate(recharge_url);
   };
+
+  const handleDismiss = () => {
+    if (onDismiss) {
+      onDismiss();
+    }
+  };
+
+  const hasCallbacks = onAccept !== undefined || onDismiss !== undefined;
 
   return (
     <article className="rounded-lg bg-white shadow-sm border border-neutral-200 p-4 flex flex-col gap-3 hover:shadow-md transition-shadow">
       <div className="flex items-start justify-between gap-2">
         <div className="flex flex-col gap-1">
           <h3 className="text-base font-semibold text-neutral-900">{name}</h3>
+          {comparison != null && comparison !== "" && (
+            <p className="text-xs text-neutral-500">{comparison}</p>
+          )}
         </div>
         <Badge variant="neutral">{price_inr}</Badge>
       </div>
@@ -58,12 +75,29 @@ function PlanRecommendationCard({
         </span>
       </div>
 
-      <button
-        onClick={handleClick}
-        className="text-sm font-medium text-indigo-600 hover:text-indigo-700 text-left flex items-center gap-1"
-      >
-        Recharge →
-      </button>
+      {hasCallbacks ? (
+        <div className="flex gap-2">
+          <button
+            onClick={handleAccept}
+            className="flex-1 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md px-3 py-1.5 transition-colors"
+          >
+            Accept
+          </button>
+          <button
+            onClick={handleDismiss}
+            className="flex-1 text-sm font-medium text-neutral-600 border border-neutral-300 hover:bg-neutral-50 rounded-md px-3 py-1.5 transition-colors"
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => navigate(recharge_url)}
+          className="text-sm font-medium text-indigo-600 hover:text-indigo-700 text-left flex items-center gap-1"
+        >
+          Recharge →
+        </button>
+      )}
     </article>
   );
 }

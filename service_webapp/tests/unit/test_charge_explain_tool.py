@@ -13,8 +13,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 if TYPE_CHECKING:
+    from typing import Self
     from unittest.mock import Mock
 
+from agents.rating.graph import ChargeBreakdown
 from agents.support.tools import charge_explain
 
 
@@ -47,7 +49,7 @@ class MockLangfuseSpan:
     def update(self, **kwargs: object) -> None:
         self.updates.append(kwargs)
 
-    def __enter__(self) -> MockLangfuseSpan:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *args: object) -> None:
@@ -67,7 +69,7 @@ def mock_rating_agent_result() -> dict:
         "subscriber_id": "sub-123",
         "cdr_reference": "cdr-456",
         "trace_id": "trace-789",
-        "result": MagicMock(
+        "result": ChargeBreakdown(
             cdr_id="cdr-456",
             event_type="voice",
             duration_or_data="5m 30s",
@@ -128,7 +130,7 @@ class TestChargeExplainTool:
             set_support_adapters(fake_cache, None)
 
             # Call the tool
-            result = await charge_explain.func("sub-123", "cdr-456")
+            await charge_explain.ainvoke({"subscriber_id": "sub-123", "cdr_reference": "cdr-456"})
 
             # Verify Rating Agent was invoked
             mock_invoke.assert_called_once()
@@ -174,7 +176,7 @@ class TestChargeExplainTool:
             set_support_adapters(fake_cache, None)
 
             # Call the tool
-            result = await charge_explain.func("sub-123", "cdr-456")
+            result = await charge_explain.ainvoke({"subscriber_id": "sub-123", "cdr_reference": "cdr-456"})
 
             # Verify response structure
             assert isinstance(result, dict)
@@ -224,7 +226,7 @@ class TestChargeExplainTool:
             set_support_adapters(fake_cache, None)
 
             # Call the tool
-            result = await charge_explain.func("sub-123", "nonexistent-cdr")
+            result = await charge_explain.ainvoke({"subscriber_id": "sub-123", "cdr_reference": "nonexistent-cdr"})
 
             # Verify response structure
             assert isinstance(result, dict)
@@ -264,7 +266,7 @@ class TestChargeExplainTool:
             set_support_adapters(fake_cache, None)
 
             # Call the tool with LLM-provided subscriber_id (should be ignored)
-            result = await charge_explain.func("llm-provided-sub-123", "cdr-456")
+            await charge_explain.ainvoke({"subscriber_id": "llm-provided-sub-123", "cdr_reference": "cdr-456"})
 
             # Verify Rating Agent was called with context subscriber_id, not LLM-provided
             mock_invoke.assert_called_once()
@@ -281,20 +283,23 @@ class TestChargeExplainTracing:
     """Unit tests for LangFuse tracing in charge_explain tool."""
 
     @pytest.mark.asyncio
-    async def test_charge_explain_creates_langfuse_span(self, mock_rating_agent_result: dict) -> None:
+    async def test_charge_explain_creates_langfuse_span(
+        self,
+        mock_rating_agent_result: dict,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
         """Tool should create a LangFuse span for A2A call tracing."""
         import agents.rating.graph
         import agents.support.tools
-        from core.observability.langfuse import set_langfuse_client
 
         # Mock the rating graph
         mock_invoke = AsyncMock(return_value=mock_rating_agent_result)
         original_graph = agents.rating.graph.rating_graph
         agents.rating.graph.rating_graph = MagicMock(ainvoke=mock_invoke)
 
-        # Mock LangFuse client
+        # Mock LangFuse client (injected via the accessor _traced_tool uses)
         mock_client = MockLangfuseClient()
-        original_client = None
+        monkeypatch.setattr(agents.support.tools, "get_langfuse_client", lambda: mock_client)
 
         try:
             # Set up context vars
@@ -313,11 +318,8 @@ class TestChargeExplainTracing:
             fake_cache = FakeCache()
             set_support_adapters(fake_cache, None)
 
-            # Set mock LangFuse client
-            set_langfuse_client(mock_client)  # type: ignore[arg-type]
-
             # Call the tool
-            result = await charge_explain.func("sub-123", "cdr-456")
+            result = await charge_explain.ainvoke({"subscriber_id": "sub-123", "cdr_reference": "cdr-456"})
 
             # Verify tool executed successfully
             assert result["found"] is True
@@ -326,7 +328,6 @@ class TestChargeExplainTracing:
             # This test verifies the tool doesn't break when LangFuse is available
         finally:
             agents.rating.graph.rating_graph = original_graph
-            set_langfuse_client(None)
 
 
 class TestChargeExplainErrorHandling:
@@ -361,7 +362,7 @@ class TestChargeExplainErrorHandling:
             set_support_adapters(fake_cache, None)
 
             # Call the tool
-            result = await charge_explain.func("sub-123", "cdr-456")
+            result = await charge_explain.ainvoke({"subscriber_id": "sub-123", "cdr_reference": "cdr-456"})
 
             # Verify error response
             assert isinstance(result, dict)

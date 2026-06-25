@@ -55,6 +55,7 @@ from routers.simulator import (
     ws_router as simulator_ws_router,
 )
 from routers.ussd import router as ussd_router
+from routers.support import router as support_router
 from services.notification_scheduler import run_plan_expiry_check
 from services.registration import (
     PostgresRegistrationRepository,
@@ -496,6 +497,7 @@ def create_app(
     app.include_router(recharge_router)
     app.include_router(notifications_router)
     app.include_router(ussd_router)
+    app.include_router(support_router)
     app.include_router(simulator_router)
     app.include_router(simulator_ws_router)
     app.state.db_adapter = db_adapter
