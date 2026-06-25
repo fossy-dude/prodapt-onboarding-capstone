@@ -6,6 +6,10 @@ endpoint and background TTL polling.
 
 from __future__ import annotations
 
-from agents.conclusion.graph import create_conclusion_graph
+from agents.conclusion.graph import (
+    create_conclusion_graph,
+    get_conclusion_graph,
+    set_conclusion_graph,
+)
 
-__all__ = ["create_conclusion_graph"]
+__all__ = ["create_conclusion_graph", "get_conclusion_graph", "set_conclusion_graph"]

@@ -40,13 +40,11 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
-from core.adapters.valkey import get_valkey_client
-from db.transaction import get_db_adapter
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 
-from agents.notification import get_notification_graph
+from agents.notification import get_notification_graph  # type: ignore[no-redef]
 from core.config import settings
 from core.observability.langfuse import get_langfuse_client
 from core.security import mask_msisdn
@@ -56,7 +54,36 @@ if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
     from langgraph.graph.state import CompiledStateGraph
 
+    from adapters.postgres import Psycopg3AsyncAdapter
+    from adapters.redis import ValkeyAdapter
+
 logger = logging.getLogger(__name__)
+
+# Global singletons for adapters (set at FastAPI startup)
+_valkey_client: ValkeyAdapter | None = None
+_db_adapter: Psycopg3AsyncAdapter | None = None
+
+
+def get_valkey_client() -> ValkeyAdapter:
+    """Get the globally-registered Valkey client instance."""
+    if _valkey_client is None:
+        raise RuntimeError("Valkey client not initialized")
+    return _valkey_client
+
+
+def get_db_adapter() -> Psycopg3AsyncAdapter:
+    """Get the globally-registered DB adapter instance."""
+    if _db_adapter is None:
+        raise RuntimeError("DB adapter not initialized")
+    return _db_adapter
+
+
+def set_conclusion_adapters(valkey: ValkeyAdapter, db: Psycopg3AsyncAdapter) -> None:
+    """Register the Valkey and DB adapters globally (called at FastAPI startup)."""
+    global _valkey_client, _db_adapter
+    _valkey_client = valkey
+    _db_adapter = db
+    logger.info("Conclusion Agent adapters registered globally")
 
 
 class ConclusionAgentState(TypedDict):
@@ -188,9 +215,21 @@ Analyze and extract key learnings."""
     )
 
     langfuse = get_langfuse_client()
-    trace = langfuse.get_trace(state["trace_id"])
+    if langfuse is None:
+        # Fallback: run without LangFuse tracing
+        response = await llm.ainvoke(
+            [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt),
+            ]
+        )
+        summary_text = response.content if isinstance(response.content, str) else str(response.content)
+        logger.info(f"Conclusion Agent: LLM summary generated (no tracing) for session {state['session_id']}")
+        return {**state, "summary": summary_text}
 
-    with trace.span(name="summarise") as span:
+    trace = langfuse.get_trace(state["trace_id"])  # type: ignore[missing-attribute]
+
+    with trace.span(name="summarise") as span:  # type: ignore[missing-attribute]
         span.set_input({"turn_count": len(state["session_history"])})
 
         messages = [
@@ -199,7 +238,7 @@ Analyze and extract key learnings."""
         ]
 
         response = await llm.ainvoke(messages)
-        summary_text = response.content
+        summary_text = response.content if isinstance(response.content, str) else str(response.content)
 
         span.set_output({"summary_preview": summary_text[:200] if summary_text else ""})
         span.end()
@@ -231,11 +270,16 @@ async def store_learning(state: ConclusionAgentState) -> ConclusionAgentState:
         logger.error("Conclusion Agent: database adapter not initialized")
         return state
 
+    summary = state["summary"]
+    if summary is None:
+        logger.warning(f"Conclusion Agent: no summary to store for session {state['session_id']}")
+        return state
+
     async with db.transaction() as conn:
         await store_session_learning(
             conn,
             session_id=state["session_id"],
-            summary_text=state["summary"],
+            summary_text=summary,
         )
 
     logger.info(f"Conclusion Agent: stored learning for session {state['session_id']}")
@@ -290,7 +334,7 @@ def create_conclusion_graph() -> CompiledStateGraph:
     CompiledStateGraph
         Compiled graph ready for ``.ainvoke()`` with a ``ConclusionAgentState`` dict.
     """
-    graph = StateGraph(ConclusionAgentState)
+    graph = StateGraph(ConclusionAgentState)  # type: ignore[bad-specialization]
 
     # Add nodes
     graph.add_node("load_session_history", load_session_history)

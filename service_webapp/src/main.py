@@ -92,6 +92,7 @@ try:
 except ImportError:
     AzureOpenAI = None  # type: ignore[assignment]
 
+from agents.conclusion.graph import set_conclusion_adapters
 from agents.guardrails.validator import InputGuardrail
 from agents.rag.retriever import HybridRetriever, set_retriever
 from agents.support.graph import set_guardrail
@@ -138,6 +139,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # exist (create_app wires them to the possibly-None app.state values at build
     # time; the lifespan owns the live instances). [Story 5.4]
     set_support_adapters(app.state.cache_adapter, app.state.db_adapter)
+    # Story 5.10: Wire Conclusion Agent adapters
+    set_conclusion_adapters(app.state.cache_adapter, app.state.db_adapter)
 
     # Story 5.10: Wire Conclusion and Notification Agents at startup
     if getattr(app.state, "conclusion_graph", None) is None:
@@ -602,12 +605,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             set_retriever(None)
         # Story 5.10: Clear Conclusion/Notification Agent singletons
         if "conclusion_graph" in owned:
-            set_conclusion_graph(None)
+            set_conclusion_graph(None)  # type: ignore[arg-type]
         if "notification_graph" in owned:
-            set_notification_graph(None)
+            set_notification_graph(None)  # type: ignore[arg-type]
+        set_conclusion_adapters(None, None)  # type: ignore[arg-type]
         # Clear the Support Agent tool singletons so no in-flight tool call can
         # touch a closed adapter after shutdown (mirrors set_retriever(None)).
-        set_support_adapters(None, None)
+        set_support_adapters(None, None)  # type: ignore[arg-type]
 
 
 def create_app(

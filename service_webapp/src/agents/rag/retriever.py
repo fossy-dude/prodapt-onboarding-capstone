@@ -333,7 +333,7 @@ class HybridRetriever:
             anns_field="embedding",
             limit=top_k,
             output_fields=output_fields,
-            filter=filter_expr,
+            filter=filter_expr,  # type: ignore[bad-argument-type]  # None is valid at runtime
             search_params={"metric_type": "COSINE"},
         )
         if not results or not results[0]:

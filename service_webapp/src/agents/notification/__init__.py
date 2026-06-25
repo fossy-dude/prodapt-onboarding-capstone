@@ -5,6 +5,16 @@ This module exports the compiled Notification Agent graph for use in the Conclus
 
 from __future__ import annotations
 
-from agents.notification.graph import create_notification_graph
+from agents.notification.graph import (
+    create_notification_graph,
+    get_notification_graph,
+    set_kafka_producer,
+    set_notification_graph,
+)
 
-__all__ = ["create_notification_graph"]
+__all__ = [
+    "create_notification_graph",
+    "get_notification_graph",
+    "set_kafka_producer",
+    "set_notification_graph",
+]

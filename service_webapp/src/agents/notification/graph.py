@@ -142,9 +142,40 @@ Decide: should we send a follow-up notification?"""
     )
 
     langfuse = get_langfuse_client()
-    trace = langfuse.get_trace(state["trace_id"])
+    if langfuse is None:
+        # Fallback: run without LangFuse tracing
+        response = await llm.ainvoke(
+            [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt),
+            ]
+        )
+        decision_text = response.content if isinstance(response.content, str) else str(response.content)
+        try:
+            decision = json.loads(decision_text)
+            should_send = bool(decision.get("should_send", False))
+            notification_type = str(decision.get("type", "NONE"))
+            channel = str(decision.get("channel", "push"))
+            delay_hours = int(decision.get("delay_hours", 0))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            should_send = False
+            notification_type = "NONE"
+            channel = "push"
+            delay_hours = 0
+        logger.info(
+            f"Notification Agent: decision (no tracing) for subscriber {state['subscriber_id']}: should_send={should_send}, type={notification_type}"
+        )
+        return {
+            **state,
+            "should_send": should_send,
+            "notification_type": notification_type,
+            "channel": channel,
+            "delay_hours": delay_hours,
+        }
 
-    with trace.span(name="decide_notification") as span:
+    trace = langfuse.get_trace(state["trace_id"])  # type: ignore[missing-attribute]
+
+    with trace.span(name="decide_notification") as span:  # type: ignore[missing-attribute]
         span.set_input({"session_summary": state["session_summary"][:200]})
 
         messages = [
@@ -153,7 +184,7 @@ Decide: should we send a follow-up notification?"""
         ]
 
         response = await llm.ainvoke(messages)
-        decision_text = response.content
+        decision_text = response.content if isinstance(response.content, str) else str(response.content)
 
         # Parse JSON response
         try:
@@ -296,7 +327,7 @@ def create_notification_graph() -> CompiledStateGraph:
     CompiledStateGraph
         Compiled graph ready for ``.ainvoke()`` with a ``NotificationAgentState`` dict.
     """
-    graph = StateGraph(NotificationAgentState)
+    graph = StateGraph(NotificationAgentState)  # type: ignore[bad-specialization]
 
     # Add nodes
     graph.add_node("decide_notification", decide_notification)

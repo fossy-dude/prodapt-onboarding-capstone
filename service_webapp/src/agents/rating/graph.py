@@ -103,7 +103,7 @@ async def fetch_breakdown(state: RatingAgentState) -> RatingAgentState:
             cdr_reference=cdr_reference,
         )
 
-    state["result"] = breakdown
+    state["result"] = ChargeBreakdown(**breakdown) if breakdown is not None else None
     return state
 
 

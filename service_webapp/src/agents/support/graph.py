@@ -143,7 +143,12 @@ async def guardrail_node(state: dict) -> dict:
         db = get_support_db()
         if session_id and db is not None:
             try:
-                await log_rejection(db, session_id, result.rejection_reason, message_content)
+                await log_rejection(
+                    db,
+                    session_id,
+                    result.rejection_reason or "UNKNOWN",
+                    message_content,
+                )
             except Exception as exc:
                 logger.warning("guardrail_node: log_rejection failed: %s", exc)
         elif session_id:
