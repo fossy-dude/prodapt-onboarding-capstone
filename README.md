@@ -233,13 +233,10 @@ Idempotent — re-running refreshes this section.
 - **User Pool:** `sboai-subscribers` — ID: `ap-south-1_RqEFMnEjO`
 - **App Client:** `sboai-webapp` — ID: `RnxOQc5rB5ITY8abDvwVbvhXen`
 - **Endpoint / region:** `http://localhost:4566` / `ap-south-1` (MiniStack / LocalStack)
-- **Auth model:** backend-driven passwordless OTP (Epic 3). OTP is minted server-side,
-  stored in Valkey (`login_otp:{identifier}`), published to `notification.events`, then
-  verified before tokens are minted via `admin_initiate_auth(ADMIN_NO_SRP_AUTH)`.
-  Roles surface as the `cognito:groups` claim — the backend reads `cognito:groups`, not `role`.
-- **No SNS in MVP:** login OTP is published to Redpanda `notification.events` and
-  surfaced on the Notification Portal. Staff users have a deterministic local password
-  (`sboai-local-{username}-pw`) seeded by `provision_cognito.py` for token minting.
+- **Auth model:** passwordless Custom Auth Flow (Story 1.8). Roles surface as the
+  `cognito:groups` claim — the backend auth layer reads `cognito:groups`, not `role`.
+- **No SNS in MVP:** login OTP is published to the Redpanda `notification.events`
+  stream and surfaced on the Notification Portal (Story 1.8 / Notification-Portal epic).
 
 Seeded test users (one per non-subscriber role; subscriber users come from registration):
 

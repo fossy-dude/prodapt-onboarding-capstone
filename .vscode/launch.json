@@ -12,8 +12,8 @@
             "args": [
                 "main:app",
                 "--reload",
-                "--log-level",
-                "debug",
+                // "--log-level",
+                // "debug",
                 "--port",
                 "8000"
             ],

@@ -270,7 +270,7 @@ def _get_sub(client, pool_id: str, username: str) -> str | None:
     return None
 
 
-_ADMIN_PASSWORD_SEED = "sboai-local-{username}-pw"
+_ADMIN_PASSWORD_SEED = "SboAI-Local-{username}-Pw1!"
 
 
 def seed_users(client, pool_id: str) -> list[dict]:

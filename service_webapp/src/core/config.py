@@ -113,7 +113,7 @@ class Settings(BaseSettings):
     notification_portal_open_in_dev: bool = False
     # Deterministic per-user password seeded by provision_cognito.py for ADMIN_NO_SRP_AUTH.
     # Interpolated as: seed.format(username=username)
-    cognito_local_admin_password_seed: str = "sboai-local-{username}-pw"
+    cognito_local_admin_password_seed: str = "SboAI-Local-{username}-Pw1!"
 
     # ── Optional: OpenTelemetry exporter ─────────────────────────────────────
     otel_exporter_otlp_endpoint: str = "http://localhost:4318"
