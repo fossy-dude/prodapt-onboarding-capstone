@@ -97,6 +97,7 @@ function Chatbot({ sessionId }: ChatbotProps) {
   // Story 5.6 AC #3: render plan recommendation cards when list_plans tool is called.
   useCopilotAction({
     name: "list_plans",
+    available: "disabled",
     render: ({ result }) => {
       const plans = result?.plans ?? [];
       return (
@@ -125,6 +126,7 @@ function Chatbot({ sessionId }: ChatbotProps) {
   // Story 5.7 AC #3: render charge breakdown table when charge_explain tool is called.
   useCopilotAction({
     name: "charge_explain",
+    available: "disabled",
     render: ({ result }) => {
       if (!result?.found || !result?.breakdown) {
         return null;
@@ -136,6 +138,7 @@ function Chatbot({ sessionId }: ChatbotProps) {
   // Story 5.8 AC #2/#3: render ticket confirmation banner when ticket_create tool is called.
   useCopilotAction({
     name: "ticket_create",
+    available: "disabled",
     render: ({ result }) => {
       if (!result?.ticket_id) {
         return null;

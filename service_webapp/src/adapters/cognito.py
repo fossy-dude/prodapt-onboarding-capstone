@@ -33,10 +33,18 @@ from core.security import to_e164
 if TYPE_CHECKING:
     from core.config import Settings
     from core.login_otp import LoginOtpService
+    from core.protocols.db import DatabaseProtocol
 
 logger = logging.getLogger(__name__)
 
 _OTP_LENGTH = 6
+
+
+class _PhoneUserNotInCognito(Exception):
+    """Raised when a phone-number identifier has no matching Cognito user — check Postgres next."""
+
+    def __init__(self, e164: str) -> None:
+        self.e164 = e164
 
 
 @runtime_checkable
@@ -131,8 +139,9 @@ class MinistackCognitoProvider:
     created idempotently on first use and cached for the process lifetime.
     """
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, db_adapter: DatabaseProtocol | None = None) -> None:
         self._settings = settings
+        self._db_adapter = db_adapter
         self._client: Any = None  # boto3 cognito-idp client (dynamically typed)
         self._user_pool_id: str | None = None
         self._client_id: str | None = None
@@ -228,6 +237,7 @@ class MinistackCognitoProvider:
             )
         except Exception:
             logger.warning("admin_set_user_password failed for username=%s — login may not work", username)
+        self._add_to_group_sync(pool_id, username, "subscriber")
 
     async def start_verification(self, phone_number: str | None) -> str:
         """Generate + capture the verification OTP (delivery simulated per Story 1.6).
@@ -253,9 +263,16 @@ class MinistackCognitoProvider:
 
         try:
             pool_id, client_id = await self._ensure_pool()
-            username, seed_password = await asyncio.to_thread(
-                self._resolve_username_and_password_sync, pool_id, identifier
-            )
+            try:
+                username, seed_password = await asyncio.to_thread(
+                    self._resolve_username_and_password_sync, pool_id, identifier
+                )
+            except _PhoneUserNotInCognito as _not_provisioned:
+                username, seed_password = await self._provision_phone_user_if_exists(pool_id, _not_provisioned.e164)
+            # Ensure phone subscribers carry the subscriber group claim in their token.
+            # Covers users provisioned before group assignment was added to the provision path.
+            if username.startswith("+") and username[1:].isdigit():
+                await asyncio.to_thread(self._add_to_group_sync, pool_id, username, "subscriber")
             resp = await asyncio.to_thread(
                 self._boto_client().admin_initiate_auth,
                 UserPoolId=pool_id,
@@ -320,11 +337,82 @@ class MinistackCognitoProvider:
             )
             users = resp.get("Users", [])
             if not users:
+                # Phone user not in Cognito — signal to auto-provision from Postgres.
+                if identifier.isdigit() and len(identifier) == 10:
+                    raise _PhoneUserNotInCognito(e164)
                 raise AccountNotFoundError()
             username = users[0]["Username"]
 
-        seed = self._settings.cognito_local_admin_password_seed.format(username=username)
+        # Phone-provisioned users have their E.164 as the Cognito username; they use
+        # the static phone password.  All other users use the per-user seed password.
+        if username.startswith("+") and username[1:].isdigit():
+            seed = self._settings.cognito_phone_user_default_password
+        else:
+            seed = self._settings.cognito_local_admin_password_seed.format(username=username)
         return username, seed
+
+    def _provision_phone_user_sync(self, pool_id: str, e164: str) -> None:
+        """Create a Cognito user for a phone-number subscriber with the static phone password."""
+        client = self._boto_client()
+        try:
+            client.admin_create_user(
+                UserPoolId=pool_id,
+                Username=e164,
+                UserAttributes=[{"Name": "phone_number", "Value": e164}],
+                MessageAction="SUPPRESS",
+            )
+        except Exception as exc:
+            error_code = ""
+            try:
+                error_code = exc.response["Error"]["Code"]  # type: ignore[attr-defined]
+            except (AttributeError, KeyError, TypeError):
+                pass
+            if error_code != "UsernameExistsException":
+                raise
+        try:
+            client.admin_set_user_password(
+                UserPoolId=pool_id,
+                Username=e164,
+                Password=self._settings.cognito_phone_user_default_password,
+                Permanent=True,
+            )
+        except Exception:
+            logger.warning("admin_set_user_password failed for phone user %s", _safe_phone(e164))
+        self._add_to_group_sync(pool_id, e164, "subscriber")
+
+    async def _provision_phone_user_if_exists(self, pool_id: str, e164: str) -> tuple[str, str]:
+        """Verify subscriber exists in Postgres, provision in Cognito, return (username, password).
+
+        The E.164 phone number is used as the Cognito username.  Raises
+        :class:`~core.errors.AccountNotFoundError` when ``db_adapter`` is absent or
+        the MSISDN is unknown in Postgres.
+        """
+        if self._db_adapter is None:
+            raise AccountNotFoundError()
+        from db.identity.queries import get_subscriber_by_msisdn  # noqa: PLC0415
+
+        national = e164[-10:]
+        async with self._db_adapter.transaction() as conn:
+            row = await get_subscriber_by_msisdn(conn, national)
+            if row is None:
+                # Seed data stores msisdn as 91XXXXXXXXXX (no leading +).
+                row = await get_subscriber_by_msisdn(conn, f"91{national}")
+        if row is None:
+            raise AccountNotFoundError()
+        await asyncio.to_thread(self._provision_phone_user_sync, pool_id, e164)
+        logger.info("Auto-provisioned Cognito user for phone %s from Postgres", _safe_phone(e164))
+        return e164, self._settings.cognito_phone_user_default_password
+
+    def _add_to_group_sync(self, pool_id: str, username: str, group_name: str) -> None:
+        """Idempotently assign a Cognito user to a group so the claim appears in minted tokens."""
+        try:
+            self._boto_client().admin_add_user_to_group(
+                UserPoolId=pool_id,
+                Username=username,
+                GroupName=group_name,
+            )
+        except Exception:
+            logger.warning("admin_add_user_to_group failed for username=%s group=%s", _safe_phone(username), group_name)
 
     # ── helpers ───────────────────────────────────────────────────────────────
     @staticmethod

@@ -110,12 +110,21 @@ if TYPE_CHECKING:
     from core.protocols.vector_store import VectorStoreProtocol
 
 
+def _setup_logging() -> None:
+    """Configure logging levels for third-party libraries.
+
+    Suppresses verbose/recoverable error logs from dependencies like aiokafka.
+    """
+    logging.getLogger("aiokafka.consumer.group_coordinator").setLevel(logging.WARNING)
+
+
 def _setup_tracer() -> None:
     """Install a real ``TracerProvider`` so fresh root spans get real trace ids.
 
     Idempotent across repeated app construction (tests create the app many times):
     OTel raises if a provider is already set, which we treat as a no-op.
     """
+    _setup_logging()
     try:
         trace.set_tracer_provider(TracerProvider())
     except Exception:
@@ -180,7 +189,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             logging.getLogger(__name__).warning("Milvus Lite unavailable at startup: %s", exc)
             app.state.milvus_adapter = None
     if getattr(app.state, "cognito_provider", None) is None:
-        app.state.cognito_provider = MinistackCognitoProvider(settings)
+        app.state.cognito_provider = MinistackCognitoProvider(settings, db_adapter=app.state.db_adapter)
     # RAG retriever (Story 5.3): construct the AzureOpenAI client + HybridRetriever
     # and register the process-wide singleton so the ``rag_search`` LangGraph tool
     # callable resolves without DI closures. Azure/LangFuse are optional — missing

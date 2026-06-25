@@ -114,6 +114,9 @@ class Settings(BaseSettings):
     # Deterministic per-user password seeded by provision_cognito.py for ADMIN_NO_SRP_AUTH.
     # Interpolated as: seed.format(username=username)
     cognito_local_admin_password_seed: str = "SboAI-Local-{username}-Pw1!"
+    # Static password used when auto-provisioning seed subscribers (phone-number login path).
+    # All phone-number users who were never explicitly provisioned in Cognito share this password.
+    cognito_phone_user_default_password: str = "SboAI-Phone-Default-1!"
 
     # ── Optional: OpenTelemetry exporter ─────────────────────────────────────
     otel_exporter_otlp_endpoint: str = "http://localhost:4318"
