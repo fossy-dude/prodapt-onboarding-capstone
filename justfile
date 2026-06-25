@@ -212,5 +212,5 @@ format:
 
 
 # Monitoring
-just monitor_otel:
+monitor_otel:
     podman attach otel-tui

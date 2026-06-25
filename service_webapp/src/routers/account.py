@@ -33,7 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from core.auth import require_role
 from core.errors import DomainError, ForbiddenError, NotFoundError, UnauthenticatedError
 from core.responses import success_envelope
-from core.security import mask_msisdn
+from core.security import mask_msisdn, normalize_login_identifier
 from services.registration import (
     REGISTRATION_STATUS,
     RegistrationCommand,
@@ -161,6 +161,11 @@ class LoginInitiateRequest(BaseModel):
     # P9: bound length to prevent unbounded strings reaching Cognito.
     identifier: str = Field(min_length=1, max_length=128, description="Registration ID or MSISDN.")
 
+    @field_validator("identifier")
+    @classmethod
+    def _normalize_identifier(cls, v: str) -> str:
+        return normalize_login_identifier(v)
+
 
 class LoginVerifyRequest(BaseModel):
     """Verify the OTP challenge and receive JWT tokens."""
@@ -173,6 +178,11 @@ class LoginVerifyRequest(BaseModel):
     )
     session: str = Field(min_length=1, description="Session string returned by the initiate endpoint.")
     otp: str = Field(min_length=6, max_length=6, description="6-digit OTP delivered via the Notification Portal.")
+
+    @field_validator("identifier")
+    @classmethod
+    def _normalize_identifier(cls, v: str) -> str:
+        return normalize_login_identifier(v)
 
 
 def _cognito(request: Request):

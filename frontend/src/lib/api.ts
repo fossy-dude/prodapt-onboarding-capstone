@@ -61,11 +61,12 @@ apiClient.interceptors.response.use(
 
 /** Error codes the API returns in the standard error envelope (§1.11.3). */
 export const ERROR_CODES = {
+  ACCOUNT_NOT_FOUND: "ACCOUNT_NOT_FOUND",
   DUPLICATE_MSISDN: "DUPLICATE_MSISDN",
-  VALIDATION_ERROR: "VALIDATION_ERROR",
-  UNAUTHENTICATED: "UNAUTHENTICATED",
-  FORBIDDEN: "FORBIDDEN",
   OTP_INVALID: "OTP_INVALID",
+  UNAUTHENTICATED: "UNAUTHENTICATED",
+  VALIDATION_ERROR: "VALIDATION_ERROR",
+  FORBIDDEN: "FORBIDDEN",
 } as const;
 
 export interface ApiError {

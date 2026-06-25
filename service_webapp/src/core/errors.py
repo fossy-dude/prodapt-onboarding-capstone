@@ -79,6 +79,14 @@ class OtpVerificationError(DomainError):
     message = "OTP verification failed — invalid or expired."
 
 
+class AccountNotFoundError(DomainError):
+    """Login identifier does not resolve to a Cognito user (unknown MSISDN / reg ID / username)."""
+
+    code = "ACCOUNT_NOT_FOUND"
+    http_status = 401
+    message = "Not an active subscriber — check your Registration ID or mobile number."
+
+
 class NotFoundError(DomainError):
     """Requested resource does not exist (404)."""
 
@@ -128,7 +136,9 @@ def register_exception_handlers(app: FastAPI) -> None:
 
 
 __all__ = [
+    "AccountNotFoundError",
     "CognitoProvisioningError",
+    "ConflictError",
     "DomainError",
     "DuplicateMsisdnError",
     "ForbiddenError",

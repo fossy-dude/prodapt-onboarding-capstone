@@ -15,8 +15,14 @@ import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 
-import { initiateLogin, verifyLoginOtp } from "../../lib/api";
+import {
+  initiateLogin,
+  toApiError,
+  verifyLoginOtp,
+  ERROR_CODES,
+} from "../../lib/api";
 import { getRole, isAuthenticated, saveToken } from "../../lib/auth";
+import { validateIdentifier } from "./identifier";
 
 /** Map portal role to its root route. */
 const ROLE_ROUTE: Record<string, string> = {
@@ -34,8 +40,10 @@ function Login() {
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>("identifier");
   const [identifier, setIdentifier] = useState("");
+  const [normalizedIdentifier, setNormalizedIdentifier] = useState("");
   const [session, setSession] = useState("");
   const [otp, setOtp] = useState("");
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   // P19: server state via TanStack Query useMutation (spec Task 4 / Dev Notes §1.9.3).
   const initiateMutation = useMutation({
@@ -80,21 +88,42 @@ function Login() {
 
   function handleInitiate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    initiateMutation.mutate(identifier);
+    setValidationError(null);
+
+    const result = validateIdentifier(identifier);
+    if (result.ok) {
+      setNormalizedIdentifier(result.value);
+      initiateMutation.mutate(result.value);
+    } else {
+      setValidationError(result.error);
+    }
   }
 
   function handleVerify(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    verifyMutation.mutate({ id: identifier, sess: session, code: otp });
+    verifyMutation.mutate({
+      id: normalizedIdentifier,
+      sess: session,
+      code: otp,
+    });
   }
 
-  const error = initiateMutation.isError
-    ? "Failed to initiate login. Check your Registration ID or MSISDN."
-    : verifyMutation.isError
-      ? "OTP verification failed — check the code and try again."
-      : verifyMutation.isSuccess && getRole() === null
-        ? "Unrecognized account role — contact support."
-        : null;
+  const error =
+    validationError !== null
+      ? validationError
+      : initiateMutation.isError
+        ? (() => {
+            const apiErr = toApiError(initiateMutation.error);
+            if (apiErr?.code === ERROR_CODES.ACCOUNT_NOT_FOUND) {
+              return apiErr.message;
+            }
+            return "Failed to initiate login. Check your Registration ID or MSISDN.";
+          })()
+        : verifyMutation.isError
+          ? "OTP verification failed — check the code and try again."
+          : verifyMutation.isSuccess && getRole() === null
+            ? "Unrecognized account role — contact support."
+            : null;
 
   const loading = initiateMutation.isPending || verifyMutation.isPending;
 

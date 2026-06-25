@@ -23,7 +23,7 @@ import logging
 import secrets
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from core.errors import CognitoProvisioningError, OtpVerificationError
+from core.errors import AccountNotFoundError, CognitoProvisioningError, OtpVerificationError
 
 if TYPE_CHECKING:
     from core.config import Settings
@@ -248,6 +248,14 @@ class MinistackCognitoProvider:
             logger.info("Cognito Custom Auth initiated for identifier=%s", _safe_phone(identifier))
             return session
         except Exception as exc:
+            err_code = ""
+            try:
+                err_code = exc.response["Error"]["Code"]  # type: ignore[attr-defined]
+            except (AttributeError, KeyError, TypeError):
+                pass
+            if err_code == "UserNotFoundException":
+                # Unknown identifier is a client error, not a provisioning/infra failure.
+                raise AccountNotFoundError() from exc
             logger.exception("Cognito login initiation failed for identifier=%s", _safe_phone(identifier))
             raise CognitoProvisioningError(f"Login initiation failed: {exc}") from exc
 

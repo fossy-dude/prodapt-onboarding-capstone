@@ -103,8 +103,17 @@ class Settings(BaseSettings):
 
     # ── Optional: OTP step-up (Story 1.8) ────────────────────────────────────
     # Valkey key TTL (seconds) for mid-session step-up OTP (otp:{msisdn}).
-    # Distinct from the Cognito login OTP — see §1.7.3.
+    # Distinct from the login OTP below.
     otp_step_up_ttl_seconds: int = 300
+
+    # ── Optional: passwordless login OTP (Epic 3) ────────────────────────────
+    # Valkey key TTL for login OTP (login_otp:{identifier}). Distinct prefix from step-up.
+    otp_login_ttl_seconds: int = 300
+    # Allow anonymous WebSocket connections to /ws/notifications (dev bootstrap only).
+    notification_portal_open_in_dev: bool = False
+    # Deterministic per-user password seeded by provision_cognito.py for ADMIN_NO_SRP_AUTH.
+    # Interpolated as: seed.format(username=username)
+    cognito_local_admin_password_seed: str = "sboai-local-{username}-pw"
 
     # ── Optional: OpenTelemetry exporter ─────────────────────────────────────
     otel_exporter_otlp_endpoint: str = "http://localhost:4318"
