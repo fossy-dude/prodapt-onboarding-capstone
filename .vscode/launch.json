@@ -1,0 +1,31 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "FastAPI: service_webapp (debug)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "main:app",
+                "--reload",
+                "--log-level",
+                "debug",
+                "--port",
+                "8000"
+            ],
+            "cwd": "${workspaceFolder}/service_webapp",
+            "env": {
+                "PYTHONPATH": "src",
+                "DEBUG": "1"
+            },
+            "envFile": "${workspaceFolder}/service_webapp/.env",
+            "console": "integratedTerminal",
+            "python": "${workspaceFolder}/service_webapp/.venv/bin/python",
+            "justMyCode": false
+        }
+    ]
+}
