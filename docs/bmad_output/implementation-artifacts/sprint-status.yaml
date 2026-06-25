@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-24  # Story 5.7 → review (Rating Agent - Charge Breakdown Explanation)
+last_updated: 2026-06-25  # Story 5.9 → review (Plan Recommendation Tool & Feedback Loop)
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -98,19 +98,19 @@ development_status:
   5-5-input-validation-guardrails: done
   5-6-recharge-via-chatbot-multi-agent-tool-calls: done
   5-7-rating-agent-charge-breakdown-explanation: review
-  5-8-dispute-workflow-balance-management-agent: ready-for-dev
-  5-9-plan-recommendation-tool-feedback-loop: ready-for-dev
+  5-8-dispute-workflow-balance-management-agent: in-progress
+  5-9-plan-recommendation-tool-feedback-loop: review
   5-10-conclusion-agent-notification-agent-session-end: ready-for-dev
   epic-5-retrospective: optional
 
   # Epic 6: Fraud Detection (TDD-first)
-  epic-6: backlog
-  6-1-eval-harness-fraud-detection-agent-accuracy: backlog
-  6-2-rule-based-cdr-pre-screener: backlog
-  6-3-fraud-detection-agent-llm-powered-risk-analysis: backlog
-  6-4-real-time-anomaly-feed-fraud-case-queue-ui: backlog
-  6-5-sim-swap-suspicious-recharge-alerts: backlog
-  6-6-account-takeover-prevention-blacklist-cognito-disable-jwt-revocation: backlog
+  epic-6: in-progress
+  6-1-eval-harness-fraud-detection-agent-accuracy: ready-for-dev
+  6-2-rule-based-cdr-pre-screener: ready-for-dev
+  6-3-fraud-detection-agent-llm-powered-risk-analysis: ready-for-dev
+  6-4-real-time-anomaly-feed-fraud-case-queue-ui: ready-for-dev
+  6-5-sim-swap-suspicious-recharge-alerts: ready-for-dev
+  6-6-account-takeover-prevention-blacklist-cognito-disable-jwt-revocation: ready-for-dev
   epic-6-retrospective: optional
 
   # Epic 7: Ops & Marketing Dashboard (TDD-first)
