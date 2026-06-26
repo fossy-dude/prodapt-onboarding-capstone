@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     azure_openai_endpoint: str = ""
     azure_openai_api_version: str = "2024-08-01-preview"
 
+    # ── Optional: Azure OpenAI deployment names (Story 5.2) ───────────────────
+    # Deployment names (NOT model names) — the user sets these to match their
+    # Azure portal deployments. ``chat_deployment_mini`` is the cheaper deployment
+    # used for judge/eval calls; ``chat_deployment`` is the primary agent
+    # deployment (wired in Story 5.4). [Source: architecture.md:98]
+    chat_deployment_mini: str = "gpt-5.4-mini"
+    chat_deployment: str = "gpt-5.4"
+
     # ── Embedding config (Story 2.7) ──────────────────────────────────────────
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
@@ -73,7 +81,7 @@ class Settings(BaseSettings):
 
     # ── Optional: LangFuse (Story 1.5) — connection-free when disabled ───────
     langfuse_enabled: bool = False
-    langfuse_host: str = "http://localhost:3000"
+    langfuse_base_url: str = "http://localhost:3000"
     langfuse_secret_key: str = ""
     langfuse_public_key: str = ""
 
@@ -95,13 +103,37 @@ class Settings(BaseSettings):
 
     # ── Optional: OTP step-up (Story 1.8) ────────────────────────────────────
     # Valkey key TTL (seconds) for mid-session step-up OTP (otp:{msisdn}).
-    # Distinct from the Cognito login OTP — see §1.7.3.
+    # Distinct from the login OTP below.
     otp_step_up_ttl_seconds: int = 300
+
+    # ── Optional: passwordless login OTP (Epic 3) ────────────────────────────
+    # Valkey key TTL for login OTP (login_otp:{identifier}). Distinct prefix from step-up.
+    otp_login_ttl_seconds: int = 300
+    # Allow anonymous WebSocket connections to /ws/notifications (dev bootstrap only).
+    notification_portal_open_in_dev: bool = False
+    # Deterministic per-user password seeded by provision_cognito.py for ADMIN_NO_SRP_AUTH.
+    # Interpolated as: seed.format(username=username)
+    cognito_local_admin_password_seed: str = "SboAI-Local-{username}-Pw1!"
+    # Static password used when auto-provisioning seed subscribers (phone-number login path).
+    # All phone-number users who were never explicitly provisioned in Cognito share this password.
+    cognito_phone_user_default_password: str = "SboAI-Phone-Default-1!"
 
     # ── Optional: OpenTelemetry exporter ─────────────────────────────────────
     otel_exporter_otlp_endpoint: str = "http://localhost:4318"
     otel_exporter_otlp_protocol: str = "http/protobuf"
     otel_service_name: str = "service_webapp"
+
+    # ── Optional: Dev mode (local / CI only) ─────────────────────────────────
+    # Skips RS256 signature verification against the Cognito JWKS endpoint.
+    # LocalStack Community does not serve /.well-known/jwks.json, so JWKS fetches
+    # fail in local dev. Claims (expiry, groups, sub) are still validated.
+    # Never set True in production.
+    dev_mode: bool = False
+
+    # ── Optional: Rate limiting (Story 4.3) ───────────────────────────────────
+    # Default False (MVP stub — architecture §1.7.3: "not in MVP"). Set True to
+    # activate Valkey-backed per-subscriber-per-channel 100 RPM enforcement.
+    rate_limiting_enabled: bool = False
 
 
 # Eager singleton: importing this module loads (and validates) all settings once.

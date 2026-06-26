@@ -70,6 +70,20 @@ class Psycopg3AsyncAdapter(DatabaseProtocol):
             return False
 
     @asynccontextmanager
+    async def connection(self) -> AsyncIterator[AsyncConnection]:
+        """Yield a pooled connection for SELECT-only reads (no explicit transaction).
+
+        Used by read-only ops/forecast queries (CQRS read side, ARCH-4). The pool is
+        opened idempotently so first use after boot does not fail. Unlike
+        :meth:`transaction`, no explicit transaction is begun; callers that mutate must
+        use :meth:`transaction` instead — the pool resets (rolls back) any open
+        transaction on check-in, so writes issued here would not persist.
+        """
+        await self._pool.open()
+        async with self._pool.connection() as conn:
+            yield conn
+
+    @asynccontextmanager
     async def transaction(self) -> AsyncIterator[AsyncConnection]:
         """Yield a pooled connection inside an explicit transaction.
 

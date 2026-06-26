@@ -34,18 +34,24 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
 import uuid
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from psycopg import AsyncConnection
 
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, TypeAdapter
 
 from core.auth import require_role
+from core.config import settings
 from core.errors import DomainError, NotFoundError, UnauthenticatedError
 from core.responses import success_envelope
 from core.security import mask_msisdn
+from db.identity.queries import get_subscriber_id_by_msisdn
 from models.cdr import CdrEvent, CdrType
 from models.envelope import EventEnvelope
 
@@ -152,6 +158,71 @@ def _validate_order_id(order_id: str) -> None:
         raise NotFoundError("Order not found.") from exc
 
 
+async def _compute_cost_paise(
+    conn: Any,
+    subscriber_id: uuid.UUID,
+    cdr_type: str,
+    duration_seconds: int | None,
+    volume_mb: float | None,
+) -> int:
+    """Compute CDR cost in paise from the subscriber's active plan config.
+
+    Looks up unlimited flags first (NULL quota → zero charge). Per-unit rates
+    come from plans_plan_config; defaults are 50p/min (voice), 10p/MB (data),
+    100p/SMS. Returns 0 when no active plan exists.
+    """
+    cur = await conn.execute(
+        """
+        SELECT ps.plan_id, pp.voice_minutes, pp.data_limit_mb, pp.sms_count
+          FROM plans_subscriptions ps
+          JOIN plans_plans pp ON pp.id = ps.plan_id
+         WHERE ps.subscriber_id = %s::uuid AND ps.status = 'active'
+         ORDER BY ps.start_date DESC
+         LIMIT 1
+        """,
+        (str(subscriber_id),),
+    )
+    row = await cur.fetchone()
+    if row is None:
+        return 0
+
+    plan_id, voice_minutes, data_limit_mb, sms_count = row
+
+    if cdr_type == "voice" and voice_minutes is None:
+        return 0
+    if cdr_type == "data" and data_limit_mb is None:
+        return 0
+    if cdr_type == "sms" and sms_count is None:
+        return 0
+
+    config_key = f"{cdr_type}_rate_paise"
+    cur = await conn.execute(
+        """
+        SELECT config_value FROM plans_plan_config
+         WHERE plan_id = %s::uuid AND config_key = %s
+         LIMIT 1
+        """,
+        (str(plan_id), config_key),
+    )
+    rate_row = await cur.fetchone()
+
+    _DEFAULTS = {"voice": 50, "data": 10, "sms": 100}
+    rate = _DEFAULTS.get(cdr_type, 0)
+    if rate_row is not None:
+        try:
+            rate = int(rate_row[0])
+        except (ValueError, TypeError):
+            pass
+
+    if cdr_type == "voice":
+        return round(rate * (duration_seconds or 0) / 60)
+    if cdr_type == "data":
+        return round(rate * (volume_mb or 0))
+    if cdr_type == "sms":
+        return rate
+    return 0
+
+
 def _build_cdr_payload(body: CdrDispatchRequest, subscriber_id: uuid.UUID) -> dict[str, Any]:
     """Construct the CDR payload dict compatible with the cdr-pipeline CdrEvent schema."""
     now = datetime.now(UTC)
@@ -200,10 +271,6 @@ async def dispatch_cdr(
 
     Reuses the OTEL ``request.state.trace_id`` for end-to-end trace continuity:
     HTTP span → Kafka header → cdr-pipeline consumer (NFR-17).
-
-    The subscriber_id is a synthetic UUID derived deterministically from the MSISDN
-    for the simulator — no DB lookup is performed so the simulator works without
-    real subscriber rows.
     """
     producer = getattr(request.app.state, "kafka_producer", None)
     if producer is None:
@@ -212,9 +279,28 @@ async def dispatch_cdr(
         err.http_status = 503
         raise err
 
+    db = getattr(request.app.state, "db_adapter", None)
+    if db is None:
+        err = DomainError("DB adapter is not initialised.")
+        err.code = "NOT_READY"
+        err.http_status = 503
+        raise err
+
+    async with db.connection() as conn:
+        subscriber_id_str = await get_subscriber_id_by_msisdn(conn, body.subscriber_msisdn)
+        if subscriber_id_str is None:
+            raise NotFoundError(f"Subscriber not found for MSISDN {body.subscriber_msisdn}")
+        subscriber_id = uuid.UUID(subscriber_id_str)
+
+        effective_cost_paise = body.cost_paise
+        if effective_cost_paise == 0:
+            effective_cost_paise = await _compute_cost_paise(
+                conn, subscriber_id, body.cdr_type, body.duration_seconds, body.volume_mb
+            )
+
     trace_id = getattr(request.state, "trace_id", "0" * 32)
-    subscriber_id = uuid.uuid5(uuid.NAMESPACE_DNS, body.subscriber_msisdn)
     cdr_payload = _build_cdr_payload(body, subscriber_id)
+    cdr_payload["cost_paise"] = effective_cost_paise
 
     _CDR_EVENT_ADAPTER.validate_python(cdr_payload)
 
@@ -248,7 +334,7 @@ async def dispatch_cdr(
     )
 
 
-@router.websocket("/ws/simulator/trace")
+@ws_router.websocket("/ws/simulator/trace")
 async def simulator_trace_ws(ws: WebSocket) -> None:
     """Stream pipeline stage events to connected developer clients (AC #2, #3, #4).
 
@@ -288,6 +374,31 @@ async def simulator_trace_ws(ws: WebSocket) -> None:
 
 
 # ── SIM activation (Story 2.9) ────────────────────────────────────────────────
+
+_MSISDN_PREFIXES = ("6", "7", "8", "9")
+_MAX_MSISDN_ATTEMPTS = 10
+
+
+async def _generate_unique_msisdn(conn: AsyncConnection) -> str:
+    """Generate a random 10-digit Indian mobile number not already in use.
+
+    Indian mobile numbers start with 6, 7, 8, or 9. Retries up to
+    _MAX_MSISDN_ATTEMPTS times before raising a DomainError.
+    """
+    for _ in range(_MAX_MSISDN_ATTEMPTS):
+        prefix = _MSISDN_PREFIXES[secrets.randbelow(4)]
+        suffix = "".join(str(secrets.randbelow(10)) for _ in range(9))
+        msisdn = prefix + suffix
+        cur = await conn.execute(
+            "SELECT 1 FROM identity_subscribers WHERE msisdn = %s",
+            (msisdn,),
+        )
+        if await cur.fetchone() is None:
+            return msisdn
+    err = DomainError("Could not allocate a unique MSISDN after multiple attempts.")
+    err.code = "MSISDN_EXHAUSTED"
+    err.http_status = 500
+    raise err
 
 
 class ActivateRequest(BaseModel):
@@ -412,7 +523,7 @@ async def activate_subscriber(
         row = await cur.fetchone()
         if row is None:
             raise NotFoundError("No subscriber with an activation order matched the lookup.")
-        subscriber_id, msisdn, order_id, _plan_id, _status, price_paise = row
+        subscriber_id, stored_msisdn, order_id, _plan_id, _status, price_paise = row
 
         # Lock the order before transitioning so two concurrent activations
         # cannot both flip it to ACTIVATED.
@@ -428,6 +539,16 @@ async def activate_subscriber(
             err.code = "ILLEGAL_TRANSITION"
             err.http_status = 400
             raise err
+
+        # Auto-generate an MSISDN if one has not been assigned yet.
+        if stored_msisdn is None:
+            msisdn = await _generate_unique_msisdn(conn)
+            await conn.execute(
+                "UPDATE identity_subscribers SET msisdn = %s WHERE id = %s::uuid",
+                (msisdn, subscriber_id),
+            )
+        else:
+            msisdn = stored_msisdn
 
         await conn.execute(
             """
@@ -491,7 +612,19 @@ async def notifications_ws(ws: WebSocket) -> None:
     The broadcaster task (lifespan) fans incoming ``notification.events`` Kafka
     messages — with MSISDN masked to ``[-4:]`` server-side (PII hygiene) — to all
     active connections. This endpoint only manages the WS lifecycle.
+
+    Dev bootstrap: when ``NOTIFICATION_PORTAL_OPEN_IN_DEV=true``, anonymous
+    connections are accepted so the first login OTP is visible before a token exists.
     """
+    if settings.notification_portal_open_in_dev:
+        await notification_connection_manager.connect(ws)
+        try:
+            while True:
+                await ws.receive_text()
+        except WebSocketDisconnect:
+            notification_connection_manager.disconnect(ws)
+        return
+
     token = ws.query_params.get("token")
     if not token:
         await ws.close(code=4001)

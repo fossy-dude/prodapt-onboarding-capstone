@@ -12,15 +12,21 @@
  */
 
 import { useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 
-import { initiateLogin, verifyLoginOtp } from "../../lib/api";
-import { getRole, isAuthenticated, saveToken } from "../../lib/auth";
+import {
+  initiateLogin,
+  toApiError,
+  verifyLoginOtp,
+  ERROR_CODES,
+} from "../../lib/api";
+import { getRole, isAuthenticated, saveRefreshToken, saveToken } from "../../lib/auth";
+import { type IdentifierKind, validateIdentifier } from "./identifier";
 
 /** Map portal role to its root route. */
 const ROLE_ROUTE: Record<string, string> = {
-  subscriber: "/subscriber",
+  subscriber: "/subscriber/dashboard",
   ops: "/ops",
   fraud: "/fraud",
   dev: "/simulator",
@@ -34,35 +40,33 @@ function Login() {
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>("identifier");
   const [identifier, setIdentifier] = useState("");
-  const [session, setSession] = useState("");
+  const [normalizedIdentifier, setNormalizedIdentifier] = useState("");
+  const [identifierKind, setIdentifierKind] = useState<IdentifierKind | null>(null);
   const [otp, setOtp] = useState("");
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   // P19: server state via TanStack Query useMutation (spec Task 4 / Dev Notes §1.9.3).
   const initiateMutation = useMutation({
     mutationFn: (id: string) => initiateLogin(id),
-    onSuccess: (result) => {
-      setSession(result.session);
+    onSuccess: () => {
       setStep("otp");
     },
   });
 
   const verifyMutation = useMutation({
-    mutationFn: ({
-      id,
-      sess,
-      code,
-    }: {
-      id: string;
-      sess: string;
-      code: string;
-    }) => verifyLoginOtp(id, sess, code),
+    mutationFn: ({ id, code }: { id: string; code: string }) =>
+      verifyLoginOtp(id, code),
     onSuccess: (tokens) => {
       saveToken(tokens.access_token);
+      if (tokens.refresh_token) saveRefreshToken(tokens.refresh_token);
       const role = getRole();
       // P18: guard unknown role — don't navigate to '/' which wildcard-redirects to /login.
-      const route = role !== null ? (ROLE_ROUTE[role] ?? null) : null;
+      let route = role !== null ? (ROLE_ROUTE[role] ?? null) : null;
       if (route === null) {
         return; // isSuccess + role === null → error message shown below
+      }
+      if (identifierKind === "registration_id" && role === "subscriber") {
+        route = "/subscriber/activate";
       }
       navigate(route, { replace: true });
     },
@@ -80,21 +84,39 @@ function Login() {
 
   function handleInitiate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    initiateMutation.mutate(identifier);
+    setValidationError(null);
+
+    const result = validateIdentifier(identifier);
+    if (result.ok) {
+      setNormalizedIdentifier(result.value);
+      setIdentifierKind(result.kind);
+      initiateMutation.mutate(result.value);
+    } else {
+      setValidationError(result.error);
+    }
   }
 
   function handleVerify(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    verifyMutation.mutate({ id: identifier, sess: session, code: otp });
+    verifyMutation.mutate({ id: normalizedIdentifier, code: otp });
   }
 
-  const error = initiateMutation.isError
-    ? "Failed to initiate login. Check your Registration ID or MSISDN."
-    : verifyMutation.isError
-      ? "OTP verification failed — check the code and try again."
-      : verifyMutation.isSuccess && getRole() === null
-        ? "Unrecognized account role — contact support."
-        : null;
+  const error =
+    validationError !== null
+      ? validationError
+      : initiateMutation.isError
+        ? (() => {
+            const apiErr = toApiError(initiateMutation.error);
+            if (apiErr?.code === ERROR_CODES.ACCOUNT_NOT_FOUND) {
+              return apiErr.message;
+            }
+            return "Failed to initiate login. Check your Registration ID or MSISDN.";
+          })()
+        : verifyMutation.isError
+          ? "OTP verification failed — check the code and try again."
+          : verifyMutation.isSuccess && getRole() === null
+            ? "Unrecognized account role — contact support."
+            : null;
 
   const loading = initiateMutation.isPending || verifyMutation.isPending;
 
@@ -183,6 +205,17 @@ function Login() {
               Back
             </button>
           </form>
+        )}
+        {step === "identifier" && (
+          <div className="mt-6 border-t border-neutral-200 pt-5 text-center">
+            <p className="mb-3 text-sm text-neutral-500">New here?</p>
+            <Link
+              to="/register"
+              className="inline-block w-full rounded-lg border border-neutral-300 py-2 text-sm font-medium text-neutral-700 hover:border-neutral-400 hover:bg-neutral-50"
+            >
+              Request a new SIM
+            </Link>
+          </div>
         )}
       </div>
     </main>

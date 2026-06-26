@@ -19,6 +19,7 @@ from langchain_openai import AzureOpenAIEmbeddings
 from pymilvus import DataType, Function, FunctionType, MilvusClient
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+logging.getLogger("grpc").setLevel(logging.CRITICAL)
 logger = logging.getLogger(__name__)
 
 _BATCH_SIZE = 100
@@ -38,6 +39,9 @@ _EXTRA_FIELDS: dict[str, list[dict]] = {
         {"field_name": "plan_type", "datatype": DataType.VARCHAR, "max_length": 128},
         {"field_name": "price", "datatype": DataType.INT64},
         {"field_name": "validity", "datatype": DataType.INT64},
+        {"field_name": "usage_category", "datatype": DataType.VARCHAR, "max_length": 16},
+        {"field_name": "data_limit_mb", "datatype": DataType.INT64},
+        {"field_name": "voice_minutes", "datatype": DataType.INT64},
     ],
     "sop_chunks": [
         {"field_name": "rule_id", "datatype": DataType.VARCHAR, "max_length": 512},
@@ -117,10 +121,24 @@ def _plan_type_from_code(plan_code: str) -> str:
     return (str(plan_code).split("_", 1)[0]).upper()[:128]
 
 
+def _usage_category(data_mb: float | None, voice_min: float | None, price_paise: int | None) -> str:
+    data = data_mb or 0
+    is_unlimited_voice = voice_min is None
+    voice = voice_min if voice_min is not None else 99999
+    if data > 20480:
+        return "DATA_HEAVY"
+    elif is_unlimited_voice or voice > 1000:
+        return "VOICE_HEAVY"
+    elif price_paise and price_paise < 10000:
+        return "VALUE"
+    return "BALANCED"
+
+
 def seed_plan_vectors(client: MilvusClient, model: AzureOpenAIEmbeddings, conn: psycopg.Connection) -> int:
     logger.info("=== Seeding plan_vectors ===")
     rows = conn.execute(
-        "SELECT id, plan_name, plan_code, price_paise, validity_days FROM plans_plans WHERE is_active = TRUE"
+        "SELECT id, plan_name, plan_code, price_paise, validity_days, data_limit_mb, voice_minutes"
+        " FROM plans_plans WHERE is_active = TRUE"
     ).fetchall()
     if not rows:
         sys.exit("[seed-milvus] ERROR: plans_plans is empty. Run `just seed` first.")
@@ -134,11 +152,13 @@ def seed_plan_vectors(client: MilvusClient, model: AzureOpenAIEmbeddings, conn: 
             "plan_type": _plan_type_from_code(str(r[2] or "")),
             "price": int(r[3]),
             "validity": int(r[4]),
+            "usage_category": _usage_category(r[5], r[6], int(r[3])),
+            "data_limit_mb": int(r[5]) if r[5] is not None else 0,
+            "voice_minutes": int(r[6]) if r[6] is not None else 0,
         }
         for i, r in enumerate(rows)
     ]
     client.upsert(collection_name="plan_vectors", data=data)
-    client.flush(["plan_vectors"])  # flush so row_count reflects the upsert
     count = client.get_collection_stats("plan_vectors")["row_count"]
     logger.info("plan_vectors: %d rows", count)
     return count
@@ -164,7 +184,6 @@ def seed_faq_chunks(client: MilvusClient, model: AzureOpenAIEmbeddings) -> int:
         for i, e in enumerate(entries)
     ]
     client.upsert(collection_name="faq_chunks", data=data)
-    client.flush(["faq_chunks"])  # flush so row_count reflects the upsert
     count = client.get_collection_stats("faq_chunks")["row_count"]
     logger.info("faq_chunks: %d rows", count)
     return count
@@ -192,7 +211,6 @@ def seed_sop_chunks(client: MilvusClient, model: AzureOpenAIEmbeddings, conn: ps
         for i, r in enumerate(rows)
     ]
     client.upsert(collection_name="sop_chunks", data=data)
-    client.flush(["sop_chunks"])  # flush so row_count reflects the upsert
     count = client.get_collection_stats("sop_chunks")["row_count"]
     logger.info("sop_chunks: %d rows", count)
     return count

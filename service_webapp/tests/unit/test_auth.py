@@ -1,4 +1,4 @@
-"""Unit tests for Story 1.8: JWT auth guard, step-up OTP, and login endpoints.
+"""Unit tests for Story 1.8 / Epic 3: JWT auth guard, step-up OTP, and login endpoints.
 
 All Cognito and Valkey dependencies are mocked via fake implementations; no live
 services are required.
@@ -7,7 +7,7 @@ Coverage:
 - JWT validation: valid token passes, expired → 401, invalid → 401
 - Role guard: matching group passes, mismatch → 403, missing header → 401
 - Step-up OTP: generate → validate → key deleted; wrong/expired code → False
-- Login endpoints: initiate returns session, verify returns tokens, bad OTP → 400
+- Login endpoints: initiate publishes OTP, verify returns tokens, bad OTP → 401
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from httpx import ASGITransport, AsyncClient
 from adapters.cognito import FakeCognitoProvider
 from core.auth import FakeJWTValidator
 from core.errors import UnauthenticatedError
+from core.login_otp import FakeLoginOtpService
 from core.step_up import FakeStepUpOtpService, StepUpOtpService
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -29,6 +30,7 @@ def _make_app(
     cognito: FakeCognitoProvider | None = None,
     jwt_validator: FakeJWTValidator | None = None,
     step_up: FakeStepUpOtpService | None = None,
+    login_otp: FakeLoginOtpService | None = None,
 ):
     from main import create_app
 
@@ -36,6 +38,7 @@ def _make_app(
         cognito_provider=cognito or FakeCognitoProvider(),
         jwt_validator=jwt_validator or FakeJWTValidator(),
         step_up_service=step_up or FakeStepUpOtpService(),
+        login_otp_service=login_otp or FakeLoginOtpService(),
     )
 
 
@@ -226,33 +229,35 @@ async def test_step_up_key_gone_after_expiry_simulation() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Task 2: Login endpoints (via FakeCognitoProvider)
+# Task 2: Login endpoints (via FakeCognitoProvider + FakeLoginOtpService)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-async def test_login_initiate_returns_session() -> None:
+async def test_login_initiate_publishes_otp() -> None:
     cognito = FakeCognitoProvider()
-    app = _make_app(cognito=cognito)
+    login_otp = FakeLoginOtpService()
+    app = _make_app(cognito=cognito, login_otp=login_otp)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         resp = await ac.post("/api/v1/auth/login/initiate", json={"identifier": "REG-20260622-ab12cd34"})
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body["data"]["session"] == FakeCognitoProvider.SESSION
+    assert body["data"] == {}
     assert "REG-20260622-ab12cd34" in cognito.login_initiations
+    assert len(login_otp.published_login_otps) == 1
+    assert login_otp.published_login_otps[0]["identifier"] == "REG-20260622-ab12cd34"
 
 
 async def test_login_verify_correct_otp_returns_tokens() -> None:
     cognito = FakeCognitoProvider()
-    app = _make_app(cognito=cognito)
+    login_otp = FakeLoginOtpService()
+    app = _make_app(cognito=cognito, login_otp=login_otp)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        await ac.post("/api/v1/auth/login/initiate", json={"identifier": "REG-20260622-ab12cd34"})
+        otp_code = login_otp.issued[0]
         resp = await ac.post(
             "/api/v1/auth/login/verify",
-            json={
-                "identifier": "REG-20260622-ab12cd34",
-                "session": FakeCognitoProvider.SESSION,
-                "otp": FakeCognitoProvider.OTP,
-            },
+            json={"identifier": "REG-20260622-ab12cd34", "otp": otp_code},
         )
 
     assert resp.status_code == 200
@@ -262,17 +267,14 @@ async def test_login_verify_correct_otp_returns_tokens() -> None:
 
 
 async def test_login_verify_wrong_otp_returns_401() -> None:
-    # DN2: OtpVerificationError is now http_status=401 (authentication failure).
     cognito = FakeCognitoProvider()
-    app = _make_app(cognito=cognito)
+    login_otp = FakeLoginOtpService()
+    app = _make_app(cognito=cognito, login_otp=login_otp)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        await ac.post("/api/v1/auth/login/initiate", json={"identifier": "REG-20260622-ab12cd34"})
         resp = await ac.post(
             "/api/v1/auth/login/verify",
-            json={
-                "identifier": "REG-20260622-ab12cd34",
-                "session": FakeCognitoProvider.SESSION,
-                "otp": "999999",
-            },
+            json={"identifier": "REG-20260622-ab12cd34", "otp": "999999"},
         )
 
     assert resp.status_code == 401
@@ -284,15 +286,14 @@ async def test_login_verify_msisdn_present_in_token_response() -> None:
     # phone_number. FakeCognitoProvider includes the claim; production requires a
     # PreTokenGeneration Lambda (documented in scripts/provision_cognito.py).
     cognito = FakeCognitoProvider()
-    app = _make_app(cognito=cognito)
+    login_otp = FakeLoginOtpService()
+    app = _make_app(cognito=cognito, login_otp=login_otp)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        await ac.post("/api/v1/auth/login/initiate", json={"identifier": "9876543210"})
+        otp_code = login_otp.issued[0]
         resp = await ac.post(
             "/api/v1/auth/login/verify",
-            json={
-                "identifier": "9876543210",
-                "session": FakeCognitoProvider.SESSION,
-                "otp": FakeCognitoProvider.OTP,
-            },
+            json={"identifier": "9876543210", "otp": otp_code},
         )
 
     assert resp.status_code == 200
@@ -304,15 +305,14 @@ async def test_login_verify_msisdn_present_in_token_response() -> None:
 
 async def test_login_verify_response_has_standard_envelope() -> None:
     cognito = FakeCognitoProvider()
-    app = _make_app(cognito=cognito)
+    login_otp = FakeLoginOtpService()
+    app = _make_app(cognito=cognito, login_otp=login_otp)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        await ac.post("/api/v1/auth/login/initiate", json={"identifier": "REG-20260622-ab12cd34"})
+        otp_code = login_otp.issued[0]
         resp = await ac.post(
             "/api/v1/auth/login/verify",
-            json={
-                "identifier": "REG-20260622-ab12cd34",
-                "session": FakeCognitoProvider.SESSION,
-                "otp": FakeCognitoProvider.OTP,
-            },
+            json={"identifier": "REG-20260622-ab12cd34", "otp": otp_code},
         )
 
     body = resp.json()
@@ -324,7 +324,8 @@ async def test_login_verify_response_has_standard_envelope() -> None:
 async def test_login_initiate_no_pii_in_response() -> None:
     """Response must never echo identifier (MSISDN or Registration ID) in body."""
     cognito = FakeCognitoProvider()
-    app = _make_app(cognito=cognito)
+    login_otp = FakeLoginOtpService()
+    app = _make_app(cognito=cognito, login_otp=login_otp)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         resp = await ac.post("/api/v1/auth/login/initiate", json={"identifier": "9876543210"})
 

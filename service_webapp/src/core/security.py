@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from functools import lru_cache
 from typing import Any
 
@@ -40,6 +41,43 @@ def mask_msisdn(msisdn: str) -> str:
     if len(digits) < 4:
         return "***"
     return f"***{digits[-4:]}"
+
+
+_MSISDN_DIGITS_RE = re.compile(r"^\+?\d{10,15}$")
+_REGISTRATION_ID_RE = re.compile(r"^REG-\d{8}-[0-9a-fA-F]{8}$")
+
+
+def normalize_login_identifier(raw: str) -> str:
+    """Canonicalize a login identifier before it reaches Cognito.
+
+    - Registration IDs and plain usernames (e.g. ``admin``) pass through unchanged.
+    - Phone-like input is reduced to bare national digits: strip ``+``, spaces, dashes;
+      drop a leading India country-code ``91`` (when >10 digits remain) or a trunk ``0``.
+    """
+    s = (raw or "").strip()
+    if _REGISTRATION_ID_RE.match(s):
+        return s
+    if _MSISDN_DIGITS_RE.match(s):
+        digits = re.sub(r"\D", "", s)
+        if len(digits) > 10 and digits.startswith("91"):
+            digits = digits[2:]
+        elif len(digits) > 10 and digits.startswith("0"):
+            digits = digits[1:]
+        return digits
+    return s
+
+
+_INDIA_CC = "+91"
+
+
+def to_e164(national_digits: str) -> str:
+    """Convert a 10-digit national MSISDN to E.164 format (+91XXXXXXXXXX).
+
+    Used when querying Cognito by phone_number attribute, which stores E.164.
+    Strips all non-digit characters first so callers need not pre-clean input.
+    """
+    digits = re.sub(r"\D", "", national_digits)
+    return f"{_INDIA_CC}{digits[-10:]}"
 
 
 def sha256_hex(data: str | bytes) -> str:
@@ -135,5 +173,7 @@ __all__ = [
     "decrypt_pii",
     "encrypt_pii",
     "mask_msisdn",
+    "normalize_login_identifier",
     "sha256_hex",
+    "to_e164",
 ]

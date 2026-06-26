@@ -1,0 +1,162 @@
+[
+  {
+    "id": "balance-001",
+    "category": "balance",
+    "question": "What is my current balance?",
+    "context": "Subscriber MSISDN[-4:] 1234 has balance 5000 paise (Rs 50.00).",
+    "expected_answer": "Your current balance is Rs 50.00.",
+    "tags": ["balance", "inquiry"]
+  },
+  {
+    "id": "balance-002",
+    "category": "balance",
+    "question": "How much data balance is left in my plan?",
+    "context": "Subscriber MSISDN[-4:] 1234 has 1.5 GB data remaining out of a 2.0 GB daily quota.",
+    "expected_answer": "You have 1.5 GB of data remaining out of your 2.0 GB daily quota.",
+    "tags": ["balance", "data"]
+  },
+  {
+    "id": "balance-003",
+    "category": "balance",
+    "question": "When does my current plan expire?",
+    "context": "Subscriber MSISDN[-4:] 1234 is on plan 'Daily Saver' which expires on 2026-07-01.",
+    "expected_answer": "Your current plan 'Daily Saver' expires on 2026-07-01.",
+    "tags": ["balance", "expiry"]
+  },
+  {
+    "id": "balance-004",
+    "category": "balance",
+    "question": "How many SMS are left in my pack?",
+    "context": "Subscriber MSISDN[-4:] 1234 has 80 SMS remaining out of a 100 SMS pack.",
+    "expected_answer": "You have 80 SMS remaining out of your 100 SMS pack.",
+    "tags": ["balance", "sms"]
+  },
+  {
+    "id": "plan-001",
+    "category": "plan",
+    "question": "What are the details of my current plan?",
+    "context": "Subscriber MSISDN[-4:] 1234 is on plan 'Daily Saver' priced at Rs 29 with 2.0 GB daily data, unlimited calls, and 100 SMS per day, valid for 28 days.",
+    "expected_answer": "Your plan 'Daily Saver' costs Rs 29 and includes 2.0 GB daily data, unlimited calls, and 100 SMS per day, valid for 28 days.",
+    "tags": ["plan", "details"]
+  },
+  {
+    "id": "plan-002",
+    "category": "plan",
+    "question": "What is the cheapest plan with unlimited calls?",
+    "context": "Available plans: 'Daily Saver' Rs 29 (unlimited calls, 2 GB/day); 'Talk Max' Rs 79 (unlimited calls, no data); 'Data Pro' Rs 149 (no calls, 1.5 GB/day).",
+    "expected_answer": "The cheapest plan with unlimited calls is 'Daily Saver' at Rs 29.",
+    "tags": ["plan", "catalogue"]
+  },
+  {
+    "id": "plan-003",
+    "category": "plan",
+    "question": "Does my plan include international roaming?",
+    "context": "Plan 'Daily Saver' includes national roaming only; international roaming is not included and is chargeable as per the IR pack.",
+    "expected_answer": "No, your plan 'Daily Saver' does not include international roaming. International roaming is chargeable under a separate IR pack.",
+    "tags": ["plan", "roaming"]
+  },
+  {
+    "id": "plan-004",
+    "category": "plan",
+    "question": "How do I change my current plan?",
+    "context": "Subscribers can change plans via the Self-Care portal under 'Plans', the USSD menu option 2, or by recharging with a new plan which replaces the active one.",
+    "expected_answer": "You can change your plan via the Self-Care portal under 'Plans', the USSD menu option 2, or by recharging with a new plan which replaces your active one.",
+    "tags": ["plan", "change"]
+  },
+  {
+    "id": "recharge-001",
+    "category": "recharge",
+    "question": "How do I recharge my number?",
+    "context": "Recharge is available via the Self-Care portal 'Recharge' flow, the USSD menu option 1, or partner retail outlets. Payment methods include saved cards, UPI, and debit cards.",
+    "expected_answer": "You can recharge via the Self-Care portal 'Recharge' flow, USSD menu option 1, or partner retail outlets using saved cards, UPI, or debit cards.",
+    "tags": ["recharge", "how-to"]
+  },
+  {
+    "id": "recharge-002",
+    "category": "recharge",
+    "question": "What payment methods can I use to recharge?",
+    "context": "Accepted recharge payment methods are saved cards (tokenised), UPI, and debit cards. Credit cards are not supported for prepaid recharge.",
+    "expected_answer": "You can recharge using saved cards, UPI, or debit cards. Credit cards are not supported for prepaid recharge.",
+    "tags": ["recharge", "payment"]
+  },
+  {
+    "id": "recharge-003",
+    "category": "recharge",
+    "question": "My recharge failed but money was debited. What happens?",
+    "context": "If a recharge fails after debit, the amount is auto-refunded to the source within 5-7 working days and the failed transaction is recorded with status 'FAILED' in the transaction history.",
+    "expected_answer": "If money was debited for a failed recharge, it is auto-refunded to your source within 5-7 working days. The transaction is recorded with status 'FAILED' in your history.",
+    "tags": ["recharge", "refund"]
+  },
+  {
+    "id": "recharge-004",
+    "category": "recharge",
+    "question": "Can I see a receipt for my last recharge?",
+    "context": "A PDF receipt is generated for every successful recharge and is downloadable from the transaction history page.",
+    "expected_answer": "Yes, a PDF receipt is generated for every successful recharge and can be downloaded from your transaction history.",
+    "tags": ["recharge", "receipt"]
+  },
+  {
+    "id": "dispute-001",
+    "category": "dispute",
+    "question": "I was charged for a plan I did not activate. How do I raise a dispute?",
+    "context": "Subscribers can raise a billing dispute from the transaction history by selecting the transaction and choosing 'Raise Dispute'. The dispute is reviewed within 48 hours and a refund is issued if upheld.",
+    "expected_answer": "You can raise a dispute from your transaction history by selecting the transaction and choosing 'Raise Dispute'. It is reviewed within 48 hours, with a refund issued if upheld.",
+    "tags": ["dispute", "how-to"]
+  },
+  {
+    "id": "dispute-002",
+    "category": "dispute",
+    "question": "How long does a dispute refund take?",
+    "context": "Approved dispute refunds are credited to the subscriber balance within 48 hours of dispute approval.",
+    "expected_answer": "Approved dispute refunds are credited to your balance within 48 hours of approval.",
+    "tags": ["dispute", "refund"]
+  },
+  {
+    "id": "dispute-003",
+    "category": "dispute",
+    "question": "My balance was deducted incorrectly after a call. What should I do?",
+    "context": "For incorrect balance deductions, raise a dispute against the CDR transaction in transaction history. Provide the call time; the system verifies against the call detail record.",
+    "expected_answer": "Raise a dispute against the CDR transaction in your transaction history and provide the call time. The system verifies it against the call detail record.",
+    "tags": ["dispute", "deduction"]
+  },
+  {
+    "id": "dispute-004",
+    "category": "dispute",
+    "question": "Can I check the status of my open dispute?",
+    "context": "Open and closed disputes are listed under the 'Disputes' section of the Self-Care portal with statuses 'OPEN', 'UNDER_REVIEW', and 'RESOLVED'.",
+    "expected_answer": "You can check your dispute status under the 'Disputes' section of the Self-Care portal, with statuses 'OPEN', 'UNDER_REVIEW', or 'RESOLVED'.",
+    "tags": ["dispute", "status"]
+  },
+  {
+    "id": "faq-001",
+    "category": "faq",
+    "question": "What is data rollover?",
+    "context": "Data rollover allows unused daily data quota to be carried forward to the next day, up to a maximum accumulated limit defined by the plan.",
+    "expected_answer": "Data rollover lets your unused daily data carry forward to the next day, up to a maximum accumulated limit set by your plan.",
+    "tags": ["faq", "rollover"]
+  },
+  {
+    "id": "faq-002",
+    "category": "faq",
+    "question": "What does national roaming mean?",
+    "context": "National roaming allows a subscriber to use their number outside their home telecom circle within the country, typically at no extra charge on most plans.",
+    "expected_answer": "National roaming lets you use your number outside your home telecom circle within the country, usually at no extra charge on most plans.",
+    "tags": ["faq", "roaming"]
+  },
+  {
+    "id": "faq-003",
+    "category": "faq",
+    "question": "What is the difference between prepaid and postpaid?",
+    "context": "Prepaid plans require payment before usage and deduct balance in real time per CDR; postpaid bills are generated after the billing cycle for usage already consumed.",
+    "expected_answer": "Prepaid requires payment before usage and deducts balance in real time, while postpaid bills you after the billing cycle for usage already consumed.",
+    "tags": ["faq", "terminology"]
+  },
+  {
+    "id": "faq-004",
+    "category": "faq",
+    "question": "What is a CDR?",
+    "context": "A CDR (Call Detail Record) is a log entry generated for each billable event such as a call, SMS, or data session, recording duration and the amount deducted from the balance.",
+    "expected_answer": "A CDR (Call Detail Record) is a log entry for each billable event like a call, SMS, or data session, recording its duration and the amount deducted from your balance.",
+    "tags": ["faq", "terminology"]
+  }
+]

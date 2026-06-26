@@ -129,10 +129,7 @@ def main() -> None:
     logger.info("provisioning %d topics against %s", len(TOPIC_SPEC), settings.kafka_brokers)
     # MEDIUM FIX: Add 60s timeout to prevent infinite hangs on unhealthy broker
     try:
-        results: dict[str, str] = asyncio.wait_for(
-            asyncio.run(provision_topics()),
-            timeout=60.0,
-        )
+        results: dict[str, str] = asyncio.run(asyncio.wait_for(provision_topics(), timeout=60.0))
     except TimeoutError:
         logger.error("provisioning timed out after 60s — broker may be unhealthy")
         raise SystemExit(1) from None

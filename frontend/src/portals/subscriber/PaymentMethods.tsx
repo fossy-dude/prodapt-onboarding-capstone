@@ -83,8 +83,12 @@ export function PaymentMethods() {
       });
       return response;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payment-methods"] });
+    onSuccess: async () => {
+      try {
+        await queryClient.invalidateQueries({ queryKey: ["payment-methods"] });
+      } catch (error) {
+        console.error("Failed to invalidate payment methods query:", error);
+      }
       setForm({ type: "CREDIT_CARD", identifier: "" });
     },
   });
@@ -94,8 +98,12 @@ export function PaymentMethods() {
       const response = await setDefaultPaymentMethod(id);
       return response;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payment-methods"] });
+    onSuccess: async () => {
+      try {
+        await queryClient.invalidateQueries({ queryKey: ["payment-methods"] });
+      } catch (error) {
+        console.error("Failed to invalidate payment methods query:", error);
+      }
     },
   });
 
@@ -103,8 +111,12 @@ export function PaymentMethods() {
     mutationFn: async (id: string) => {
       await deletePaymentMethod(id);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payment-methods"] });
+    onSuccess: async () => {
+      try {
+        await queryClient.invalidateQueries({ queryKey: ["payment-methods"] });
+      } catch (error) {
+        console.error("Failed to invalidate payment methods query:", error);
+      }
     },
   });
 

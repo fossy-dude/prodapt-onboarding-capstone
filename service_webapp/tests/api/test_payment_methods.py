@@ -20,6 +20,12 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 
+async def _fake_resolve_subscriber_id(conn, jwt_payload):
+    """Fake resolver that returns a test subscriber UUID without SQL lookup."""
+    # Extract the test_sub from the JWT payload
+    return jwt_payload.get("sub", "00000000-0000-4000-8000-000000000000")
+
+
 class PaymentMethodTestContext:
     """Holds test fixtures for payment methods tests."""
 
@@ -56,13 +62,16 @@ class PaymentMethodTestContext:
 
 
 @pytest.fixture
-async def authenticated_client() -> AsyncIterator[PaymentMethodTestContext]:
+async def authenticated_client(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[PaymentMethodTestContext]:
     """App with async HTTP client + JWT middleware mocked."""
     from core.auth import FakeJWTValidator
     from main import create_app
 
     test_sub = str(uuid.uuid4())
-    mock_jwt_payload = {"sub": test_sub, "cognito:groups": ["subscriber"]}
+    mock_jwt_payload = {"sub": test_sub, "cognito:groups": ["subscriber"], "phone_number": "919876543210"}
+
+    # Patch the resolver to avoid real SQL lookup
+    monkeypatch.setattr("routers.account.resolve_subscriber_id", _fake_resolve_subscriber_id)
 
     # mock_conn.execute.return_value = mock_conn makes the cursor returned by
     # conn.execute(...) the same object as mock_conn, so tests can set

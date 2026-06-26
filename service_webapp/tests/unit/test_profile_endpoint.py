@@ -23,6 +23,8 @@ if TYPE_CHECKING:
 
 _SUB_A = "11111111-1111-4111-8111-111111111111"
 _SUB_B = "22222222-2222-4222-8222-222222222222"
+_MSISDN_A = "919876543210"
+_MSISDN_B = "919876543211"
 
 # Profile SELECT column order (see _PROFILE_SELECT in routers/account.py):
 # (subscriber_name, email, address_line1, address_line2, city, state, pin_code, kyc_status).
@@ -50,7 +52,28 @@ class _FakeConn:
     async def execute(self, sql: str, params: tuple | None = None):
         lowered = sql.lstrip().lower()
         self._state.calls.append((lowered, params))
-        if lowered.startswith("select"):
+        # Check if this is a subscriber lookup for resolve_subscriber_id
+        # (it queries identity_subscribers with an msisdn IN clause and returns only id)
+        if (
+            "identity_subscribers" in lowered
+            and "msisdn" in lowered
+            and "where" in lowered
+            and "id" in lowered
+            and "from" in lowered
+        ):
+            # This is the resolve_subscriber_id lookup - return the subscriber UUID based on MSISDN
+            # If any of the params contain _MSISDN_B, return _SUB_B; otherwise return _SUB_A
+            if params and len(params) > 0:
+                for param in params:
+                    if _MSISDN_B in str(param):
+                        return _FakeCursor(row=(_SUB_B,))
+            return _FakeCursor(row=(_SUB_A,))
+        # Check if this is the profile SELECT (has lateral join for kyc_records)
+        if "lateral" in lowered and "identity_kyc_records" in lowered:
+            # This is the profile SELECT
+            return _FakeCursor(row=self._state.select_row)
+        if lowered.startswith("select") and "identity_subscribers" not in lowered:
+            # This is another profile SELECT (fallback)
             return _FakeCursor(row=self._state.select_row)
         if lowered.startswith("update"):
             return _FakeCursor(rowcount=self._state.update_rowcount)
@@ -80,6 +103,7 @@ class FakeProfileDb:
 def _make_app(
     *,
     sub: str | None = _SUB_A,
+    msisdn: str = _MSISDN_A,
     groups: tuple[str, ...] = ("subscriber",),
     select_row: tuple | None = _ROW_A,
     update_rowcount: int = 1,
@@ -90,6 +114,7 @@ def _make_app(
     payload: dict = {"cognito:groups": list(groups)}
     if sub is not None:
         payload["sub"] = sub
+    payload["phone_number"] = msisdn
     db = FakeProfileDb(select_row=select_row, update_rowcount=update_rowcount)
     app = create_app(db_adapter=db, jwt_validator=FakeJWTValidator(payload=payload))
     return app, db
@@ -98,16 +123,20 @@ def _make_app(
 _AUTH = {"Authorization": "Bearer test-token"}
 
 
-async def _get(sub: str = _SUB_A, *, groups: tuple[str, ...] = ("subscriber",), select_row=_ROW_A):
-    app, db = _make_app(sub=sub, groups=groups, select_row=select_row)
+async def _get(
+    sub: str = _SUB_A, msisdn: str = _MSISDN_A, *, groups: tuple[str, ...] = ("subscriber",), select_row=_ROW_A
+):
+    app, db = _make_app(sub=sub, msisdn=msisdn, groups=groups, select_row=select_row)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         resp = await ac.get("/api/v1/subscriber/profile", headers=_AUTH)
     return resp, db
 
 
-async def _patch(body: dict, *, sub: str = _SUB_A, select_row=_ROW_A, update_rowcount: int = 1):
-    app, db = _make_app(sub=sub, select_row=select_row, update_rowcount=update_rowcount)
+async def _patch(
+    body: dict, *, sub: str = _SUB_A, msisdn: str = _MSISDN_A, select_row=_ROW_A, update_rowcount: int = 1
+):
+    app, db = _make_app(sub=sub, msisdn=msisdn, select_row=select_row, update_rowcount=update_rowcount)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         resp = await ac.patch("/api/v1/subscriber/profile", json=body, headers=_AUTH)
@@ -163,9 +192,12 @@ async def test_get_profile_403_wrong_role() -> None:
     assert resp.json()["error"]["code"] == "FORBIDDEN"
 
 
-async def test_get_profile_401_when_sub_claim_missing() -> None:
-    """A valid-shape token lacking 'sub' → 401 (never a 500 KeyError)."""
-    resp, _ = await _get(sub=None)
+async def test_get_profile_401_when_phone_claim_missing() -> None:
+    """A valid-shape token lacking 'phone_number' → 401 (resolver requires phone)."""
+    app, _ = _make_app(sub=_SUB_A, msisdn="")  # Empty phone_number
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        resp = await ac.get("/api/v1/subscriber/profile", headers=_AUTH)
     assert resp.status_code == 401
     assert resp.json()["error"]["code"] == "UNAUTHENTICATED"
 
@@ -174,9 +206,9 @@ async def test_get_profile_targets_jwt_sub_owner_isolation() -> None:
     """AC #6: the SELECT is scoped to the JWT sub (owner-only by construction)."""
     resp_a, db_a = await _get(sub=_SUB_A, select_row=_ROW_A)
     assert resp_a.json()["data"]["email"] == "priya@example.com"
-    select_calls = [c for c in db_a.calls if c[0].startswith("select")]
-    assert select_calls, "expected a profile SELECT"
-    # The WHERE id = %s::uuid param is the JWT sub — never a client-supplied id.
+    select_calls = [c for c in db_a.calls if c[0].startswith("select") and "lateral" in c[0]]
+    assert select_calls, "expected a profile SELECT with lateral join"
+    # The WHERE id = %s::uuid param is the resolved subscriber UUID — never a client-supplied id.
     assert select_calls[0][1] == (_SUB_A,)
 
     # A different subscriber's token resolves their own record only.
@@ -267,7 +299,7 @@ async def test_patch_profile_404_when_subscriber_missing() -> None:
 
 async def test_patch_profile_targets_jwt_sub() -> None:
     """AC #6: the UPDATE + SELECT are scoped to the JWT sub (owner-only)."""
-    resp, db = await _patch({"city": "Pune"}, sub=_SUB_B, select_row=_ROW_B)
+    resp, db = await _patch({"city": "Pune"}, sub=_SUB_B, msisdn=_MSISDN_B, select_row=_ROW_B)
     assert resp.status_code == 200
     update_calls = [c for c in db.calls if c[0].startswith("update")]
     assert update_calls

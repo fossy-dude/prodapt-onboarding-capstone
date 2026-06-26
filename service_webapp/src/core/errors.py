@@ -79,12 +79,28 @@ class OtpVerificationError(DomainError):
     message = "OTP verification failed — invalid or expired."
 
 
+class AccountNotFoundError(DomainError):
+    """Login identifier does not resolve to a Cognito user (unknown MSISDN / reg ID / username)."""
+
+    code = "ACCOUNT_NOT_FOUND"
+    http_status = 401
+    message = "Not an active subscriber — check your Registration ID or mobile number."
+
+
 class NotFoundError(DomainError):
     """Requested resource does not exist (404)."""
 
     code = "NOT_FOUND"
     http_status = 404
     message = "Resource not found."
+
+
+class ConflictError(DomainError):
+    """Request conflicts with current state (409)."""
+
+    code = "CONFLICT"
+    http_status = 409
+    message = "Conflict."
 
 
 def _trace_id(request: Request) -> str:
@@ -120,7 +136,9 @@ def register_exception_handlers(app: FastAPI) -> None:
 
 
 __all__ = [
+    "AccountNotFoundError",
     "CognitoProvisioningError",
+    "ConflictError",
     "DomainError",
     "DuplicateMsisdnError",
     "ForbiddenError",

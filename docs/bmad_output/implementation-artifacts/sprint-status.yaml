@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-19
-last_updated: 2026-06-23  # Story 2.9 → in-progress (SIM activation simulator & notification portal)
+last_updated: 2026-06-25  # Story 7.2 → review (Plan Stock Dashboard & Order Fulfilment View)
 project: sboai_capstone
 # Stories 1-1 through 1-5 created (ready-for-dev) on 2026-06-19
 project_key: NOKEY
@@ -71,54 +71,54 @@ development_status:
   epic-2-retrospective: optional
 
   # Epic 3: Subscriber Self-Care Portal
-  epic-3: in-progress
-  3-1-ux-brief-balance-usage-recharge-portal-flows: review
-  3-2-real-time-balance-display-usage-breakdown: ready-for-dev
-  3-3-transaction-history-ledger: ready-for-dev
-  3-4-plan-details-view-plan-catalogue: ready-for-dev
-  3-5-recharge-purchase-plan-selection-simulated-payment: ready-for-dev
-  3-6-pdf-receipt-generation: ready-for-dev
-  3-7-refund-view: ready-for-dev
+  epic-3: done
+  3-1-ux-brief-balance-usage-recharge-portal-flows: done
+  3-2-real-time-balance-display-usage-breakdown: done
+  3-3-transaction-history-ledger: done
+  3-4-plan-details-view-plan-catalogue: done
+  3-5-recharge-purchase-plan-selection-simulated-payment: done
+  3-6-pdf-receipt-generation: done
+  3-7-refund-view: done
   epic-3-retrospective: optional
 
   # Epic 4: Notifications & USSD Interface
-  epic-4: backlog
-  4-1-notification-service-low-balance-depletion-plan-expiry-alerts: backlog
-  4-2-notification-preferences-delivery-simulation: backlog
-  4-3-rate-limiting-per-subscriber-100-rpm: backlog
-  4-4-ussd-session-handler-menu-router: backlog
+  epic-4: done
+  4-1-notification-service-low-balance-depletion-plan-expiry-alerts: done
+  4-2-notification-preferences-delivery-simulation: done
+  4-3-rate-limiting-per-subscriber-100-rpm: done
+  4-4-ussd-session-handler-menu-router: done
   epic-4-retrospective: optional
 
   # Epic 5: Self-Care Chatbot — Multi-Agent (TDD-first)
-  epic-5: backlog
-  5-1-ux-brief-chatbot-interface-ag-ui-stream-flows: backlog
-  5-2-eval-harness-llm-as-judge-deepeval-scaffolding: backlog
-  5-3-rag-pipeline-milvus-hybrid-search: backlog
-  5-4-copilotkit-runtime-support-agent-graph: backlog
-  5-5-input-validation-guardrails: backlog
-  5-6-recharge-via-chatbot-multi-agent-tool-calls: backlog
-  5-7-rating-agent-charge-breakdown-explanation: backlog
-  5-8-dispute-workflow-balance-management-agent: backlog
-  5-9-plan-recommendation-tool-feedback-loop: backlog
-  5-10-conclusion-agent-notification-agent-session-end: backlog
+  epic-5: in-progress
+  5-1-ux-brief-chatbot-interface-ag-ui-stream-flows: review
+  5-2-eval-harness-llm-as-judge-deepeval-scaffolding: done
+  5-3-rag-pipeline-milvus-hybrid-search: done
+  5-4-copilotkit-runtime-support-agent-graph: done
+  5-5-input-validation-guardrails: done
+  5-6-recharge-via-chatbot-multi-agent-tool-calls: done
+  5-7-rating-agent-charge-breakdown-explanation: review
+  5-8-dispute-workflow-balance-management-agent: review
+  5-9-plan-recommendation-tool-feedback-loop: review
+  5-10-conclusion-agent-notification-agent-session-end: review
   epic-5-retrospective: optional
 
   # Epic 6: Fraud Detection (TDD-first)
-  epic-6: backlog
-  6-1-eval-harness-fraud-detection-agent-accuracy: backlog
-  6-2-rule-based-cdr-pre-screener: backlog
-  6-3-fraud-detection-agent-llm-powered-risk-analysis: backlog
-  6-4-real-time-anomaly-feed-fraud-case-queue-ui: backlog
-  6-5-sim-swap-suspicious-recharge-alerts: backlog
-  6-6-account-takeover-prevention-blacklist-cognito-disable-jwt-revocation: backlog
+  epic-6: in-progress
+  6-1-eval-harness-fraud-detection-agent-accuracy: ready-for-dev
+  6-2-rule-based-cdr-pre-screener: ready-for-dev
+  6-3-fraud-detection-agent-llm-powered-risk-analysis: ready-for-dev
+  6-4-real-time-anomaly-feed-fraud-case-queue-ui: ready-for-dev
+  6-5-sim-swap-suspicious-recharge-alerts: ready-for-dev
+  6-6-account-takeover-prevention-blacklist-cognito-disable-jwt-revocation: ready-for-dev
   epic-6-retrospective: optional
 
   # Epic 7: Ops & Marketing Dashboard (TDD-first)
-  epic-7: backlog
-  7-1-eval-harness-ml-forecast-upsell-quality: backlog
-  7-2-plan-stock-dashboard-order-fulfilment-view: backlog
-  7-3-subscriber-growth-forecast-ml-3-month: backlog
-  7-4-plan-demand-forecast-30-90-day: backlog
+  epic-7: in-progress
+  7-1-eval-harness-ml-forecast-upsell-quality: skip
+  7-2-plan-stock-dashboard-order-fulfilment-view: review
+  7-3-subscriber-growth-forecast-ml-3-month: review
+  7-4-plan-demand-forecast-30-90-day: review
   7-5-target-base-builder-dynamic-kpi-filter: backlog
   7-6-llm-segment-labelling-rule-induction-agent: backlog
   7-7-segment-classification-at-scale-upsell-strategy-agent: backlog

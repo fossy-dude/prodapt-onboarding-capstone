@@ -238,3 +238,6 @@ coverage/
 .eslintcache
 
 docker/data
+data/
+.deepeval/
+temp/

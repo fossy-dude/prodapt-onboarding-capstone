@@ -1,10 +1,12 @@
 /** Subscriber-domain frontend types (UX brief §7.1 — src/types/subscriber.ts). */
 
-/** Step 1 + Step 2 registration payload (mirrors the backend RegisterRequest). */
+/** Step 1 + Step 2 registration payload (mirrors the backend RegisterRequest).
+ *
+ * MSISDN is intentionally absent — it is auto-generated at SIM activation time.
+ */
 export interface RegisterPayload {
   readonly full_name: string;
   readonly email: string;
-  readonly msisdn: string;
   readonly alternate_mobile: string;
   readonly date_of_birth: string;
   readonly address_line1: string;

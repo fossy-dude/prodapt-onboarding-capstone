@@ -40,4 +40,5 @@ preview:
 
 # Start development server.
 dev:
-    npm run dev
+    @[ -d frontend/node_modules ] || (npm ci && echo "Dependencies installed")
+    npm run dev -- --port 5173

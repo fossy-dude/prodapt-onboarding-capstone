@@ -9,7 +9,7 @@ import type {
   PaymentMethodResponse,
   AddPaymentMethodPayload,
 } from "../types/payment-method";
-import { getToken, removeToken } from "./auth";
+import { getRefreshToken, getToken, logout, saveToken } from "./auth";
 
 // Base URL for the service_webapp REST API. Vite exposes VITE_-prefixed env vars.
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
@@ -31,29 +31,86 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-/** Routes that must NOT trigger a /login redirect on 401 (they are part of the login flow). */
-const _LOGIN_PATHS = ["/auth/login/initiate", "/auth/login/verify"];
+/** Routes that bypass the token-refresh retry (login + refresh itself). */
+const _SKIP_REFRESH_PATHS = [
+  "/auth/login/initiate",
+  "/auth/login/verify",
+  "/auth/token/refresh",
+];
 
-/** On 401 response: clear the stored token and redirect to /login.
+type QueueEntry = { resolve: (token: string) => void; reject: (err: unknown) => void };
+
+let _isRefreshing = false;
+let _refreshQueue: QueueEntry[] = [];
+
+function _drainQueue(token: string): void {
+  _refreshQueue.forEach((cb) => cb.resolve(token));
+  _refreshQueue = [];
+}
+
+function _rejectQueue(err: unknown): void {
+  _refreshQueue.forEach((cb) => cb.reject(err));
+  _refreshQueue = [];
+}
+
+async function _doRefresh(): Promise<string> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) throw new Error("No refresh token stored.");
+  const { data } = await apiClient.post<{
+    data: { access_token: string; id_token: string; token_type: string };
+  }>("/auth/token/refresh", { refresh_token: refreshToken });
+  const newToken = data.data.access_token;
+  saveToken(newToken);
+  // id_token is not used client-side; refresh_token itself is long-lived and unchanged.
+  return newToken;
+}
+
+/** On 401 response: attempt a silent token refresh then retry the original request.
  *
- * P7: skip the redirect when the 401 comes from a login endpoint itself —
- * otherwise a wrong OTP causes a redirect loop while the user is already on /login.
+ * Concurrent requests that 401 during a refresh are queued and replayed once the
+ * refresh resolves. If the refresh itself fails (expired/revoked refresh token),
+ * all queued requests are rejected and the user is logged out.
+ *
+ * P7: login and refresh endpoints skip this logic to prevent redirect loops.
  */
 apiClient.interceptors.response.use(
   (response) => response,
-  (error: unknown) => {
-    if (error instanceof AxiosError && error.response?.status === 401) {
-      const url = error.config?.url ?? "";
-      const isLoginRoute = _LOGIN_PATHS.some((path) => url.includes(path));
-      if (!isLoginRoute) {
-        removeToken();
-        // P8: window.location.href is a full reload that bypasses React Router.
-        // Acceptable for the auth redirect (avoids needing a shared event bus),
-        // but guarded to login-route exclusion above to prevent loops.
-        window.location.href = "/login";
-      }
+  async (error: unknown) => {
+    if (!(error instanceof AxiosError) || error.response?.status !== 401) {
+      return Promise.reject(error);
     }
-    return Promise.reject(error);
+
+    const url = error.config?.url ?? "";
+    const isSkippedRoute = _SKIP_REFRESH_PATHS.some((p) => url.includes(p));
+    if (isSkippedRoute) {
+      return Promise.reject(error);
+    }
+
+    const originalConfig = error.config;
+    if (!originalConfig) return Promise.reject(error);
+
+    if (_isRefreshing) {
+      return new Promise<string>((resolve, reject) => {
+        _refreshQueue.push({ resolve, reject });
+      }).then((token) => {
+        originalConfig.headers["Authorization"] = `Bearer ${token}`;
+        return apiClient(originalConfig);
+      });
+    }
+
+    _isRefreshing = true;
+    try {
+      const newToken = await _doRefresh();
+      _drainQueue(newToken);
+      originalConfig.headers["Authorization"] = `Bearer ${newToken}`;
+      return apiClient(originalConfig);
+    } catch (refreshErr) {
+      _rejectQueue(refreshErr);
+      logout();
+      return Promise.reject(refreshErr);
+    } finally {
+      _isRefreshing = false;
+    }
   },
 );
 
@@ -61,11 +118,12 @@ apiClient.interceptors.response.use(
 
 /** Error codes the API returns in the standard error envelope (§1.11.3). */
 export const ERROR_CODES = {
+  ACCOUNT_NOT_FOUND: "ACCOUNT_NOT_FOUND",
   DUPLICATE_MSISDN: "DUPLICATE_MSISDN",
-  VALIDATION_ERROR: "VALIDATION_ERROR",
-  UNAUTHENTICATED: "UNAUTHENTICATED",
-  FORBIDDEN: "FORBIDDEN",
   OTP_INVALID: "OTP_INVALID",
+  UNAUTHENTICATED: "UNAUTHENTICATED",
+  VALIDATION_ERROR: "VALIDATION_ERROR",
+  FORBIDDEN: "FORBIDDEN",
 } as const;
 
 export interface ApiError {
@@ -99,7 +157,7 @@ export async function registerSubscriber(
 // ── Auth / Login (Story 1.8) ─────────────────────────────────────────────────
 
 interface LoginInitiateResponse {
-  readonly data: { readonly session: string };
+  readonly data: Record<string, never>;
   readonly meta: { readonly trace_id: string; readonly timestamp: string };
 }
 
@@ -114,32 +172,26 @@ interface LoginVerifyResponse {
 }
 
 /**
- * POST /auth/login/initiate — start Cognito Custom Auth Flow (AC #1, #2).
- * Returns `{ session }` to pass to `verifyLoginOtp`.
+ * POST /auth/login/initiate — mint an OTP and publish it to notification.events (AC #1, #2).
+ * The OTP appears on the Notification Portal; no session is returned.
  */
-export async function initiateLogin(
-  identifier: string,
-): Promise<{ session: string }> {
-  const { data } = await apiClient.post<LoginInitiateResponse>(
-    "/auth/login/initiate",
-    { identifier },
-  );
-  return data.data;
+export async function initiateLogin(identifier: string): Promise<void> {
+  await apiClient.post<LoginInitiateResponse>("/auth/login/initiate", {
+    identifier,
+  });
 }
 
 /**
- * POST /auth/login/verify — respond to OTP challenge and receive JWT tokens (AC #1, #2).
+ * POST /auth/login/verify — verify OTP and receive JWT tokens (AC #1, #2).
  */
 export async function verifyLoginOtp(
   identifier: string,
-  session: string,
   otp: string,
 ): Promise<LoginVerifyResponse["data"]> {
   const { data } = await apiClient.post<LoginVerifyResponse>(
     "/auth/login/verify",
     {
       identifier,
-      session,
       otp,
     },
   );
@@ -318,6 +370,58 @@ export async function deletePaymentMethod(id: string): Promise<void> {
   await apiClient.delete(`/account/payment-methods/${id}`);
 }
 
+// ── Balance & Usage (Story 3.2) ───────────────────────────────────────────────
+
+export interface WalletBalanceData {
+  readonly subscriber_id: string;
+  readonly msisdn: string;
+  readonly msisdn_masked: string;
+  readonly balance_paise: number;
+  readonly balance_inr: string;
+  readonly last_updated_at: string | null;
+}
+
+interface WalletBalanceResponse {
+  readonly data: WalletBalanceData;
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+export interface UsageAllowance {
+  readonly used: number;
+  readonly allowance: number | null;
+  readonly unlimited: boolean;
+}
+
+export interface UsageData {
+  readonly subscriber_id: string;
+  readonly plan_period: { readonly start: string; readonly end: string | null };
+  readonly voice_minutes: UsageAllowance;
+  readonly data_mb: number;
+  readonly data_gb: number;
+  readonly data: UsageAllowance;
+  readonly sms: UsageAllowance;
+  readonly roaming_mb: UsageAllowance;
+}
+
+interface UsageResponse {
+  readonly data: UsageData;
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/** GET /subscriber/balance — current wallet balance (Valkey-authoritative). */
+export async function getBalance(): Promise<WalletBalanceData> {
+  const { data } = await apiClient.get<WalletBalanceResponse>(
+    "/subscriber/balance",
+  );
+  return data.data;
+}
+
+/** GET /subscriber/usage — per-type CDR usage vs plan allowances. */
+export async function getUsage(): Promise<UsageData> {
+  const { data } = await apiClient.get<UsageResponse>("/subscriber/usage");
+  return data.data;
+}
+
 // ── CDR Simulator (Story 2.8) ──────────────────────────────────────────────────
 
 export interface CdrDispatchPayload {
@@ -380,6 +484,265 @@ export async function activateSim(
 ): Promise<SimActivateResult> {
   const { data } = await apiClient.post<SimActivateResponse>(
     "/simulator/activate",
+    payload,
+  );
+  return data.data;
+}
+
+// ── Transactions ledger (Story 3.3) ────────────────────────────────────────────
+
+/** One row of the subscriber transaction ledger (CHARGE | RECHARGE | REFUND).
+ * `transaction_type` is the raw stored writer value (e.g. `cdr_deduction`);
+ * `cdr_reference` is non-null only for CDR-linked charge rows. */
+export interface TransactionItem {
+  readonly id: string;
+  readonly transaction_type: string;
+  readonly amount_paise: number;
+  readonly balance_after_paise: number;
+  readonly cdr_reference: string | null;
+  readonly description: string | null;
+  readonly created_at: string;
+}
+
+interface TransactionsResponse {
+  readonly data: readonly TransactionItem[];
+  readonly meta: {
+    readonly trace_id: string;
+    readonly timestamp: string;
+    readonly next_cursor: string | null;
+  };
+}
+
+/** One page of the cursor-paginated ledger. */
+export interface TransactionsPage {
+  readonly items: readonly TransactionItem[];
+  readonly nextCursor: string | null;
+}
+
+/** Cursor-pagination query params for the transactions endpoint. */
+export interface TransactionsQuery {
+  readonly cursor?: string;
+  readonly page_size?: number;
+}
+
+/** GET /subscriber/transactions — paginated, immutable transaction ledger. */
+export async function getTransactions(
+  query: TransactionsQuery = {},
+): Promise<TransactionsPage> {
+  const { data } = await apiClient.get<TransactionsResponse>(
+    "/subscriber/transactions",
+    { params: { cursor: query.cursor, page_size: query.page_size } },
+  );
+  return { items: data.data, nextCursor: data.meta.next_cursor };
+}
+
+// ── Refund-eligible view (Story 3.7) ───────────────────────────────────────────
+
+/** One failed recharge row returned by GET /transactions?type=FAILED. */
+export interface FailedRechargeItem {
+  readonly transaction_id: string;
+  readonly plan_attempted: string;
+  readonly amount_paise: number;
+  readonly failure_reason: string | null;
+  readonly created_at: string;
+}
+
+interface FailedRechargesResponse {
+  readonly data: readonly FailedRechargeItem[];
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/** GET /subscriber/transactions?type=FAILED — refund-eligible failed recharges (Story 3.7). */
+export async function getFailedRecharges(): Promise<
+  readonly FailedRechargeItem[]
+> {
+  const { data } = await apiClient.get<FailedRechargesResponse>(
+    "/subscriber/transactions",
+    { params: { type: "FAILED" } },
+  );
+  return data.data;
+}
+
+// ── Plan details & catalogue (Story 3.4) ───────────────────────────────────────
+
+/** Bundled plan quotas (null means unlimited). */
+export interface PlanQuotas {
+  readonly data_gb: number | null;
+  readonly voice_minutes: number | null;
+  readonly sms_count: number | null;
+}
+
+/** Active plan details returned by GET /subscriber/plan. */
+export interface ActivePlanData {
+  readonly plan_id: string;
+  readonly plan_name: string;
+  readonly validity_expiry: string | null;
+  readonly validity_days: number;
+  readonly days_remaining: number | null;
+  readonly quotas: PlanQuotas;
+  readonly roaming_enabled: boolean;
+}
+
+interface ActivePlanResponse {
+  readonly data: ActivePlanData;
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/** GET /subscriber/plan — active plan name, validity expiry, and quotas. */
+export async function getActivePlan(): Promise<ActivePlanData> {
+  const { data } = await apiClient.get<ActivePlanResponse>("/subscriber/plan");
+  return data.data;
+}
+
+/** One browsable plan in the catalogue (GET /plans). */
+export interface PlanCatalogueItem {
+  readonly id: string;
+  readonly name: string;
+  readonly data_gb: number | null;
+  readonly voice_minutes: number | null;
+  readonly sms_count: number | null;
+  readonly validity_days: number;
+  readonly price_paise: number;
+  readonly plan_type: string | null;
+  readonly is_active: boolean;
+}
+
+interface PlansCatalogueResponse {
+  readonly data: readonly PlanCatalogueItem[];
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/** GET /plans — browse all active plans (catalogue). */
+export async function listPlans(): Promise<readonly PlanCatalogueItem[]> {
+  const { data } = await apiClient.get<PlansCatalogueResponse>("/plans");
+  return data.data;
+}
+
+// ── Recharge (Story 3.5) ───────────────────────────────────────────────────────
+
+export interface RechargeRequest {
+  readonly plan_id: string;
+  readonly payment_method_id: string;
+  readonly idempotency_key: string;
+}
+
+export interface RechargeResponse {
+  readonly transaction_id: string;
+  readonly new_balance_paise: number;
+  readonly plan_activation_timestamp: string;
+  readonly receipt_url: string;
+}
+
+interface RechargeResponseEnvelope {
+  readonly data: RechargeResponse;
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/**
+ * POST /subscriber/recharge — complete a recharge with idempotency (Story 3.5, AC #2, #3, #4, #5, #6).
+ * Client generates idempotency_key (UUIDv7) for duplicate protection.
+ */
+export async function createRecharge(
+  payload: RechargeRequest,
+): Promise<RechargeResponse> {
+  const { data } = await apiClient.post<RechargeResponseEnvelope>(
+    "/subscriber/recharge",
+    payload,
+  );
+  return data.data;
+}
+
+// ── PDF Receipt (Story 3.6) ────────────────────────────────────────────────────
+
+/**
+ * GET /subscriber/receipts/{transaction_id} — download PDF receipt as a Blob.
+ * Auth via Bearer interceptor. Caller triggers browser download.
+ */
+export async function getReceipt(transactionId: string): Promise<Blob> {
+  const { data } = await apiClient.get<Blob>(
+    `/subscriber/receipts/${transactionId}`,
+    { responseType: "blob" },
+  );
+  return data;
+}
+
+// ── Notification Preferences (Story 4.2) ────────────────────────────────────────
+
+export interface NotificationPreferenceItem {
+  readonly notification_type: string;
+  readonly is_enabled: boolean;
+}
+
+export interface NotificationPreferencesResponse {
+  readonly data: {
+    readonly preferences: readonly NotificationPreferenceItem[];
+  };
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+export interface PatchNotificationPreferenceRequest {
+  readonly notification_type: string;
+  readonly is_enabled: boolean;
+}
+
+export interface PatchNotificationPreferenceResponse {
+  readonly data: {
+    readonly notification_type: string;
+    readonly is_enabled: boolean;
+  };
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/**
+ * GET /subscriber/notification-preferences — get subscriber's notification preferences (Story 4.2).
+ * Returns all 4 notification types with current opt-in status.
+ */
+export async function getNotificationPreferences(): Promise<
+  readonly NotificationPreferenceItem[]
+> {
+  const { data } = await apiClient.get<NotificationPreferencesResponse>(
+    "/subscriber/notification-preferences",
+  );
+  return data.data.preferences;
+}
+
+/**
+ * PATCH /subscriber/notification-preferences — update a notification preference (Story 4.2).
+ * Persists the change and returns the updated state.
+ */
+export async function patchNotificationPreference(
+  payload: PatchNotificationPreferenceRequest,
+): Promise<{
+  readonly notification_type: string;
+  readonly is_enabled: boolean;
+}> {
+  const { data } = await apiClient.patch<PatchNotificationPreferenceResponse>(
+    "/subscriber/notification-preferences",
+    payload,
+  );
+  return data.data;
+}
+
+// ── Support Chat (Story 5.10) ──────────────────────────────────────────────────────
+
+export interface ChatEndRequest {
+  readonly session_id: string;
+}
+
+interface ChatEndResponse {
+  readonly data: { readonly status: string };
+  readonly meta: { readonly trace_id: string; readonly timestamp: string };
+}
+
+/**
+ * POST /api/v1/support/chat/end — trigger Conclusion Agent on session end (Story 5.10 AC #7).
+ * Returns 202 Accepted immediately; agent runs as background task.
+ */
+export async function endChatSession(
+  payload: ChatEndRequest,
+): Promise<{ status: string }> {
+  const { data } = await apiClient.post<ChatEndResponse>(
+    "/support/chat/end",
     payload,
   );
   return data.data;

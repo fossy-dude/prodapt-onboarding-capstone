@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 
 import { Badge, Button, Card, CardSection } from "../../components/ui";
-import { ERROR_CODES, registerSubscriber, toApiError } from "../../lib/api";
+import { registerSubscriber, toApiError } from "../../lib/api";
 import type { RegisterPayload } from "../../types/subscriber";
 
 const ID_PROOF_TYPES = ["Aadhaar", "PAN", "Passport", "Voter ID"] as const;
@@ -12,7 +12,6 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 interface FormState {
   full_name: string;
   email: string;
-  msisdn: string;
   alternate_mobile: string;
   date_of_birth: string;
   address_line1: string;
@@ -28,7 +27,6 @@ interface FormState {
 const EMPTY_FORM: FormState = {
   full_name: "",
   email: "",
-  msisdn: "",
   alternate_mobile: "",
   date_of_birth: "",
   address_line1: "",
@@ -47,11 +45,9 @@ type Step = 1 | 2 | 3;
  * Multi-step subscriber registration form (UX brief §5).
  *
  * Step 1 — personal details + alternate mobile (pre-activation OTP target, PRD A-6).
+ *           MSISDN is NOT collected here — it is auto-generated at SIM activation.
  * Step 2 — TRAI CAF fields; submit creates the registration.
- * Step 3 — Registration ID display + OTP entry (OTP verification lands in Story 1.8).
- *
- * A 409 DUPLICATE_MSISDN from the API surfaces as an inline error on the MSISDN
- * field in Step 1 (AC #8).
+ * Step 3 — Registration ID display + OTP entry.
  */
 function Register() {
   const [step, setStep] = useState<Step>(1);
@@ -68,15 +64,9 @@ function Register() {
     },
     onError: (error: unknown) => {
       const apiError = toApiError(error);
-      if (apiError?.code === ERROR_CODES.DUPLICATE_MSISDN) {
-        // The duplicate is an MSISDN-field error — return to Step 1 to show it inline.
-        setStep(1);
-        setStepError("This mobile number is already registered.");
-      } else {
-        setStepError(
-          apiError?.message ?? "Registration failed. Please try again.",
-        );
-      }
+      setStepError(
+        apiError?.message ?? "Registration failed. Please try again.",
+      );
     },
   });
 
@@ -92,8 +82,6 @@ function Register() {
     if (!form.full_name.trim()) return invalidate("Full name is required.");
     if (!EMAIL_RE.test(form.email))
       return invalidate("A valid email is required.");
-    if (!MSISDN_RE.test(form.msisdn))
-      return invalidate("MSISDN must be 10-15 digits.");
     if (!MSISDN_RE.test(form.alternate_mobile))
       return invalidate("Alternate mobile must be 10-15 digits.");
     return true;
@@ -194,6 +182,9 @@ function Register() {
           <form onSubmit={handleSubmit} noValidate>
             {step === 1 && (
               <CardSection title="Personal details">
+                <p className="mb-4 rounded-md bg-blue-50 px-4 py-3 text-sm text-blue-700">
+                  A mobile number will be automatically assigned when your SIM is activated.
+                </p>
                 <Field
                   label="Full name"
                   value={form.full_name}
@@ -204,12 +195,6 @@ function Register() {
                   value={form.email}
                   type="email"
                   onChange={(v) => setField("email", v)}
-                />
-                <Field
-                  label="MSISDN (mobile to activate)"
-                  value={form.msisdn}
-                  inputMode="numeric"
-                  onChange={(v) => setField("msisdn", v)}
                 />
                 <Field
                   label="Alternate mobile (for OTP)"

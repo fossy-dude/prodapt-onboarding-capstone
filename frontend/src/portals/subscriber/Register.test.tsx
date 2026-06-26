@@ -9,10 +9,6 @@ import { Register } from "./Register";
 // Mock the API module: registerSubscriber is a vi.fn per-test; toApiError reads a
 // synthetic `apiCode` so we avoid constructing a real AxiosError in the test.
 vi.mock("../../lib/api", () => ({
-  ERROR_CODES: {
-    DUPLICATE_MSISDN: "DUPLICATE_MSISDN",
-    VALIDATION_ERROR: "VALIDATION_ERROR",
-  },
   registerSubscriber: vi.fn(),
   toApiError: (e: { apiCode?: string } | undefined) =>
     e?.apiCode ? { code: e.apiCode, message: "error", detail: {} } : null,
@@ -34,13 +30,9 @@ function renderRegister() {
   );
 }
 
-async function fillStep1(
-  user: ReturnType<typeof userEvent.setup>,
-  msisdn = "9876543210",
-) {
+async function fillStep1(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText("Full name"), "Priya Sharma");
   await user.type(screen.getByLabelText("Email"), "priya@example.com");
-  await user.type(screen.getByLabelText("MSISDN (mobile to activate)"), msisdn);
   await user.type(
     screen.getByLabelText("Alternate mobile (for OTP)"),
     "9123456780",
@@ -89,9 +81,9 @@ describe("Register", () => {
     expect(screen.getByText(/Step 1 of 3/)).toBeInTheDocument();
   });
 
-  it("surfaces a 409 DUPLICATE_MSISDN as an inline Step 1 error", async () => {
+  it("shows a generic error message when registration fails", async () => {
     vi.mocked(registerSubscriber).mockRejectedValueOnce({
-      apiCode: "DUPLICATE_MSISDN",
+      apiCode: "VALIDATION_ERROR",
     });
     const user = userEvent.setup();
     renderRegister();
@@ -103,11 +95,9 @@ describe("Register", () => {
       screen.getByRole("button", { name: "Submit registration" }),
     );
 
-    // Returns to Step 1 with the inline MSISDN error (AC #8).
     await waitFor(() =>
-      expect(screen.getByText(/Step 1 of 3/)).toBeInTheDocument(),
+      expect(screen.getByRole("alert")).toHaveTextContent("error"),
     );
-    expect(screen.getByRole("alert")).toHaveTextContent("already registered");
   });
 
   it("shows the Registration ID on Step 3 on success", async () => {

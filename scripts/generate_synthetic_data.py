@@ -19,6 +19,7 @@ Writes scripts/fraud_report.json (list of fraud subscribers with description).
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import os
@@ -114,6 +115,20 @@ def _conninfo() -> str:
     )
 
 
+def _admin_conninfo() -> str:
+    """Connection string using elevated credentials for truncation of append-only tables.
+
+    billing_cdr_events/billing_transactions/billing_audit_log have DELETE revoked from
+    sboai_app (V5 migration). Seed resets require a superuser connection. Falls back to
+    the regular app user if SEED_ADMIN_USER is not set (useful in test environments where
+    V5 hasn't run).
+    """
+    db = settings.db
+    user = os.getenv("SEED_ADMIN_USER", db.user)
+    password = os.getenv("SEED_ADMIN_PASSWORD", db.password.get_secret_value())
+    return f"host={db.host} port={db.port} dbname={db.name} user={user} password={password}"
+
+
 def _rand_msisdn(used: set[str]) -> str:
     while True:
         prefix = random.choice(["6", "7", "8", "9"])
@@ -152,20 +167,33 @@ def _seed_plans(conn: psycopg.Connection) -> None:
 def _load_plans(conn: psycopg.Connection) -> pd.DataFrame:
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT id::text, price_paise FROM plans_plans WHERE is_active = TRUE"
+            "SELECT id::text, price_paise, validity_days "
+            "FROM plans_plans WHERE is_active = TRUE"
         )
         rows = cur.fetchall()
-    return pd.DataFrame(rows, columns=["id", "price_paise"])
+    return pd.DataFrame(rows, columns=["id", "price_paise", "validity_days"])
 
 
-def _truncate_generated(conn: psycopg.Connection) -> None:
-    # sboai_app has DELETE but not TRUNCATE; UUID PKs have no sequences to reset.
-    with conn.cursor() as cur:
-        cur.execute("DELETE FROM billing_cdr_events")
-        cur.execute("DELETE FROM billing_wallet_balances")
-        cur.execute("DELETE FROM identity_subscribers")
-    conn.commit()
-    log.info("Truncated generated tables")
+def _truncate_generated() -> None:
+    # Append-only tables (billing_cdr_events, billing_transactions, billing_audit_log)
+    # have DELETE revoked from sboai_app (V5 grants), so the reset runs over the admin
+    # connection.
+    #
+    # identity_subscribers is referenced by 19 dependent tables (plans_subscriptions,
+    # billing_wallet_balances, billing_cdr_events, billing_transactions, support_tickets,
+    # notifications_*, fraud_*, segmentation_*, recharge_*, identity_registrations, ...)
+    # via RESTRICT foreign keys — none use ON DELETE CASCADE. Because the script
+    # regenerates subscriber UUIDs every run, every dependent row would otherwise be
+    # orphaned and block the parent delete (ForeignKeyViolation on
+    # plans_subscriptions_subscriber_id_fkey). TRUNCATE ... CASCADE atomically clears
+    # identity_subscribers AND all of its dependents in one shot, giving a clean slate.
+    # UUID PKs have no sequences, so RESTART IDENTITY is unnecessary. plans_plans is NOT
+    # a dependent (the FK points the other way) and is preserved.
+    with psycopg.connect(_admin_conninfo(), autocommit=False) as admin_conn:
+        with admin_conn.cursor() as cur:
+            cur.execute("TRUNCATE identity_subscribers CASCADE")
+        admin_conn.commit()
+    log.info("Truncated identity_subscribers and all dependent tables (CASCADE)")
 
 
 # ── Subscriber generation ─────────────────────────────────────────────────────
@@ -276,6 +304,41 @@ def generate_wallets(
     if pending:
         _flush(pending)
     log.info("  wallets done")
+
+
+# ── Plan subscription generation ──────────────────────────────────────────────
+
+
+def generate_plan_subscriptions(conn: psycopg.Connection) -> int:
+    """Ensure every plan-bearing subscriber has an active plans_subscriptions row.
+
+    Uses each subscriber's assigned ``identity_subscribers.plan_id``; the subscription
+    window starts now and ends ``validity_days`` later (so GET /subscriber/plan returns
+    the plan and it expires at its natural end). Idempotent — skips subscribers that
+    already have an active subscription. Returns the number of rows inserted.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO plans_subscriptions
+                (id, subscriber_id, plan_id, start_date, end_date, status, created_at, modified_at)
+            SELECT gen_random_uuid(), s.id, s.plan_id,
+                   NOW(),
+                   NOW() + make_interval(days => p.validity_days),
+                   'active', NOW(), NOW()
+              FROM identity_subscribers s
+              JOIN plans_plans p ON p.id = s.plan_id
+             WHERE s.plan_id IS NOT NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM plans_subscriptions ps
+                    WHERE ps.subscriber_id = s.id AND ps.status = 'active'
+               )
+            """
+        )
+        inserted = cur.rowcount
+    conn.commit()
+    log.info("  active plan_subscriptions ensured for %d subscribers", inserted)
+    return inserted
 
 
 # ── CDR generation ────────────────────────────────────────────────────────────
@@ -631,14 +694,34 @@ def write_fraud_report(
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 
+def _has_subscribers(conn: psycopg.Connection) -> bool:
+    with conn.cursor() as cur:
+        cur.execute("SELECT EXISTS (SELECT 1 FROM identity_subscribers LIMIT 1)")
+        return cur.fetchone()[0]
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Synthetic data generator for SkyLink."
+    )
+    parser.add_argument(
+        "--skip-truncate-if-pre-seeded",
+        action="store_true",
+        help="Skip all seeding steps if subscriber data already exists",
+    )
+    args = parser.parse_args()
+
     log.info("Connecting to Postgres ...")
     with psycopg.connect(_conninfo(), autocommit=False) as conn:
+        if args.skip_truncate_if_pre_seeded and _has_subscribers(conn):
+            log.info("Subscriber data already exists — skipping seed (--skip-truncate)")
+            return
+
         log.info("Seeding plans from %s ...", SEED_PLANS_SQL)
         _seed_plans(conn)
 
         log.info("Truncating generated tables ...")
-        _truncate_generated(conn)
+        _truncate_generated()
 
         log.info("Loading plans ...")
         plans_df = _load_plans(conn)
@@ -651,6 +734,7 @@ def main() -> None:
 
         subs_df = generate_subscribers(conn, plans_df)
         generate_wallets(conn, subs_df, plans_df)
+        generate_plan_subscriptions(conn)
 
         sub_ids = subs_df["id"].tolist()
         fraud_meta, _ = _build_fraud_plan(sub_ids)

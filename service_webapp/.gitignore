@@ -1,0 +1,5 @@
+# service_webapp-local ignores (complements the root .gitignore)
+
+# Eval harness: generated reports are runtime artifacts, never committed.
+# Fixtures (evals/fixtures/) and source are tracked.
+evals/reports/

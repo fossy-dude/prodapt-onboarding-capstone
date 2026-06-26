@@ -31,9 +31,10 @@ from psycopg.types.json import Json
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from core.auth import require_role
-from core.errors import DomainError, ForbiddenError, NotFoundError, UnauthenticatedError
+from core.errors import DomainError, ForbiddenError, NotFoundError
 from core.responses import success_envelope
-from core.security import mask_msisdn
+from core.security import mask_msisdn, normalize_login_identifier
+from routers._identity import resolve_subscriber_id
 from services.registration import (
     REGISTRATION_STATUS,
     RegistrationCommand,
@@ -53,14 +54,16 @@ _ID_PROOF_TYPES = Literal["Aadhaar", "PAN", "Passport", "Voter ID"]
 
 
 class RegisterRequest(BaseModel):
-    """Registration payload: Step 1 personal details + Step 2 TRAI CAF fields."""
+    """Registration payload: Step 1 personal details + Step 2 TRAI CAF fields.
+
+    MSISDN is intentionally absent — it is auto-generated at SIM activation time.
+    """
 
     model_config = ConfigDict(extra="ignore")
 
     # Step 1 — personal details (UX brief §5)
     full_name: str = Field(min_length=1, max_length=200)
     email: str = Field(max_length=254)
-    msisdn: str = Field(description="Mobile number being activated (10-15 digits).")
     alternate_mobile: str = Field(description="Alternate mobile for the pre-activation OTP (PRD A-6).")
 
     # Step 2 — TRAI CAF fields (UX brief §5)
@@ -74,7 +77,7 @@ class RegisterRequest(BaseModel):
     id_proof_number: str = Field(min_length=1)
     consent: bool = Field(description="Data-processing consent (must be True).")
 
-    @field_validator("msisdn", "alternate_mobile")
+    @field_validator("alternate_mobile")
     @classmethod
     def _validate_mobile(cls, v: str) -> str:
         if not _MSISDN_RE.match(v):
@@ -124,7 +127,6 @@ def _to_command(payload: RegisterRequest) -> RegistrationCommand:
     return RegistrationCommand(
         full_name=payload.full_name,
         email=payload.email,
-        msisdn=payload.msisdn,
         alternate_mobile=payload.alternate_mobile,
         date_of_birth=payload.date_of_birth,
         address_line1=payload.address_line1,
@@ -161,6 +163,11 @@ class LoginInitiateRequest(BaseModel):
     # P9: bound length to prevent unbounded strings reaching Cognito.
     identifier: str = Field(min_length=1, max_length=128, description="Registration ID or MSISDN.")
 
+    @field_validator("identifier")
+    @classmethod
+    def _normalize_identifier(cls, v: str) -> str:
+        return normalize_login_identifier(v)
+
 
 class LoginVerifyRequest(BaseModel):
     """Verify the OTP challenge and receive JWT tokens."""
@@ -171,8 +178,12 @@ class LoginVerifyRequest(BaseModel):
     identifier: str = Field(
         min_length=1, max_length=128, description="Registration ID or MSISDN (must match initiation)."
     )
-    session: str = Field(min_length=1, description="Session string returned by the initiate endpoint.")
     otp: str = Field(min_length=6, max_length=6, description="6-digit OTP delivered via the Notification Portal.")
+
+    @field_validator("identifier")
+    @classmethod
+    def _normalize_identifier(cls, v: str) -> str:
+        return normalize_login_identifier(v)
 
 
 def _cognito(request: Request):
@@ -186,35 +197,82 @@ def _cognito(request: Request):
     return provider
 
 
+def _login_otp_service(request: Request):
+    """Resolve the login OTP service from app state (injected by lifespan or tests)."""
+    svc = getattr(request.app.state, "login_otp_service", None)
+    if svc is None:
+        err = DomainError("Login OTP service is not initialised.")
+        err.code = "NOT_READY"
+        err.http_status = 503
+        raise err
+    return svc
+
+
 @auth_router.post("/login/initiate", status_code=200)
 async def login_initiate(payload: LoginInitiateRequest, request: Request) -> JSONResponse:
-    """Initiate Cognito Custom Auth Flow (passwordless login — no password, AC #1, #2).
+    """Initiate passwordless login — mint an OTP, store in Valkey, publish to notification.events.
 
-    The OTP challenge is issued by the Cognito Custom Auth Lambdas and surfaced
-    on the Notification Portal for testing. The returned ``session`` must be passed
-    to ``/login/verify``.
+    The OTP appears on the Notification Portal (/simulator/notifications). No session
+    string is returned; the client sends only identifier + otp to /login/verify.
     """
     provider = _cognito(request)
-    session = await provider.initiate_login(payload.identifier)
+    otp_svc = _login_otp_service(request)
+    trace_id = getattr(request.state, "trace_id", "unknown")
+    await provider.initiate_login(payload.identifier, trace_id, otp_svc)
     return JSONResponse(
         status_code=200,
         content=success_envelope(
-            {"session": session},
-            trace_id=getattr(request.state, "trace_id", "unknown"),
+            {},
+            trace_id=trace_id,
         ),
     )
 
 
 @auth_router.post("/login/verify", status_code=200)
 async def login_verify(payload: LoginVerifyRequest, request: Request) -> JSONResponse:
-    """Verify the OTP challenge and return JWT access + refresh tokens (AC #1, #2).
+    """Verify the OTP and return JWT access + refresh tokens (AC #1, #2).
 
     On success the access token (30 min TTL) and refresh token (30 days) are returned.
     The caller stores the access token and sends it as ``Authorization: Bearer {token}``
     on subsequent requests.
     """
     provider = _cognito(request)
-    tokens = await provider.verify_login_otp(payload.identifier, payload.session, payload.otp)
+    otp_svc = _login_otp_service(request)
+    tokens = await provider.verify_login_otp(payload.identifier, payload.otp, otp_svc)
+    return JSONResponse(
+        status_code=200,
+        content=success_envelope(
+            tokens,
+            trace_id=getattr(request.state, "trace_id", "unknown"),
+        ),
+    )
+
+
+class TokenRefreshRequest(BaseModel):
+    """Exchange a Cognito refresh token for a new access token."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    refresh_token: str = Field(min_length=1, max_length=2048)
+
+
+@auth_router.post("/token/refresh", status_code=200)
+async def token_refresh(payload: TokenRefreshRequest, request: Request) -> JSONResponse:
+    """Exchange a refresh token for a new access token.
+
+    Returns ``{access_token, id_token, token_type}``.
+    Responds 401 UNAUTHENTICATED when the refresh token is invalid or expired.
+    """
+    from core.errors import OtpVerificationError  # noqa: PLC0415
+
+    provider = _cognito(request)
+    try:
+        tokens = await provider.refresh_token(payload.refresh_token)
+    except OtpVerificationError as exc:
+        err = DomainError(str(exc))
+        err.code = "UNAUTHENTICATED"
+        err.http_status = 401
+        raise err from exc
     return JSONResponse(
         status_code=200,
         content=success_envelope(
@@ -233,19 +291,6 @@ def _db(request: Request):
         err.http_status = 503
         raise err
     return db
-
-
-def _require_sub(jwt_payload: dict) -> str:
-    """Extract the subscriber UUID (JWT ``sub``); 401 if the claim is absent.
-
-    ``require_role`` validates ``cognito:groups`` but never asserts ``sub`` is
-    present, so a valid token lacking ``sub`` would otherwise raise a raw
-    ``KeyError`` → HTTP 500. Surface it as a clean 401 instead.
-    """
-    sub = jwt_payload.get("sub")
-    if not sub:
-        raise UnauthenticatedError("Access token is missing the 'sub' claim.")
-    return str(sub)
 
 
 def _validate_order_id(order_id: str) -> None:
@@ -277,9 +322,9 @@ async def get_active_order(
     ``order_id: null`` so the tracker can render an empty state rather than an
     error (a missing order is a legitimate state, not a failure).
     """
-    sub = _require_sub(jwt_payload)
     db = _db(request)
     async with db.transaction() as conn:
+        sub = await resolve_subscriber_id(conn, jwt_payload)
         cur = await conn.execute(
             """
             SELECT id::text, fulfilment_status, modified_at
@@ -324,9 +369,9 @@ async def get_order_status(
     (PII hygiene: never log raw MSISDN; use ``msisdn[-4:]`` if needed).
     """
     _validate_order_id(order_id)
-    sub = _require_sub(jwt_payload)
     db = _db(request)
     async with db.transaction() as conn:
+        sub = await resolve_subscriber_id(conn, jwt_payload)
         cur = await conn.execute(
             """
             SELECT o.fulfilment_status,
@@ -343,7 +388,7 @@ async def get_order_status(
     if row is None:
         raise NotFoundError("Order not found.")
     status, updated_at, subscriber_id, msisdn = row
-    if subscriber_id != sub:
+    if str(subscriber_id) != sub:
         logger.info("order-status 403: sub=%s order_id=%s", sub, order_id)
         raise ForbiddenError("You are not authorised to view this order.")
     msisdn_out = msisdn if status == "ACTIVATED" else None
@@ -430,9 +475,9 @@ async def get_profile(
     client-supplied id — so owner-only access is enforced by construction. The KYC
     status comes from the subscriber's latest ``identity_kyc_records`` row.
     """
-    sub = _require_sub(jwt_payload)
     db = _db(request)
     async with db.transaction() as conn:
+        sub = await resolve_subscriber_id(conn, jwt_payload)
         cur = await conn.execute(_PROFILE_SELECT, (sub,))
         row = await cur.fetchone()
     if row is None:
@@ -493,7 +538,6 @@ async def update_profile(
     ``new_value`` carries the changed FIELD NAMES only, never raw PII (§1.11.6).
     Returns HTTP 200 with the updated decrypted profile in the standard envelope.
     """
-    sub = _require_sub(jwt_payload)
     db = _db(request)
     updates = {
         field: getattr(payload, field)
@@ -504,6 +548,7 @@ async def update_profile(
     # SET clause by string is safe — values are still bound via %s parameters.
     set_clause = ", ".join(f"{col} = %s" for col in updates)
     async with db.transaction() as conn:
+        sub = await resolve_subscriber_id(conn, jwt_payload)
         cur = await conn.execute(
             f"UPDATE identity_subscribers SET {set_clause} WHERE id = %s::uuid",
             (*updates.values(), sub),
@@ -595,15 +640,15 @@ async def add_payment_method(
     the token is a UUID generated client-side; the raw PAN never reaches the server.
     Non-card methods (UPI, net banking, mobile wallet) store the identifier as-is.
     """
-    sub = _require_sub(jwt_payload)
     db = _db(request)
 
     async with db.transaction() as conn:
+        sub = await resolve_subscriber_id(conn, jwt_payload)
         cur = await conn.execute(
             """
-            INSERT INTO recharge_payment_methods (subscriber_id, type, token, display_label, is_default)
+            INSERT INTO recharge_payment_methods (subscriber_id, method_type, token, display_label, is_default)
             VALUES (%s::uuid, %s, %s, %s, false)
-            RETURNING id::text, type, token, display_label, is_default, created_at
+            RETURNING id::text, method_type AS type, token, display_label, is_default, created_at
             """,
             (sub, payload.type, payload.token, payload.display_label),
         )
@@ -640,13 +685,13 @@ async def list_payment_methods(
     Returns an array of payment methods with most recent first. Each method includes
     a type icon in the UI and a ``Set Default`` action (unless already default).
     """
-    sub = _require_sub(jwt_payload)
     db = _db(request)
 
     async with db.transaction() as conn:
+        sub = await resolve_subscriber_id(conn, jwt_payload)
         cur = await conn.execute(
             """
-            SELECT id::text, type, token, display_label, is_default, created_at
+            SELECT id::text, method_type AS type, token, display_label, is_default, created_at
             FROM recharge_payment_methods
             WHERE subscriber_id = %s::uuid
             ORDER BY created_at DESC
@@ -686,7 +731,6 @@ async def set_default_payment_method(
     Clears the ``is_default`` flag on all other methods for this subscriber in a
     single transaction (ensuring exactly one default at a time).
     """
-    sub = _require_sub(jwt_payload)
     db = _db(request)
 
     try:
@@ -695,6 +739,7 @@ async def set_default_payment_method(
         raise NotFoundError("Payment method not found.") from exc
 
     async with db.transaction() as conn:
+        sub = await resolve_subscriber_id(conn, jwt_payload)
         # First verify ownership
         cur = await conn.execute(
             """
@@ -707,7 +752,7 @@ async def set_default_payment_method(
         if row is None:
             raise NotFoundError("Payment method not found.")
         owner_id = row[0]
-        if owner_id != sub:
+        if str(owner_id) != sub:
             logger.info("set-default 403: sub=%s method_id=%s owner=%s", sub, method_id, owner_id)
             raise ForbiddenError("You are not authorised to modify this payment method.")
 
@@ -732,7 +777,7 @@ async def set_default_payment_method(
         # Re-read to return the updated record
         cur = await conn.execute(
             """
-            SELECT id::text, type, token, display_label, is_default, created_at
+            SELECT id::text, method_type AS type, token, display_label, is_default, created_at
             FROM recharge_payment_methods
             WHERE id = %s::uuid
             """,
@@ -772,7 +817,6 @@ async def delete_payment_method(
     Authorises that the JWT ``sub`` matches the method's ``subscriber_id``; mismatches
     yield HTTP 403. Returns HTTP 204 on success (no body).
     """
-    sub = _require_sub(jwt_payload)
     db = _db(request)
 
     try:
@@ -781,6 +825,7 @@ async def delete_payment_method(
         raise NotFoundError("Payment method not found.") from exc
 
     async with db.transaction() as conn:
+        sub = await resolve_subscriber_id(conn, jwt_payload)
         # Verify ownership before delete
         cur = await conn.execute(
             """
@@ -793,7 +838,7 @@ async def delete_payment_method(
         if row is None:
             raise NotFoundError("Payment method not found.")
         owner_id = row[0]
-        if owner_id != sub:
+        if str(owner_id) != sub:
             logger.info("delete 403: sub=%s method_id=%s owner=%s", sub, method_id, owner_id)
             raise ForbiddenError("You are not authorised to delete this payment method.")
 

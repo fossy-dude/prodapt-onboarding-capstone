@@ -35,6 +35,7 @@ from opentelemetry import metrics, trace
 from consumer.startup import load_balances_from_postgres
 
 if TYPE_CHECKING:
+    from consumer.notification_trigger import NotificationTrigger
     from core.protocols.cache import CacheProtocol
     from core.protocols.db import DatabaseProtocol
     from models.cdr import CdrEvent
@@ -111,6 +112,25 @@ INSERT INTO billing_transactions (
 )
 """
 
+_CDR_EVENT_INSERT_SQL = """\
+INSERT INTO billing_cdr_events (
+    id, session_id, subscriber_id, cdr_type, telecom_circle, cell_tower_id,
+    roaming, cost_paise, status, start_time, end_time,
+    from_number, to_number, call_direction, duration_seconds, call_status,
+    message_direction, sms_status,
+    network_type, downloaded_mb, uploaded_mb, volume_mb, apn, imei, operator_id,
+    created_at
+) VALUES (
+    %s::uuid, %s::uuid, %s::uuid, %s, %s, %s,
+    %s, %s, 'rated', %s, %s,
+    %s, %s, %s, %s, %s,
+    %s, %s,
+    %s, %s, %s, %s, %s, %s, %s,
+    NOW()
+)
+ON CONFLICT (id) DO NOTHING
+"""
+
 
 @dataclass(slots=True)
 class LedgerRow:
@@ -122,6 +142,65 @@ class LedgerRow:
     description: str
     balance_before: int
     balance_after: int
+
+
+@dataclass(slots=True)
+class CdrEventRow:
+    """Queued CDR event row for batch insert into billing_cdr_events."""
+
+    cdr_id: str
+    session_id: str
+    subscriber_id: str
+    cdr_type: str
+    telecom_circle: str
+    cell_tower_id: str | None
+    roaming: bool
+    cost_paise: int
+    start_time: object  # datetime
+    end_time: object | None  # datetime | None
+    from_number: str | None
+    to_number: str | None
+    call_direction: str | None
+    duration_seconds: int | None
+    call_status: str | None
+    message_direction: str | None
+    sms_status: str | None
+    network_type: str | None
+    downloaded_mb: float | None
+    uploaded_mb: float | None
+    volume_mb: float | None
+    apn: str | None
+    imei: str | None
+    operator_id: str | None
+
+
+def _build_cdr_event_row(cdr: CdrEvent, subscriber_id_str: str) -> CdrEventRow:
+    return CdrEventRow(
+        cdr_id=str(cdr.cdr_id),
+        session_id=str(cdr.session_id),
+        subscriber_id=subscriber_id_str,
+        cdr_type=cdr.cdr_type,
+        telecom_circle=cdr.telecom_circle,
+        cell_tower_id=cdr.cell_tower_id,
+        roaming=cdr.roaming,
+        cost_paise=cdr.cost_paise,
+        start_time=cdr.start_time,
+        end_time=cdr.end_time,
+        from_number=getattr(cdr, "from_number", None),
+        to_number=getattr(cdr, "to_number", None),
+        call_direction=getattr(cdr, "call_direction", None),
+        duration_seconds=getattr(cdr, "duration_seconds", None),
+        call_status=getattr(cdr, "call_status", None),
+        message_direction=getattr(cdr, "message_direction", None),
+        sms_status=getattr(cdr, "sms_status", None),
+        network_type=getattr(cdr, "network_type", None),
+        downloaded_mb=getattr(cdr, "downloaded_mb", None),
+        uploaded_mb=getattr(cdr, "uploaded_mb", None),
+        volume_mb=getattr(cdr, "volume_mb", None),
+        apn=getattr(cdr, "apn", None),
+        imei=getattr(cdr, "imei", None),
+        operator_id=getattr(cdr, "operator_id", None),
+    )
 
 
 class BalanceEngine:
@@ -152,20 +231,23 @@ class BalanceEngine:
         *,
         flush_interval: float = 2.0,
         flush_dirty_threshold: int = 5000,
+        notification_trigger: NotificationTrigger | None = None,
     ) -> None:
         self._cache: CacheProtocol = cache
         self._db: DatabaseProtocol = db
         self._flush_interval: float = flush_interval
         self._flush_dirty_threshold: int = flush_dirty_threshold
+        self._notification_trigger = notification_trigger
 
         # Warm-up indices (built by load_balances_from_postgres)
         self._subscriber_to_msisdn: dict[str, str] = {}
         self._msisdn_to_subscriber: dict[str, str] = {}
         self._warmup_count: int = 0
 
-        # In-process dirty set and ledger queue (shared between hot path and flusher)
+        # In-process dirty set, ledger queue, and CDR event queue (shared between hot path and flusher)
         self._dirty_msisdns: set[str] = set()
         self._ledger_queue: list[LedgerRow] = []
+        self._cdr_event_queue: list[CdrEventRow] = []
 
         # Flusher loop control
         self._flusher_running: bool = False
@@ -188,6 +270,16 @@ class BalanceEngine:
     def warmup_count(self) -> int:
         """Number of balance keys seeded by the last warm-up (0 before warm-up)."""
         return self._warmup_count
+
+    def set_notification_trigger(self, trigger: NotificationTrigger) -> None:
+        """Inject notification trigger after engine construction (Story 4.1).
+
+        Parameters
+        ----------
+        trigger : NotificationTrigger
+            Notification trigger instance to inject.
+        """
+        self._notification_trigger = trigger
 
     async def warmup(self) -> None:
         """Run Postgres → Valkey warm-up and build indices (Task 3, AC #5).
@@ -253,6 +345,31 @@ class BalanceEngine:
             span.set_attribute("balance.balance_after", balance_after)
             span.set_attribute("balance.msisdn_last4", msisdn[-4:])  # PII-safe
 
+            # Notification trigger: publish LOW_BALANCE or BALANCE_DEPLETED events
+            # Must use asyncio.create_task to keep hot path O(1) — no await.
+            if self._notification_trigger is not None:
+                # Extract trace_id from current OTEL span (32 hex chars)
+                span_context = span.get_span_context()
+                span_trace_id = format(span_context.trace_id, "032x")
+
+                # Fire-and-forget notification check (task exceptions logged by callback)
+                def _on_notification_done(task: asyncio.Task) -> None:
+                    if task.cancelled():
+                        return
+                    exc = task.exception()
+                    if exc:
+                        logger.error("notification_trigger failed: %s", exc)
+
+                task = asyncio.create_task(
+                    self._notification_trigger.check_and_publish(
+                        msisdn=msisdn,
+                        subscriber_id=sub_id_str,
+                        balance_after=balance_after,
+                        trace_id=span_trace_id,
+                    )
+                )
+                task.add_done_callback(_on_notification_done)
+
             # Overdraft signal (allow + signal policy): the deduction is NOT undone,
             # but a negative result is made visible so it can be reconciled.
             if balance_after < 0:
@@ -273,6 +390,9 @@ class BalanceEngine:
                     balance_after=balance_after,
                 )
             )
+
+            # Enqueue CDR event row for billing_cdr_events (status='rated')
+            self._cdr_event_queue.append(_build_cdr_event_row(cdr, sub_id_str))
 
             # If this deduction pushed the buffer to its cap, close the gate so the
             # next ``deduct`` blocks until a flush frees capacity.
@@ -304,11 +424,12 @@ class BalanceEngine:
         drain never overlap.
         """
         async with self._flush_lock:
-            if not self._dirty_msisdns and not self._ledger_queue:
+            if not self._dirty_msisdns and not self._ledger_queue and not self._cdr_event_queue:
                 return
 
             dirty_snapshot = list(self._dirty_msisdns)
             ledger_snapshot = list(self._ledger_queue)
+            cdr_event_snapshot = list(self._cdr_event_queue)
 
             upsert_params: list[tuple[str, str, int]] = []
             missing_subscriber: list[str] = []
@@ -339,6 +460,36 @@ class BalanceEngine:
                 for row in ledger_snapshot
             ]
 
+            cdr_event_params = [
+                (
+                    row.cdr_id,
+                    row.session_id,
+                    row.subscriber_id,
+                    row.cdr_type,
+                    row.telecom_circle,
+                    row.cell_tower_id,
+                    row.roaming,
+                    row.cost_paise,
+                    row.start_time,
+                    row.end_time,
+                    row.from_number,
+                    row.to_number,
+                    row.call_direction,
+                    row.duration_seconds,
+                    row.call_status,
+                    row.message_direction,
+                    row.sms_status,
+                    row.network_type,
+                    row.downloaded_mb,
+                    row.uploaded_mb,
+                    row.volume_mb,
+                    row.apn,
+                    row.imei,
+                    row.operator_id,
+                )
+                for row in cdr_event_snapshot
+            ]
+
             # One round-trip per statement (executemany), not one per row.
             # psycopg3's executemany lives on the cursor, not the connection.
             async with self._db.transaction() as conn:
@@ -348,6 +499,9 @@ class BalanceEngine:
                 if ledger_params:
                     async with conn.cursor() as cur:
                         await cur.executemany(_LEDGER_INSERT_SQL, ledger_params)
+                if cdr_event_params:
+                    async with conn.cursor() as cur:
+                        await cur.executemany(_CDR_EVENT_INSERT_SQL, cdr_event_params)
 
             # Commit succeeded — clear ONLY the flushed items. Anything appended by
             # a concurrent deduct during the awaits above is preserved (set
@@ -357,15 +511,17 @@ class BalanceEngine:
             # granularity as the prior implementation, but no longer lost on failure.
             self._dirty_msisdns.difference_update(dirty_snapshot)
             del self._ledger_queue[: len(ledger_snapshot)]
+            del self._cdr_event_queue[: len(cdr_event_snapshot)]
             # Re-mark deferred wallets so the next flush retries them.
             self._dirty_msisdns.update(missing_subscriber)
             # A successful flush made room — release backpressure.
             self._drained.set()
 
             logger.info(
-                "flush: upserted %d wallets, inserted %d ledger rows",
+                "flush: upserted %d wallets, inserted %d ledger rows, inserted %d cdr events",
                 len(upsert_params),
                 len(ledger_params),
+                len(cdr_event_params),
             )
 
     async def _flusher_loop(self) -> None:
@@ -449,4 +605,4 @@ class BalanceEngine:
         logger.info("flusher: stopped")
 
 
-__all__ = ["BalanceEngine", "LedgerRow"]
+__all__ = ["BalanceEngine", "CdrEventRow", "LedgerRow"]

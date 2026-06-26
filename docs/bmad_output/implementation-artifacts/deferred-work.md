@@ -92,3 +92,42 @@
 - **Flusher inner loop busy-polls at 10 Hz** — `asyncio.sleep(0.1)` inside `_flusher_loop`; works under MVP load, minor CPU. Replace with an `asyncio.Event` signalled by `deduct` when the dirty threshold is approached.
 - **Unlimited-bundle `cost=0` still performs an `INCRBY 0` round-trip** — every free/unlimited CDR still hits Valkey on the hot path. Chose consistency (key always exists) over micro-optimisation; revisit only if free-call volume dominates measured P95.
 - **`_management_lifespan` dead `finally: pass`** — never closes `JWTValidator` (JWKS HTTP client leak). Story 2.5 management-API scope. [main.py:56-64]
+
+## Deferred from: code review of 5-3-rag-pipeline-milvus-hybrid-search (2026-06-24)
+
+- `_dispatch_notification_events` commits the Kafka offset outside `db.transaction()` — non-atomic with the DB insert; duplicate inserts / lost notifications on broker hiccup. Story 4.x, not 5.3. [service_webapp/src/main.py]
+- `data_nudge_consumer` startup is gated on `notification_dispatcher` being present — conflates two unrelated consumers; DATA_NUDGE never starts if the dispatcher is absent. Story 4.x, not 5.3. [service_webapp/src/main.py]
+- Commit scope hygiene: the Story 5.3 commit bundles unrelated Stories 4.1/4.2/4.3/5.2 changes (rate limit, routers, scheduler, consumers) into `main.py`/`pyproject.toml`. Consider splitting before merge.
+- `RagChunk` is a plain dataclass, not JSON-serializable — Story 5.4's LangGraph tool result will need `dataclasses.asdict()` or the LLM cannot consume the tool output. [service_webapp/src/agents/rag/retriever.py:90-104]
+- `rag_search` is not yet wrapped as a LangGraph `@tool`/`ToolNode` — correctly deferred to Story 5.4 per AC #6; confirm 5.4 owns registration.
+- Two `MilvusClient` instances open the same Milvus Lite file (adapter + retriever) — works today; retriever could reuse `app.state.milvus_adapter`. Design note.
+- Singleton `_retriever` has no lock — `set_retriever` is called once at startup and concurrent reads were verified safe. Theoretical only.
+- Falsy PK `or ""` chain in `_record_hit` — real Milvus PKs are UUID/strings, never falsy. Low-value defensive.
+
+## Deferred from: code review of 5-4-copilotkit-runtime-support-agent-graph (2026-06-24)
+
+- `get_plan`/`get_usage` wrap a pure SELECT in `db.transaction()` (`tools.py`) — suboptimal but acceptable; `DatabaseProtocol` exposes no connection-only seam and its docstring says "later stories extend it." Revisit if a `connection()`/`acquire()` seam is added.
+- `test_support_agent_tools.py` patches the imported name `support_tools.get_active_plan` rather than `queries.get_active_plan` — brittle to refactor.
+- Integration `valkey_url` readiness loop yields after 30s even if Valkey never became ready, producing unclear connection errors instead of a clear "container didn't start" failure.
+- Valkey chat context non-atomic read-modify-write (`context.py`: load → reindex → DELETE → HSET) — concurrent turns for one session can lose updates or drop the whole HASH; the DELETE window makes the key vanish mid-write. Deferred from Story 5.4 review: moot until subscriber identity/session_id actually flow into the graph; revisit when chat concurrency is exercised (consider a Lua HSET+trim+EXPIRE or a LIST/STREAM + LTRIM model).
+
+### Pre-existing gate blockers (encountered while verifying 5.4 patches; out of scope but recorded)
+- **Environment artifact, not a source bug:** the first `just test` run this session surfaced `ImportError: cannot import name 'set_guardrail' from 'agents.guardrails.validator'` and red-flagged the whole Python suite (131 failures + 35 errors). The committed source (`7e834b6`) already imports `set_guardrail` correctly from `agents.support.graph` (`main.py:84`) — the failure was a stale-environment artifact (the run resolved `VIRTUAL_ENV` to `cdr-pipeline/.venv`); a clean re-run after touching the file passed. No source change was or is needed.
+- **Pre-existing (not fixed):** `just test` frontend has 2 red files unrelated to 5.4 — `App.test.tsx` (Story 5.6 `PlanRecommendationCard.tsx` imports a non-existent `components/ui/Badge`) and `Dashboard.test.tsx > shows error state when balance fetch fails` (unrelated; 5.4 frontend working tree is byte-identical to HEAD).
+- **Pre-existing (not fixed):** `just test` python — 11 `test_synthetic_helpers.py` failures from `ModuleNotFoundError: No module named 'faker'` (missing optional dep in the test env); unrelated to 5.4.
+- **Pre-existing (not fixed):** `just lint` — 5 ruff errors remain, all in Story 5.5/5.6 guardrail test files (`RUF015`/`RUF001` ambiguous fullwidth chars); the 2 pre-existing `TC001` in `graph.py:39` (annotation-only guardrail imports, added by Story 5.5) were also pre-existing and have been tidied into the `TYPE_CHECKING` block as part of this review since `graph.py` was already in scope.
+
+
+## Deferred from: code review of stories 5.5 & 5.6 (2026-06-24)
+
+### Story 5.5 (input-validation-guardrails)
+- `len(message) > 2000` counts Unicode code points, not bytes/graphemes; AC "2,000 characters" is ambiguous — document the interpretation (code-point count is a defensible reading for an MVP guardrail). [service_webapp/src/agents/guardrails/validator.py:135]
+- `rejected` flag not reset at the start of `guardrail_node`; relies on the node rewriting it each turn — brittle only if the graph topology becomes non-linear. [service_webapp/src/agents/support/graph.py]
+
+### Story 5.6 (recharge-via-chatbot)
+- No recharge-intent guidance in `SUPPORT_SYSTEM_PROMPT`; AC #1 "detects recharge intent" relies on the model inferring it from the `list_plans` docstring — robustness enhancement, not a hard violation. [service_webapp/src/agents/support/graph.py:58]
+- NULL/corrupt `price_paise` → `None / 100` TypeError in `list_plans` formatting; `plans_plans.price_paise` is NOT NULL in V1 so real risk is low (unlike `get_balance`, no defensive `int()` cast). [service_webapp/src/agents/support/tools.py]
+- No LangFuse-traced test coverage (AC #5 verified by code inspection only; all `test_recharge_tools.py` cases run with `langfuse_enabled=False`). [service_webapp/tests/unit/test_recharge_tools.py]
+- `formatData(0)` renders "0.0 GB" for zero-data plans; no MB fallback below 1 GB — cosmetic. [frontend/src/portals/subscriber/components/PlanRecommendationCard.tsx]
+- `get_payment_method_for_subscriber` orders by `is_default DESC, created_at ASC` (selects the oldest active card, possibly a stale token), a silent deviation from the spec's simple `WHERE subscriber_id=%s AND is_active=TRUE LIMIT 1`; behavior is correct but the preselect may not be the most-recent card. [service_webapp/src/db/plans/queries.py]
+- `_FakeConn.execute` in the recharge tests routes by table-name substring (`"plans_plans" in sql`), so the tests never validate SQL shape/parameter binding; the LangFuse-traced branches are also uncovered. [service_webapp/tests/unit/test_recharge_tools.py]

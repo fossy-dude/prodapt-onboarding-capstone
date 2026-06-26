@@ -44,11 +44,13 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from langfuse import Langfuse
+from langfuse.langchain import CallbackHandler
 
 from core.config import settings
 
 __all__ = [
     "current_trace_id",
+    "get_langfuse_callback_handler",
     "get_langfuse_client",
     "set_trace_id",
     "set_trace_usage",
@@ -77,6 +79,15 @@ _trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("lang
 _usage_var: contextvars.ContextVar[dict[str, int] | None] = contextvars.ContextVar("langfuse_usage", default=None)
 
 
+def get_langfuse_callback_handler() -> CallbackHandler | None:
+    if not settings.langfuse_enabled:
+        return None
+    # Initialise the Langfuse OTEL provider with credentials from settings so
+    # CallbackHandler (which uses the global provider) can authenticate.
+    get_langfuse_client()
+    return CallbackHandler()
+
+
 def get_langfuse_client() -> Langfuse | None:
     """Return the cached LangFuse client singleton, or ``None`` when disabled.
 
@@ -100,7 +111,7 @@ def get_langfuse_client() -> Langfuse | None:
     # Built from settings only — no hard-coded host/keys (architecture §1.11.1).
     try:
         _langfuse_client = Langfuse(
-            host=settings.langfuse_host,
+            host=settings.langfuse_base_url,
             public_key=settings.langfuse_public_key,
             secret_key=settings.langfuse_secret_key,
         )

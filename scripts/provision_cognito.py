@@ -205,7 +205,7 @@ def upsert_app_client(client, pool_id: str, client_name: str) -> str:
     ``ALLOW_CUSTOM_AUTH`` enables the passwordless OTP flow; refresh is included so
     the SPA can renew without re-challenging.
     """
-    auth_flows = ["ALLOW_CUSTOM_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
+    auth_flows = ["ALLOW_CUSTOM_AUTH", "ALLOW_ADMIN_USER_PASSWORD_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
     token_units = {
         "AccessToken": "minutes",
         "IdToken": "minutes",
@@ -270,12 +270,16 @@ def _get_sub(client, pool_id: str, username: str) -> str | None:
     return None
 
 
-def seed_users(client, pool_id: str) -> list[dict]:
-    """Ensure one demo user per non-subscriber role exists and is in its group.
+_ADMIN_PASSWORD_SEED = "SboAI-Local-{username}-Pw1!"
 
-    Users are created passwordless (no TemporaryPassword). Cognito leaves them in
-    FORCE_CHANGE_PASSWORD status, which the passwordless Custom Auth flow bypasses
-    — login itself lands in Story 1.8, so the users only need to exist + hold a role.
+
+def seed_users(client, pool_id: str) -> list[dict]:
+    """Ensure one demo user per non-subscriber role exists, has a seed password, and is in its group.
+
+    Creates users that are absent, then sets a deterministic permanent password via
+    ``admin_set_user_password`` (clears FORCE_CHANGE_PASSWORD and enables
+    ``admin_initiate_auth(ADMIN_NO_SRP_AUTH)`` for the backend-driven login flow).
+    Idempotent — safe to re-run.
     """
     seeded: list[dict] = []
     for idx, role in enumerate(SEED_USERS):
@@ -294,6 +298,18 @@ def seed_users(client, pool_id: str) -> list[dict]:
             print(f"[user]  created   {role} (sub={sub})")
         else:
             print(f"[user]  reuse     {role} (sub={sub})")
+
+        # Set deterministic permanent password so admin_initiate_auth works (idempotent).
+        seed_pw = _ADMIN_PASSWORD_SEED.format(username=role)
+        try:
+            client.admin_set_user_password(
+                UserPoolId=pool_id,
+                Username=role,
+                Password=seed_pw,
+                Permanent=True,
+            )
+        except ClientError as exc:
+            print(f"[user]  WARNING set-password {role}: {exc.response['Error']['Code']}")
 
         # AddUserToGroup is idempotent on AWS/LocalStack; guard regardless.
         try:

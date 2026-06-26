@@ -20,11 +20,9 @@ import secrets
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from psycopg.errors import UniqueViolation
 from psycopg.types.json import Json
 
-from core.errors import DuplicateMsisdnError
-from core.security import canonical_caf_hash, mask_msisdn
+from core.security import canonical_caf_hash
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -51,11 +49,14 @@ def generate_registration_id(now: datetime) -> str:
 
 @dataclass(frozen=True, slots=True)
 class RegistrationCommand:
-    """Validated registration payload mapped to the four DB writes + Cognito."""
+    """Validated registration payload mapped to the four DB writes + Cognito.
+
+    MSISDN is intentionally absent: it is auto-generated at SIM activation time,
+    not supplied by the subscriber at registration.
+    """
 
     full_name: str
     email: str
-    msisdn: str
     alternate_mobile: str
     # TRAI CAF (Step 2) — feeds the SHA-256 audit hash only (raw CAF is not persisted).
     date_of_birth: str
@@ -72,7 +73,6 @@ class RegistrationCommand:
     def caf_payload(self) -> dict[str, Any]:
         """Canonicalisable CAF payload for the audit SHA-256 (AC #4)."""
         return {
-            "msisdn": self.msisdn,
             "name": self.full_name,
             "date_of_birth": self.date_of_birth,
             "address": {
@@ -110,10 +110,7 @@ class RegistrationRepository(Protocol):
     """Port for the single-transaction registration persistence."""
 
     async def persist(self, cmd: RegistrationCommand) -> PersistedRegistration:
-        """Insert subscriber + registration + audit + order in one transaction.
-
-        Raises :class:`DuplicateMsisdnError` when the MSISDN is already registered.
-        """
+        """Insert subscriber + registration + audit + order in one transaction."""
         ...
 
 
@@ -126,13 +123,9 @@ class PostgresRegistrationRepository:
     async def persist(self, cmd: RegistrationCommand) -> PersistedRegistration:
         """Insert subscriber + registration + audit + order in one transaction.
 
-        Raises :class:`DuplicateMsisdnError` when the MSISDN is already registered
-        (pre-check plus the UNIQUE constraint as a concurrency safety-net).
+        MSISDN is not written here — it is NULL until SIM activation assigns one.
         """
         async with self._db.transaction() as conn:
-            if await self._msisdn_exists(conn, cmd.msisdn):
-                raise DuplicateMsisdnError(detail={"msisdn": mask_msisdn(cmd.msisdn)})
-
             subscriber_id = await self._insert_subscriber(conn, cmd)
             await self._insert_registration(conn, subscriber_id, cmd)
             await self._insert_caf_audit(conn, subscriber_id, cmd)
@@ -142,26 +135,15 @@ class PostgresRegistrationRepository:
         return PersistedRegistration(subscriber_id=str(subscriber_id), registration_id=cmd.registration_id)
 
     @staticmethod
-    async def _msisdn_exists(conn: AsyncConnection, msisdn: str) -> bool:
-        cur = await conn.execute("SELECT 1 FROM identity_subscribers WHERE msisdn = %s", (msisdn,))
-        return (await cur.fetchone()) is not None
-
-    @staticmethod
     async def _insert_subscriber(conn: AsyncConnection, cmd: RegistrationCommand) -> str:
-        try:
-            cur = await conn.execute(
-                """
-                INSERT INTO identity_subscribers (msisdn, subscriber_name, email, cognito_user_id)
-                VALUES (%s, %s, %s, %s)
-                RETURNING id
-                """,
-                (cmd.msisdn, cmd.full_name, cmd.email, cmd.registration_id),
-            )
-        except UniqueViolation as exc:
-            constraint = exc.diag.constraint_name or ""
-            if "msisdn" in constraint:
-                raise DuplicateMsisdnError(detail={"msisdn": mask_msisdn(cmd.msisdn)}) from exc
-            raise
+        cur = await conn.execute(
+            """
+            INSERT INTO identity_subscribers (subscriber_name, email, cognito_user_id)
+            VALUES (%s, %s, %s)
+            RETURNING id
+            """,
+            (cmd.full_name, cmd.email, cmd.registration_id),
+        )
         row = await cur.fetchone()
         if row is None:
             raise RuntimeError("INSERT INTO identity_subscribers RETURNING id returned no row")
@@ -219,8 +201,7 @@ class RegistrationService:
         """Persist the registration, then provision Cognito + dispatch the OTP.
 
         Persistence runs first in one transaction; Cognito runs after commit
-        (best-effort — see the compensation note below). The MSISDN duplicate check
-        (AC #8) surfaces as :class:`DuplicateMsisdnError` → HTTP 409.
+        (best-effort — see the compensation note below).
         """
         persisted = await self._repo.persist(cmd)
 
@@ -242,10 +223,9 @@ class RegistrationService:
             )
 
         logger.info(
-            "Registration complete: registration_id=%s subscriber=%s msisdn=%s",
+            "Registration complete: registration_id=%s subscriber=%s",
             persisted.registration_id,
             persisted.subscriber_id,
-            mask_msisdn(cmd.msisdn),  # masked only — never the raw MSISDN (§1.11.6)
         )
         return RegistrationResult(
             registration_id=persisted.registration_id,

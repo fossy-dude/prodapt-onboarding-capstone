@@ -25,6 +25,7 @@ SUBSCRIBER_UUID = str(uuid.uuid4())
 OTHER_UUID = str(uuid.uuid4())
 ORDER_UUID = str(uuid.uuid4())
 MSISDN = "9876543210"
+OTHER_MSISDN = "9876543211"
 UPDATED_AT = datetime(2026, 6, 22, 10, 0, 0, tzinfo=UTC)
 
 
@@ -45,8 +46,27 @@ class FakeConn:
 
     async def execute(self, sql: str, params: tuple) -> FakeCursor:
         self.executed.append((sql, params))
-        key = str(params[0])
-        return FakeCursor(self._rows.get(key))
+        lowered = sql.lower()
+        # Handle subscriber lookup for resolve_subscriber_id
+        # The resolver query is: SELECT id FROM identity_subscribers WHERE msisdn IN (%s, %s)
+        # It only selects id and has WHERE msisdn IN clause
+        if (
+            "identity_subscribers" in lowered
+            and "select id" in lowered
+            and "where msisdn" in lowered
+            and "in (" in lowered
+        ):
+            # This is specifically the subscriber lookup query
+            return FakeCursor((SUBSCRIBER_UUID,))
+        # For order status queries (JOINs identity_subscribers), use the order_id as the key
+        if "ops_order_fulfilment" in lowered and params and len(params) > 0:
+            key = str(params[0])
+            return FakeCursor(self._rows.get(key))
+        # For active order queries
+        if "ops_order_fulfilment" in lowered and params and len(params) > 0:
+            key = str(params[0])
+            return FakeCursor(self._rows.get(key))
+        return FakeCursor(None)
 
 
 class FakeDB:
@@ -68,6 +88,7 @@ def _make_app(
     order_row: tuple | None = None,
     active_row: tuple | None = None,
     sub: str = SUBSCRIBER_UUID,
+    msisdn: str = MSISDN,
 ):
     """Build a test app with fake JWT + DB injected."""
     from main import create_app
@@ -79,7 +100,7 @@ def _make_app(
         rows[SUBSCRIBER_UUID] = active_row
 
     db = FakeDB(rows)
-    jwt = FakeJWTValidator({"sub": sub, "cognito:groups": ["subscriber"]})
+    jwt = FakeJWTValidator({"sub": sub, "cognito:groups": ["subscriber"], "phone_number": msisdn})
     return create_app(db_adapter=db, jwt_validator=jwt)
 
 
@@ -156,20 +177,6 @@ async def test_order_status_query_joins_identity_subscribers():
 
 
 @pytest.mark.asyncio
-async def test_order_status_401_when_sub_claim_missing():
-    """P1: a valid token lacking 'sub' yields 401, not a raw KeyError 500."""
-    from main import create_app
-
-    row = ("CREATED", UPDATED_AT, SUBSCRIBER_UUID, MSISDN)
-    db = FakeDB({ORDER_UUID: row})
-    jwt = FakeJWTValidator({"cognito:groups": ["subscriber"]})  # no sub claim
-    app = create_app(db_adapter=db, jwt_validator=jwt)
-    r = await _get(f"/api/v1/subscriber/orders/{ORDER_UUID}/status", app)
-    assert r.status_code == 401
-    assert r.json()["error"]["code"] == "UNAUTHENTICATED"
-
-
-@pytest.mark.asyncio
 async def test_order_status_404_for_malformed_order_id():
     """P2: a non-UUID order_id is rejected as 404 before hitting the %s::uuid cast."""
     app = _make_app(order_row=("CREATED", UPDATED_AT, SUBSCRIBER_UUID, MSISDN))
@@ -194,13 +201,27 @@ async def test_active_order_returns_200_null_when_no_order():
 
 
 @pytest.mark.asyncio
-async def test_active_order_401_when_sub_claim_missing():
-    """P1: the active-order endpoint also guards a missing 'sub' with 401."""
+async def test_active_order_401_when_phone_claim_missing():
+    """P1: the active-order endpoint requires phone_number claim (resolver uses it)."""
     from main import create_app
 
     db = FakeDB({})
-    jwt = FakeJWTValidator({"cognito:groups": ["subscriber"]})  # no sub claim
+    jwt = FakeJWTValidator({"sub": SUBSCRIBER_UUID, "cognito:groups": ["subscriber"]})  # no phone_number claim
     app = create_app(db_adapter=db, jwt_validator=jwt)
     r = await _get("/api/v1/subscriber/orders/active", app)
+    assert r.status_code == 401
+    assert r.json()["error"]["code"] == "UNAUTHENTICATED"
+
+
+@pytest.mark.asyncio
+async def test_order_status_401_when_phone_claim_missing():
+    """P1: a valid token lacking 'phone_number' yields 401 (resolver cannot find subscriber)."""
+    from main import create_app
+
+    row = ("CREATED", UPDATED_AT, SUBSCRIBER_UUID, MSISDN)
+    db = FakeDB({ORDER_UUID: row})
+    jwt = FakeJWTValidator({"sub": SUBSCRIBER_UUID, "cognito:groups": ["subscriber"]})  # no phone_number claim
+    app = create_app(db_adapter=db, jwt_validator=jwt)
+    r = await _get(f"/api/v1/subscriber/orders/{ORDER_UUID}/status", app)
     assert r.status_code == 401
     assert r.json()["error"]["code"] == "UNAUTHENTICATED"
