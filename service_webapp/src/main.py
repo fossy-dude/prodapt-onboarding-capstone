@@ -141,6 +141,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from tests) are left for the caller to manage so lifespan never destroys
     externally-owned resources.
     """
+    from dotenv import load_dotenv
+
+    load_dotenv("../.env")
     owned: list[str] = []
     if getattr(app.state, "db_adapter", None) is None:
         app.state.db_adapter = Psycopg3AsyncAdapter(conninfo_from(settings.db))

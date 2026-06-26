@@ -34,6 +34,8 @@ class ValkeyAdapter(CacheProtocol):
 
     async def set_str(self, key: str, value: str, ex: int) -> None:
         """SET key value EX ex — used for step-up OTP storage (§1.7.3)."""
+        if ex <= 0:
+            ex = None
         await self._client.set(key, value, ex=ex)
 
     async def get_str(self, key: str) -> str | None:

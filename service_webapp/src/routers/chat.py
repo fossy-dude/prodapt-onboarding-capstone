@@ -35,7 +35,7 @@ from langchain_openai import AzureChatOpenAI
 from agents.support.graph import build_support_graph
 from agents.support.tools import set_support_adapters
 from core.config import settings
-from core.observability.langfuse import get_langfuse_callback_handler, get_langfuse_client
+from core.observability.langfuse import get_langfuse_callback_handler
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -54,8 +54,6 @@ CHAT_ENDPOINT_PREFIX = "/api/chat"
 
 _SUPPORT_AGENT_NAME = "support_agent"
 _SUPPORT_AGENT_DESCRIPTION = "Billing and account assistant for MVNO subscribers."
-
-langfuse_handler = get_langfuse_callback_handler()
 
 
 def setup_copilotkit(
@@ -96,6 +94,12 @@ def setup_copilotkit(
             "(endpoint/key/deployment missing). Chatbot will be unavailable."
         )
         return
+
+    # Initialise the Langfuse handler here (not at module level) so it registers
+    # its OTEL span processor AFTER _setup_tracer() has installed the real
+    # TracerProvider. A module-level singleton would attach to the default NoOp
+    # provider, which is then replaced by _setup_tracer() and discards all spans.
+    langfuse_handler = get_langfuse_callback_handler()
 
     llm = AzureChatOpenAI(
         azure_endpoint=endpoint,

@@ -27,14 +27,13 @@ interface NavItem {
 const MAIN_NAV: readonly NavItem[] = [
   { label: "Dashboard", to: "/subscriber/dashboard", icon: LayoutDashboard },
   { label: "Discover Plans", to: "/subscriber/plans", icon: PackageSearch },
-  { label: "Recharge", to: "/subscriber/recharge", icon: Zap },
   { label: "Transaction History", to: "/subscriber/history", icon: History },
   { label: "Bills & Receipts", to: "/subscriber/receipts", icon: Receipt },
 ];
 
 const PROFILE_NAV: readonly NavItem[] = [
   { label: "Profile", to: "/subscriber/profile", icon: User, end: true },
-  { label: "My Orders", to: "/subscriber/activate", icon: Package },
+  { label: "My SIM Orders", to: "/subscriber/activate", icon: Package },
   {
     label: "Payment Methods",
     to: "/subscriber/profile/payment-methods",
@@ -122,8 +121,8 @@ function SubscriberSidebar() {
           onClick={() => setProfileOpen((prev) => !prev)}
           aria-expanded={profileOpen}
           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${isOnProfileRoute && !profileOpen
-              ? "bg-neutral-800 text-neutral-100"
-              : INACTIVE_CLS
+            ? "bg-neutral-800 text-neutral-100"
+            : INACTIVE_CLS
             }`}
         >
           <User size={16} aria-hidden="true" />

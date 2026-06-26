@@ -116,7 +116,7 @@ async def get_payment_method_owner(
         (payment_method_id,),
     )
     row = await cur.fetchone()
-    return row[0] if row else None
+    return str(row[0]) if row else None
 
 
 async def get_subscriber_msisdn(
