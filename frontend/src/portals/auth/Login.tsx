@@ -12,7 +12,7 @@
  */
 
 import { useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 
 import {
@@ -200,6 +200,17 @@ function Login() {
               Back
             </button>
           </form>
+        )}
+        {step === "identifier" && (
+          <div className="mt-6 border-t border-neutral-200 pt-5 text-center">
+            <p className="mb-3 text-sm text-neutral-500">New here?</p>
+            <Link
+              to="/register"
+              className="inline-block w-full rounded-lg border border-neutral-300 py-2 text-sm font-medium text-neutral-700 hover:border-neutral-400 hover:bg-neutral-50"
+            >
+              Request a new SIM
+            </Link>
+          </div>
         )}
       </div>
     </main>
