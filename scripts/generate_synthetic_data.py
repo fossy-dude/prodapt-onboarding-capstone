@@ -175,16 +175,25 @@ def _load_plans(conn: psycopg.Connection) -> pd.DataFrame:
 
 
 def _truncate_generated() -> None:
-    # billing_cdr_events has DELETE revoked from sboai_app (V5 append-only grants).
-    # Use the admin connection so the seed script can reset data across all tables.
-    # UUID PKs have no sequences to reset, so DELETE is equivalent to TRUNCATE here.
+    # Append-only tables (billing_cdr_events, billing_transactions, billing_audit_log)
+    # have DELETE revoked from sboai_app (V5 grants), so the reset runs over the admin
+    # connection.
+    #
+    # identity_subscribers is referenced by 19 dependent tables (plans_subscriptions,
+    # billing_wallet_balances, billing_cdr_events, billing_transactions, support_tickets,
+    # notifications_*, fraud_*, segmentation_*, recharge_*, identity_registrations, ...)
+    # via RESTRICT foreign keys — none use ON DELETE CASCADE. Because the script
+    # regenerates subscriber UUIDs every run, every dependent row would otherwise be
+    # orphaned and block the parent delete (ForeignKeyViolation on
+    # plans_subscriptions_subscriber_id_fkey). TRUNCATE ... CASCADE atomically clears
+    # identity_subscribers AND all of its dependents in one shot, giving a clean slate.
+    # UUID PKs have no sequences, so RESTART IDENTITY is unnecessary. plans_plans is NOT
+    # a dependent (the FK points the other way) and is preserved.
     with psycopg.connect(_admin_conninfo(), autocommit=False) as admin_conn:
         with admin_conn.cursor() as cur:
-            cur.execute("DELETE FROM billing_cdr_events")
-            cur.execute("DELETE FROM billing_wallet_balances")
-            cur.execute("DELETE FROM identity_subscribers")
+            cur.execute("TRUNCATE identity_subscribers CASCADE")
         admin_conn.commit()
-    log.info("Truncated generated tables")
+    log.info("Truncated identity_subscribers and all dependent tables (CASCADE)")
 
 
 # ── Subscriber generation ─────────────────────────────────────────────────────

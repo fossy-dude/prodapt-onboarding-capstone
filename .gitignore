@@ -240,3 +240,4 @@ coverage/
 docker/data
 data/
 .deepeval/
+temp/
