@@ -5,6 +5,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { CopilotKit } from "@copilotkit/react-core";
 
 import { RoleGuard } from "./components/layout/RoleGuard";
+import { SimulatorLayout } from "./components/layout/SimulatorLayout";
 import { SubscriberLayout } from "./components/layout/SubscriberLayout";
 import { getToken } from "./lib/auth";
 import { Login } from "./portals/auth/Login";
@@ -89,7 +90,11 @@ function App() {
       {notificationPortalOpenInDev && (
         <Route
           path="/simulator/notifications"
-          element={<NotificationPortal />}
+          element={
+            <SimulatorLayout>
+              <NotificationPortal />
+            </SimulatorLayout>
+          }
         />
       )}
 
@@ -163,22 +168,25 @@ function App() {
         path="/simulator/*"
         element={
           <RoleGuard allowedRoles={["dev"]}>
-            <Routes>
-              {/* Story 1.7 order-advance dev tool (imported directly — the `SimActivation`
-              name was previously aliased to `SimActivationSimulator`, which is now the
-              distinct Story 2.9 full-activation page at /simulator/sim-activation). */}
-              <Route path="activate" element={<SimActivationOrderTool />} />
-              <Route
-                path="sim-activation"
-                element={<SimActivationSimulator />}
-              />
-              <Route path="notifications" element={<NotificationPortal />} />
-              <Route path="cdr" element={<CdrSimulator />} />
-              <Route
-                path="*"
-                element={<PortalPlaceholder role="Simulator" />}
-              />
-            </Routes>
+            <SimulatorLayout>
+              <Routes>
+                <Route index element={<Navigate to="cdr" replace />} />
+                {/* Story 1.7 order-advance dev tool (imported directly — the `SimActivation`
+                name was previously aliased to `SimActivationSimulator`, which is now the
+                distinct Story 2.9 full-activation page at /simulator/sim-activation). */}
+                <Route path="activate" element={<SimActivationOrderTool />} />
+                <Route
+                  path="sim-activation"
+                  element={<SimActivationSimulator />}
+                />
+                <Route path="notifications" element={<NotificationPortal />} />
+                <Route path="cdr" element={<CdrSimulator />} />
+                <Route
+                  path="*"
+                  element={<PortalPlaceholder role="Simulator" />}
+                />
+              </Routes>
+            </SimulatorLayout>
           </RoleGuard>
         }
       />

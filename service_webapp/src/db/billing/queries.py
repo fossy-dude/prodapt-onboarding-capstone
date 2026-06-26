@@ -558,7 +558,7 @@ async def get_subscriber_usage_profile(
             COALESCE(SUM(CASE WHEN cdr_type = 'voice' AND NOT roaming THEN duration_seconds ELSE 0 END), 0)      AS total_voice_seconds,
             COALESCE(SUM(CASE WHEN cdr_type = 'voice' AND roaming     THEN duration_seconds ELSE 0 END), 0)      AS total_intl_seconds,
             COALESCE(SUM(CASE WHEN cdr_type = 'sms'   THEN 1 ELSE 0 END), 0)                                     AS total_sms_count,
-            COALESCE(SUM(charge_paise), 0)                                                                        AS total_spend_paise
+            COALESCE(SUM(cost_paise), 0)                                                                          AS total_spend_paise
           FROM billing_cdr_events
          WHERE subscriber_id = %s::uuid
            AND start_time >= %s::timestamptz

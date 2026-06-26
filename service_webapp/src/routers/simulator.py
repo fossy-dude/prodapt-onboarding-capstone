@@ -154,6 +154,71 @@ def _validate_order_id(order_id: str) -> None:
         raise NotFoundError("Order not found.") from exc
 
 
+async def _compute_cost_paise(
+    conn: Any,
+    subscriber_id: uuid.UUID,
+    cdr_type: str,
+    duration_seconds: int | None,
+    volume_mb: float | None,
+) -> int:
+    """Compute CDR cost in paise from the subscriber's active plan config.
+
+    Looks up unlimited flags first (NULL quota → zero charge). Per-unit rates
+    come from plans_plan_config; defaults are 50p/min (voice), 10p/MB (data),
+    100p/SMS. Returns 0 when no active plan exists.
+    """
+    cur = await conn.execute(
+        """
+        SELECT ps.plan_id, pp.voice_minutes, pp.data_limit_mb, pp.sms_count
+          FROM plans_subscriptions ps
+          JOIN plans_plans pp ON pp.id = ps.plan_id
+         WHERE ps.subscriber_id = %s::uuid AND ps.status = 'active'
+         ORDER BY ps.start_date DESC
+         LIMIT 1
+        """,
+        (str(subscriber_id),),
+    )
+    row = await cur.fetchone()
+    if row is None:
+        return 0
+
+    plan_id, voice_minutes, data_limit_mb, sms_count = row
+
+    if cdr_type == "voice" and voice_minutes is None:
+        return 0
+    if cdr_type == "data" and data_limit_mb is None:
+        return 0
+    if cdr_type == "sms" and sms_count is None:
+        return 0
+
+    config_key = f"{cdr_type}_rate_paise"
+    cur = await conn.execute(
+        """
+        SELECT config_value FROM plans_plan_config
+         WHERE plan_id = %s::uuid AND config_key = %s
+         LIMIT 1
+        """,
+        (str(plan_id), config_key),
+    )
+    rate_row = await cur.fetchone()
+
+    _DEFAULTS = {"voice": 50, "data": 10, "sms": 100}
+    rate = _DEFAULTS.get(cdr_type, 0)
+    if rate_row is not None:
+        try:
+            rate = int(rate_row[0])
+        except (ValueError, TypeError):
+            pass
+
+    if cdr_type == "voice":
+        return round(rate * (duration_seconds or 0) / 60)
+    if cdr_type == "data":
+        return round(rate * (volume_mb or 0))
+    if cdr_type == "sms":
+        return rate
+    return 0
+
+
 def _build_cdr_payload(body: CdrDispatchRequest, subscriber_id: uuid.UUID) -> dict[str, Any]:
     """Construct the CDR payload dict compatible with the cdr-pipeline CdrEvent schema."""
     now = datetime.now(UTC)
@@ -219,12 +284,19 @@ async def dispatch_cdr(
 
     async with db.connection() as conn:
         subscriber_id_str = await get_subscriber_id_by_msisdn(conn, body.subscriber_msisdn)
-    if subscriber_id_str is None:
-        raise NotFoundError(f"Subscriber not found for MSISDN {body.subscriber_msisdn}")
-    subscriber_id = uuid.UUID(subscriber_id_str)
+        if subscriber_id_str is None:
+            raise NotFoundError(f"Subscriber not found for MSISDN {body.subscriber_msisdn}")
+        subscriber_id = uuid.UUID(subscriber_id_str)
+
+        effective_cost_paise = body.cost_paise
+        if effective_cost_paise == 0:
+            effective_cost_paise = await _compute_cost_paise(
+                conn, subscriber_id, body.cdr_type, body.duration_seconds, body.volume_mb
+            )
 
     trace_id = getattr(request.state, "trace_id", "0" * 32)
     cdr_payload = _build_cdr_payload(body, subscriber_id)
+    cdr_payload["cost_paise"] = effective_cost_paise
 
     _CDR_EVENT_ADAPTER.validate_python(cdr_payload)
 

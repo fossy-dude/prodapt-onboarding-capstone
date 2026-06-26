@@ -432,20 +432,17 @@ async def _run_charge_explain(subscriber_id: str, cdr_reference: str) -> dict:
 
 
 @tool
-async def charge_explain(subscriber_id: str, cdr_reference: str) -> dict:
+async def charge_explain(cdr_reference: str) -> dict:
     """Fetch detailed charge breakdown for a specific CDR event (Story 5.7).
 
     Invokes the Rating Agent (A2A) to query billing_audit_log and plan
     configuration, returning a structured charge breakdown including
     duration/data, rate per unit, charge amount, and balance impact.
 
-    The subscriber_id is resolved server-side from JWT (never supplied by
-    the LLM — see :mod:`agents.support.identity`).
+    The subscriber is resolved server-side from the JWT.
 
     Parameters
     ----------
-    subscriber_id : str
-        Subscriber UUID string (validated server-side).
     cdr_reference : str
         CDR event UUID to fetch breakdown for.
 
@@ -457,7 +454,6 @@ async def charge_explain(subscriber_id: str, cdr_reference: str) -> dict:
         ``{cdr_id, event_type, duration_or_data, rate_per_unit,
         charge_paise, balance_before, balance_after}``
     """
-    # Use current subscriber ID from context for security (ignore LLM-provided value)
     actual_subscriber_id = current_subscriber_id()
 
     return await _traced_tool(
@@ -616,7 +612,7 @@ async def _run_recommend_plan(preference: str | None) -> dict:
 
 
 @tool
-async def recommend_plan(subscriber_id: str, preference: str | None = None) -> dict:
+async def recommend_plan(preference: str | None = None) -> dict:
     """Recommend the best plans for the subscriber based on their usage profile.
 
     preference: 'data' | 'voice' | 'value' | None. When None, classifies
@@ -655,20 +651,15 @@ async def _run_ticket_create(subscriber_id: str, cdr_reference: str, charge_pais
 
 
 @tool
-async def ticket_create(subscriber_id: str, cdr_reference: str, charge_paise: int) -> dict:
+async def ticket_create(cdr_reference: str, charge_paise: int) -> dict:
     """Create a billing-dispute support ticket for the authenticated subscriber (Story 5.8).
 
     Used at the end of the dispute multi-turn flow: the agent first presents the
     charge breakdown via ``charge_explain`` (Rating Agent A2A), the subscriber
-    confirms the charge is wrong, then this tool creates the ticket. The
-    subscriber is resolved server-side (``current_subscriber_id`` — never supplied
-    by the LLM); ``dispute_reason`` is hardcoded to ``subscriber_initiated`` (no
-    free text / PII in the ticket).
+    confirms the charge is wrong, then this tool creates the ticket.
 
     Parameters
     ----------
-    subscriber_id : str
-        Subscriber UUID string (ignored — resolved from the JWT ``sub``).
     cdr_reference : str
         The disputed CDR event UUID.
     charge_paise : int
@@ -731,19 +722,12 @@ async def _run_balance_lookup(msisdn: str) -> dict:
 
 
 @tool
-async def balance_lookup(msisdn: str) -> dict:
+async def balance_lookup() -> dict:
     """Look up the subscriber's wallet balance via the Balance Management Agent (A2A) (Story 5.8).
 
     For the "what's my wallet balance?" intent the Support Agent invokes the
     Balance Management Agent graph (A2A) which reads the Valkey authoritative
-    counter ``balance:{msisdn}``. The A2A call is traced as a LangFuse child span
-    (``a2a_balance_agent``) under the Support Agent trace (FR-72). The MSISDN is
-    resolved server-side (``current_msisdn`` — never supplied by the LLM).
-
-    Parameters
-    ----------
-    msisdn : str
-        Subscriber MSISDN (ignored — resolved from the JWT identity claim).
+    counter ``balance:{msisdn}``. The MSISDN is resolved server-side from the JWT.
 
     Returns
     -------
