@@ -40,41 +40,40 @@ so that marketing spend targets high-growth segments.
     - Add index: `(forecast_type, plan_id, valid_until)` for efficient plan queries
   - [ ] Run migration via `just migrate`
 
-- [ ] **Task 2: ML plan demand forecast model** (AC: #1, #2)
+- [ ] **Task 2: Time series plan demand forecast model** (AC: #1, #2)
   - [ ] Create `service_webapp/src/ops/forecasting/plan_demand_model.py`.
   - [ ] Class `PlanDemandForecaster`:
-    - `__init__(self, model_type: str = "gradient_boosting")`: initialize scikit-learn model (per-plan model)
-    - `train_per_plan(self, plan_id: str, historical_recharges: pd.DataFrame) -> None`:
-      - Input DataFrame columns: `date, plan_id, recharge_count, recharge_amount_paise`
-      - Filter by `plan_id` to get plan-specific recharge history
-      - Feature engineering: extract day_of_week, day_of_month, week_of_year, lag features (7-day moving average)
-      - Train model for this plan: predict recharge count (uptake) based on time features
-    - `predict(self, plan_id: str, horizon_days: int = 90) -> dict`:
-      - Generate future dates from last historical date + horizon_days
+    - `__init__(self, method: str = "holt_winters")`: choose `"holt_winters"` or `"moving_average"`
+    - `forecast_plan(self, plan_id: str, series: pd.Series, horizon_days: int = 90) -> dict`:
+      - Input: `series` is a daily recharge-count Series indexed by date, already filtered to one plan
+      - Pre-processing: fill missing dates with 0, apply 7-day rolling mean to smooth noise before fitting
+      - If `method == "holt_winters"`: fit `statsmodels.tsa.holtwinters.ExponentialSmoothing` with additive trend, no seasonality (daily data is too noisy for weekly seasonality without 2+ years of history)
+      - If `method == "moving_average"`: extrapolate using the trailing 14-day moving average as a flat forecast
+      - Generate `horizon_days` out-of-sample predictions; clip negatives to 0
       - Return dict:
         ```python
         {
           "plan_id": str,
-          "predicted_uptake_30d": int,  # sum of first 30 days
-          "predicted_uptake_60d": int,  # sum of first 60 days
-          "predicted_uptake_90d": int,  # sum of first 90 days
-          "uptake_trend_90d": list[int]  # daily predictions for sparkline
+          "predicted_uptake_30d": int,  # sum(forecast[:30])
+          "predicted_uptake_60d": int,  # sum(forecast[:60])
+          "predicted_uptake_90d": int,  # sum(forecast[:90])
+          "uptake_trend_90d": list[int] # daily forecast values for sparkline
         }
         ```
-    - `evaluate(self, plan_id: str, actual_data: pd.DataFrame) -> dict`:
-      - Compute MAPE on holdout set (last 30 days) for this plan
-      - Return: `{"mape": float, "passed_mape_threshold": bool}`
-  - [ ] `train_all_plans(self, all_plan_data: dict[str, pd.DataFrame]) -> dict[str, Any]`:
-    - Train a separate model for each plan (plans have different demand patterns)
-    - Return dict of `plan_id -> model_metrics`
-    - Skip plans with insufficient history (< 30 data points) — mark with predicted_uptake = 0
+    - `evaluate(self, series: pd.Series) -> dict`:
+      - Hold out last 14 days; fit on remainder; compute MAPE on holdout
+      - Return: `{"mape": float, "passed_mape_threshold": bool}` (threshold: MAPE < 25%)
+  - [ ] `forecast_all_plans(self, all_plan_data: dict[str, pd.Series]) -> dict[str, Any]`:
+    - Run `forecast_plan` for each plan
+    - Return dict of `plan_id -> forecast_result`
+    - Skip plans with insufficient history (< 14 data points) — include in response with predicted_uptake = 0
 
 - [ ] **Task 3: Database queries for plan demand forecast** (AC: #1, #2, #4)
   - [ ] Add to `service_webapp/src/db/queries/ops_queries.py`:
     - Function `get_historical_plan_recharges(db_conn, days_back: int = 90) -> list[dict]`:
-      - Query: `SELECT plan_id, DATE(recharged_at) as date, COUNT(*) as recharge_count, SUM(amount_paise) as recharge_amount_paise FROM billing_audit_log WHERE event_type = 'RECHARGE' AND recharged_at >= NOW() - INTERVAL ':days_back days' GROUP BY plan_id, DATE(recharged_at) ORDER BY plan_id, date`
+      - Query: `SELECT plan_id, DATE(recharged_at) as date, COUNT(*) as recharge_count FROM billing_audit_log WHERE event_type = 'RECHARGE' AND recharged_at >= NOW() - INTERVAL ':days_back days' GROUP BY plan_id, DATE(recharged_at) ORDER BY plan_id, date`
       - Use `billing_audit_log` table ( Story 2.3 ) for recharge events
-      - Return: list of `{"plan_id": uuid, "date": date, "recharge_count": int, "recharge_amount_paise": int}`
+      - Return: list of `{"plan_id": uuid, "date": date, "recharge_count": int}`
     - Function `get_cached_plan_forecast(db_conn, forecast_type: str = "plan_demand") -> list[dict]`:
       - Query: `SELECT * FROM forecast_results WHERE forecast_type = :forecast_type AND plan_id IS NOT NULL AND valid_until > NOW() ORDER BY plan_id`
       - Return list of forecast rows with plan_id
@@ -92,9 +91,8 @@ so that marketing spend targets high-growth segments.
         2. If cache valid, return cached data immediately
         3. If cache expired/missing:
            - Fetch historical data via `get_historical_plan_recharges(db_conn, days_back=90)`
-           - Group by plan_id: `all_plan_data = {plan_id: DataFrame, ...}`
-           - Train models via `PlanDemandForecaster.train_all_plans(all_plan_data)`
-           - Generate forecasts for all plans via `predict(plan_id, horizon_days=90)` for each
+           - Group by plan_id into `dict[plan_id, pd.Series]` (daily recharge counts indexed by date)
+           - Run forecasts via `PlanDemandForecaster.forecast_all_plans(all_plan_data)`
            - Cache results via `save_plan_forecast_results(db_conn, forecasts, model_version)`
            - Return forecast data
       - Return JSON: `{"forecasts": [{"plan_id": "...", "plan_name": "...", "predicted_uptake_30d": 150, "predicted_uptake_60d": 320, "predicted_uptake_90d": 500, "uptake_trend_90d": [5, 6, 4, 7, ...]}, ...], "model_version": "...", "trained_at": "...", "cache_expires_at": "..."}`
@@ -107,8 +105,8 @@ so that marketing spend targets high-growth segments.
     - Function `retrain_plan_demand_forecast() -> None`:
       - Run as background job via APScheduler (same scheduler as Story 7.3)
       - Call plan demand forecast endpoint logic internally
-      - Log: per-plan model metrics, training duration
-      - Alert if any plan's MAPE > 15%
+      - Log: per-plan evaluation metrics, run duration
+      - Alert if any plan's MAPE > 25%
     - [ ] Schedule: daily at 3 AM (1 hour after subscriber growth forecast to spread load) via `@scheduler.scheduled_job('cron', hour=3, minute=0)`
     - [ ] Ensure job has DB access and error handling
 
@@ -145,17 +143,17 @@ so that marketing spend targets high-growth segments.
 
 - [ ] **Task 9: Unit and integration tests** (AC: #1–#6)
   - [ ] Model tests in `service_webapp/tests/unit/test_plan_demand_model.py`:
-    - Test per-plan model training on synthetic data
-    - Test prediction returns correct shape and columns
-    - Test uptake aggregation: 30d/60d/90d sums match daily trend
-    - Test MAPE calculation per plan
-    - Test plans with insufficient history are skipped gracefully
+    - Test `forecast_plan` with both `holt_winters` and `moving_average` methods on synthetic daily series
+    - Test prediction output has correct length (90 values) and non-negative values
+    - Test uptake aggregation: 30d/60d/90d sums match slices of `uptake_trend_90d`
+    - Test MAPE evaluation uses holdout correctly
+    - Test plans with fewer than 14 data points are skipped gracefully (predicted_uptake = 0)
   - [ ] API tests in `service_webapp/tests/api/test_ops.py`:
     - Test `GET /api/v1/ops/forecasts/plan-demand` with ops role: 200, returns expected schema
     - Test with marketing role: 200 (marketing has access)
     - Test with subscriber role: 403 Forbidden
     - Test cache hit: second call returns same data without retraining
-    - Test `force_refresh=true`: bypasses cache, retrains all plan models
+    - Test `force_refresh=true`: bypasses cache, re-runs all plan forecasts
     - Mock `PlanDemandForecaster` to test endpoint logic independently
   - [ ] Frontend tests in `frontend/src/components/ops/__tests__/`:
     - Test `PlanDemandTable` renders with mock data
@@ -164,17 +162,15 @@ so that marketing spend targets high-growth segments.
     - Test React Query hook calls endpoint correctly
 
 - [ ] **Task 10: Performance and optimization** (AC: #1, #2, #5)
-  - [ ] Model training optimization:
-    - Limit training data to 90 days per plan (sufficient for demand patterns)
-    - Train plans in parallel (use `concurrent.futures.ThreadPoolExecutor` or async)
-    - Skip plans with < 30 data points (insufficient history)
+  - [ ] Forecasting is fast (Holt-Winters on 90-day series runs in milliseconds per plan); no parallel executor needed for 1000 plans
+  - [ ] Limit input to 90 days per plan; skip plans with < 14 data points
   - [ ] Database: ensure `billing_audit_log.recharged_at` and `billing_audit_log.event_type` indexes exist
   - [ ] Forecast cache: 24-hour TTL (same as Story 7.3)
-  - [ ] Monitor: endpoint should return < 2s on cache hit, < 30s on cache miss (training all plans)
+  - [ ] Monitor: endpoint should return < 2s on cache hit, < 60s on cache miss (forecasting all 1000 plans)
 
 - [ ] **Task 11: Error handling and edge cases** (AC: #1, #2)
   - [ ] No recharge history for a plan: set predicted_uptake to 0, include in response with zero values
-  - [ ] Insufficient data (< 30 days): skip plan from forecast, log warning
+  - [ ] Insufficient data (< 14 days): skip plan from forecast, log warning
   - [ ] Model training failure for one plan: continue with other plans, log failed plan_id
   - [ ] Database errors: return 500 with error message
   - [ ] Scheduled job failures: retry with exponential backoff, alert per-plan failures
@@ -183,16 +179,18 @@ so that marketing spend targets high-growth segments.
 
 ### Per-plan forecasting
 
-Story 7.4 trains a separate scikit-learn model for each plan (not one global model). Plans have different demand patterns:
-- Budget plans: steady, predictable uptake
-- High-value plans: spiky, event-driven uptake
-- Data-heavy plans: seasonal patterns
+Story 7.4 runs a separate time series forecast for each plan (not one global model). Plans have different demand patterns (steady, spiky, seasonal), so per-plan fits capture the shape of each series independently. [Source: architecture.md:108; FR-45]
 
-Per-plan models capture these nuances. Trade-off: more training time (1000 plans in Story 2.6 synthetic dataset) vs. better accuracy. Parallel training mitigates time cost. [Source: architecture.md:108; FR-45]
+### Forecasting approach
 
-### ML forecasting tech stack
+Uses simple, interpretable time series methods — no complex ML:
 
-Uses `scikit-learn` (same as Story 7.3). GradientBoostingRegressor with plan-specific features (day_of_week, lag features). Target State may upgrade to TimesFM/Chronos — the `PlanDemandForecaster` class is model-agnostic. [Source: architecture.md:108,135]
+1. **Pre-processing**: fill date gaps with 0, apply a 7-day rolling mean to smooth day-of-week noise before fitting.
+2. **Holt-Winters (default)**: `statsmodels.tsa.holtwinters.ExponentialSmoothing` with additive trend, no seasonality. Handles upward/downward trends well on short series (90 days).
+3. **Moving average (fallback)**: trailing 14-day mean extended as a flat forecast. Used when a plan has sparse history (14–29 points) or Holt-Winters fails to converge.
+4. Clip all predictions to integers ≥ 0.
+
+No feature engineering, no gradient boosting, no lag matrices. `statsmodels` is already a transitive dependency; no new packages needed. [Source: architecture.md:108,135]
 
 ### Data source: billing_audit_log
 
@@ -232,18 +230,9 @@ Same as Story 7.3: daily job via APScheduler. Run at 3 AM (1 hour after subscrib
 
 24-hour TTL (same as Story 7.3). Plan demand patterns change slower than subscriber growth (recharge behavior is more stable), so 24-hour cache is appropriate. Marketing can force refresh via `force_refresh=true` if needed (e.g., after a promotion campaign).
 
-### Parallel training for 1000 plans
+### Performance for 1000 plans
 
-Story 2.6 synthetic dataset has 1000 plans. Training 1000 GradientBoostingRegressor models sequentially would be slow (~30 minutes). Story 7.4 uses `concurrent.futures.ThreadPoolExecutor` to train plans in parallel:
-```python
-with ThreadPoolExecutor(max_workers=10) as executor:
-    futures = {executor.submit(train_plan, plan_id, data): plan_id for plan_id, data in all_plan_data.items()}
-    for future in as_completed(futures):
-        plan_id = futures[future]
-        model_metrics[plan_id] = future.result()
-```
-
-This reduces training time to ~5-10 minutes (acceptable for daily job).
+Holt-Winters on a 90-point series runs in milliseconds. Forecasting all 1000 plans sequentially takes well under 60 seconds — no thread pool needed. The daily scheduled job at 3 AM has ample time budget.
 
 ### Sparkline rendering
 
