@@ -1,0 +1,13 @@
+{
+    "remote.autoForwardPortsFallback": 0,
+    "python.terminal.useEnvFile": true,
+    "python.envFile": "${workspaceFolder}/service_webapp/.env",
+    "conventionalCommits.scopes": [
+        "planning"
+    ],
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestArgs": [
+        "service_webapp"
+    ]
+}

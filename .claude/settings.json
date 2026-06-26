@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "mermaid": {
+      "type": "http",
+      "url": "https://chatgpt.mermaid.ai/anthropic/mcp"
+    }
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "just format 2>/dev/null || true",
+            "statusMessage": "Formatting..."
+          }
+        ]
+      }
+    ]
+  }
+}
