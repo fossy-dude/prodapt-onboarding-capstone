@@ -26,6 +26,7 @@ from agents.support.identity import support_context
 from core.auth import _extract_token
 from core.errors import DomainError, UnauthenticatedError, _error_body
 from db.billing.queries import get_msisdn_for_subscriber
+from db.identity.queries import get_subscriber_id_by_msisdn
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,8 @@ RequestResponseEndpoint = Callable[[Request], Awaitable[Response]]
 _CHAT_PREFIX = "/api/chat"
 # Frontend→backend chat conversation id (CopilotKit forwards provider ``headers``).
 _SESSION_ID_HEADER = "x-chat-session-id"
+# Cognito JWT claims that carry the subscriber's phone number (E.164 or username).
+_PHONE_CLAIMS = ("phone_number", "username", "cognito:username")
 
 
 class OtelTraceMiddleware(BaseHTTPMiddleware):
@@ -86,7 +89,7 @@ class SupportIdentityMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Bind subscriber identity on ``/api/chat/*`` requests; pass others through."""
-        if not request.url.path.startswith(_CHAT_PREFIX):
+        if not request.url.path.startswith(_CHAT_PREFIX) or request.method == "OPTIONS":
             return await call_next(request)
 
         try:
@@ -96,12 +99,18 @@ class SupportIdentityMiddleware(BaseHTTPMiddleware):
 
             token = _extract_token(request)  # UnauthenticatedError on a bad header
             payload = validator.decode(token)  # UnauthenticatedError on a bad token
-            subscriber_id = payload.get("sub")
-            if not subscriber_id:
+            if not payload.get("sub"):
                 raise UnauthenticatedError("Access token is missing the 'sub' claim.")
 
-            msisdn = await self._resolve_msisdn(request, str(subscriber_id))
-            if msisdn is None:
+            phone: str | None = next(
+                (str(payload[c]) for c in _PHONE_CLAIMS if payload.get(c)),
+                None,
+            )
+            if phone is None:
+                raise UnauthenticatedError("Access token carries no subscriber phone number.")
+
+            subscriber_id, msisdn = await self._resolve_identity(request, phone)
+            if subscriber_id is None or msisdn is None:
                 raise UnauthenticatedError("Authenticated subscriber has no MSISDN on record.")
         except DomainError as exc:
             # Middleware runs OUTSIDE Starlette's ExceptionMiddleware, so the
@@ -121,10 +130,18 @@ class SupportIdentityMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
     @staticmethod
-    async def _resolve_msisdn(request: Request, subscriber_id: str) -> str | None:
-        """Look up the subscriber's unmasked MSISDN (single PK row)."""
+    async def _resolve_identity(request: Request, phone: str) -> tuple[str | None, str | None]:
+        """Resolve internal subscriber UUID and unmasked MSISDN from a JWT phone claim.
+
+        The Cognito ``sub`` UUID is not the same as ``identity_subscribers.id`` (uuid7),
+        so identity must be resolved via the phone number claim, not ``sub``.
+        """
         db = getattr(request.app.state, "db_adapter", None)
         if db is None:
             raise RuntimeError("db_adapter not wired onto app.state — check lifespan")
         async with db.transaction() as conn:
-            return await get_msisdn_for_subscriber(conn, UUID(subscriber_id))
+            subscriber_id = await get_subscriber_id_by_msisdn(conn, phone)
+            if subscriber_id is None:
+                return None, None
+            msisdn = await get_msisdn_for_subscriber(conn, UUID(subscriber_id))
+            return subscriber_id, msisdn

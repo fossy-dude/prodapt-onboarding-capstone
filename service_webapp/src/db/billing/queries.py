@@ -224,7 +224,7 @@ async def get_usage_for_period(
              WHERE subscriber_id = %s::uuid
                AND start_time >= %s::timestamptz
                AND start_time <= %s::timestamptz
-               AND status = 'charged'
+               AND status = 'rated'
             """,
             (str(subscriber_id), start_date, end_date),
         )
@@ -239,7 +239,7 @@ async def get_usage_for_period(
               FROM billing_cdr_events
              WHERE subscriber_id = %s::uuid
                AND start_time >= %s::timestamptz
-               AND status = 'charged'
+               AND status = 'rated'
             """,
             (str(subscriber_id), start_date),
         )

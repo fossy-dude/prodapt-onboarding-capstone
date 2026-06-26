@@ -58,6 +58,7 @@ function App() {
   // (Story 5.4 AC #3). Owned here so the CopilotKit provider can forward it as
   // the X-Chat-Session-Id header that the backend identity middleware reads.
   const [sessionId] = useState(getOrCreateChatSessionId);
+  const token = getToken();
 
   const notificationPortalOpenInDev =
     import.meta.env.VITE_NOTIFICATION_PORTAL_OPEN_IN_DEV === "true";
@@ -89,12 +90,9 @@ function App() {
             */}
             <CopilotKit
               runtimeUrl="/api/chat"
-              headers={() => {
-                const token = getToken();
-                return {
-                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                  "X-Chat-Session-Id": sessionId,
-                };
+              headers={{
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                "X-Chat-Session-Id": sessionId,
               }}
             >
               <Routes>

@@ -122,7 +122,7 @@ async def get_usage(
 ) -> JSONResponse:
     """Return per-type CDR usage vs plan allowances for the active plan window (AC #4, #5).
 
-    Usage is aggregated from ``billing_cdr_events`` (status='charged') for the
+    Usage is aggregated from ``billing_cdr_events`` (status='rated') for the
     active ``plans_subscriptions`` window. Allowances come from ``plans_plans``.
     Null/0 quota → unlimited=True per PRD FR-10.
     """
