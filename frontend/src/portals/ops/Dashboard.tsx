@@ -1,10 +1,11 @@
 /**
- * Ops Dashboard - main dashboard for operations team (Story 7.2 Task 3).
- * Displays plan stock and order fulfilment views with auto-refresh.
+ * Ops Dashboard - main dashboard for operations team (Story 7.2 Task 3; Story 7.4 Task 8).
+ * Displays plan stock, order fulfilment, and demand forecast views.
  */
 
 import { PlanStock, type PlanStockItem } from "./PlanStock";
 import { OrderFulfilment, type OrderItem } from "./OrderFulfilment";
+import { Forecasts } from "./Forecasts";
 import { usePlanStock, useOrderCounts, useOrdersByStatus } from "./hooks";
 
 function Dashboard() {
@@ -67,6 +68,11 @@ function Dashboard() {
         orders={orders}
         ordersIsLoading={ordersIsLoading}
       />
+
+      <div>
+        <h2 className="mb-3 text-lg font-semibold text-neutral-900">Demand Forecasts</h2>
+        <Forecasts />
+      </div>
     </div>
   );
 }

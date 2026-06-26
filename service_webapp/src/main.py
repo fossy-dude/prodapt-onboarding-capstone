@@ -51,6 +51,7 @@ from core.step_up import StepUpOtpService
 # Database commands/queries for notification dispatcher
 from db.notifications.commands import insert_notification_event
 from db.notifications.queries import get_preferences
+from ops.jobs.forecast_retraining import register_subscriber_growth_job
 from routers.account import (
     account_router,
     auth_router,
@@ -456,6 +457,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logging.getLogger(__name__).warning("plan_expiry_scheduler: failed to start: %s", exc)
         plan_expiry_scheduler = None
 
+    # Subscriber growth forecast retraining scheduler (Story 7.3, Task 5)
+    forecast_retraining_scheduler = None
+    try:
+        if AsyncIOScheduler is not None and CronTrigger is not None:
+            forecast_retraining_scheduler = AsyncIOScheduler()
+            register_subscriber_growth_job(forecast_retraining_scheduler, app.state.db_adapter)
+            forecast_retraining_scheduler.start()
+            logging.getLogger(__name__).info(
+                "forecast_retraining_scheduler: started (subscriber-growth 02:00 UTC daily)"
+            )
+    except Exception as exc:
+        logging.getLogger(__name__).warning("forecast_retraining_scheduler: failed to start: %s", exc)
+        forecast_retraining_scheduler = None
+
     data_nudge_consumer_task: asyncio.Task | None = None
     if getattr(app.state, "notification_dispatcher", None) is not None:
         logger = logging.getLogger(__name__)
@@ -579,6 +594,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if plan_expiry_scheduler is not None:
             try:
                 plan_expiry_scheduler.shutdown(wait=False)
+            except Exception:
+                pass
+        if forecast_retraining_scheduler is not None:
+            try:
+                forecast_retraining_scheduler.shutdown(wait=False)
             except Exception:
                 pass
         if data_nudge_consumer_task is not None:

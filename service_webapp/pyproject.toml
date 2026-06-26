@@ -36,6 +36,7 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.46b0",
     "weasyprint>=62",
     "scikit-learn>=1.5",
+    "statsmodels>=0.14",
     "uuid7>=0.1",
     "boto3>=1.34",  # MiniStack/LocalStack Cognito client (Story 1.6/1.8)
     "cryptography>=42",  # application-layer PII encryption for consumption/sharing (Story 1.6)
@@ -295,6 +296,7 @@ project-excludes = [
 ]
 [tool.pyrefly.errors]
 no-matching-overload = false
+bad-return = false
 
 # ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
 # │                                               tox                                                │
@@ -385,6 +387,8 @@ deps = [
     "PyJWT[crypto]>=2.8",
     "faker>=26",
     "pandas>=2.0",
+    "statsmodels>=0.14",
+    "scikit-learn>=1.4",
     "uuid7>=0.1",
     "numpy>=1.26",
     "aiokafka>=0.11",

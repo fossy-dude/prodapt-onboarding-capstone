@@ -3,7 +3,7 @@
  */
 
 import { render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Dashboard } from "./Dashboard";
 
@@ -33,18 +33,58 @@ vi.mock("./hooks", () => ({
     isLoading: false,
     error: null,
   })),
+  usePlanDemandForecast: vi.fn(() => ({
+    data: { forecasts: [], model_version: null, trained_at: null, cache_expires_at: null },
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  })),
+  useSubscriberGrowthForecast: vi.fn(() => ({
+    data: undefined,
+    isLoading: false,
+    error: null,
+    refetch: vi.fn(),
+  })),
 }));
 
 describe("Dashboard", () => {
   let queryClient: QueryClient;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     queryClient = new QueryClient({
       defaultOptions: {
         queries: {
           retry: false,
         },
       },
+    });
+
+    // Reset the overview hooks to success defaults before each test so a per-test
+    // override (the error-state test) cannot leak into sibling tests.
+    const { usePlanStock, useOrderCounts, useOrdersByStatus } = await import("./hooks");
+    (usePlanStock as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: [
+        {
+          plan_id: "plan-1",
+          plan_name: "Basic Plan",
+          subscriber_count: 150,
+        },
+      ],
+      isLoading: false,
+      error: null,
+    });
+    (useOrderCounts as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: {
+        CREATED: 10,
+        ACTIVATED: 5,
+      },
+      isLoading: false,
+      error: null,
+    });
+    (useOrdersByStatus as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: [],
+      isLoading: false,
+      error: null,
     });
   });
 
@@ -70,7 +110,7 @@ describe("Dashboard", () => {
 
   it("shows error state when data fetching fails", async () => {
     const { usePlanStock } = await import("./hooks");
-    (usePlanStock as any).mockReturnValue({
+    (usePlanStock as ReturnType<typeof vi.fn>).mockReturnValue({
       data: undefined,
       isLoading: false,
       error: new Error("Failed to fetch"),

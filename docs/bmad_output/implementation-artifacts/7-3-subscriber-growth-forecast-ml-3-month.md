@@ -4,7 +4,7 @@ baseline_commit: dd7e3df
 
 # Story 7.3: Subscriber Growth Forecast (ML, 3-Month)
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -30,8 +30,8 @@ so that I can plan network capacity and staffing ahead of demand.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Database schema for forecast cache** (AC: #1, #5, #6)
-  - [ ] Create Flyway migration `V__forecast_cache.sql`:
+- [x] **Task 1: Database schema for forecast cache** (AC: #1, #5, #6)
+  - [x] Create Flyway migration `V__forecast_cache.sql`:
     - Table `forecast_results`:
       - `forecast_id` UUID PRIMARY KEY DEFAULT gen_random_uuid()
       - `forecast_type` VARCHAR(50) NOT NULL (e.g., 'subscriber_growth')
@@ -48,11 +48,11 @@ so that I can plan network capacity and staffing ahead of demand.
       - `created_at` TIMESTAMP DEFAULT NOW()
     - Indexes: `(forecast_type, forecast_date)` for efficient range queries
     - Index: `(valid_until)` for cleanup job
-  - [ ] Run migration via `just migrate` (or tox env)
+  - [x] Run migration via `just migrate` (or tox env)
 
-- [ ] **Task 2: ML forecast model implementation** (AC: #1, #2, #3)
-  - [ ] Create `service_webapp/src/ops/forecasting/subscriber_growth_model.py`.
-  - [ ] Class `SubscriberGrowthForecaster`:
+- [x] **Task 2: ML forecast model implementation** (AC: #1, #2, #3)
+  - [x] Create `service_webapp/src/ops/forecasting/subscriber_growth_model.py`.
+  - [x] Class `SubscriberGrowthForecaster`:
     - `__init__(self, model_type: str = "gradient_boosting")`: initialize scikit-learn model (GradientBoostingRegressor or LinearRegression as fallback)
     - `train(self, historical_data: pd.DataFrame) -> None`: fit model on daily activation/churn counts
       - Input DataFrame columns: `date, activations, churn`
@@ -65,13 +65,13 @@ so that I can plan network capacity and staffing ahead of demand.
     - `evaluate(self, actual_data: pd.DataFrame) -> dict`:
       - Compute MAPE on holdout set: `mean(abs((actual - predicted) / actual)) * 100`
       - Return: `{"mape_activations": float, "mape_churn": float, "passed_mape_threshold": bool}`
-  - [ ] Model selection logic:
+  - [x] Model selection logic:
     - Try GradientBoostingRegressor (better for non-linear trends)
     - Fall back to LinearRegression if GradientBoosting fails or data is sparse
     - Log model choice and performance metrics
 
-- [ ] **Task 3: Database queries for forecast data** (AC: #1, #6)
-  - [ ] Add to `service_webapp/src/db/queries/ops_queries.py` (from Story 7.2):
+- [x] **Task 3: Database queries for forecast data** (AC: #1, #6)
+  - [x] Add to `service_webapp/src/db/queries/ops_queries.py` (from Story 7.2):
     - Function `get_historical_activations_churn(db_conn, days_back: int = 180) -> list[dict]`:
       - Query: `SELECT DATE(created_at) as date, COUNT(*) as activations FROM subscribers WHERE created_at >= NOW() - INTERVAL ':days_back days' GROUP BY DATE(created_at) ORDER BY date`
       - For churn: use a proxy (e.g., last_activity_at < NOW() - INTERVAL '90 days' AND status = 'ACTIVE') or actual churn if tracked
@@ -84,8 +84,8 @@ so that I can plan network capacity and staffing ahead of demand.
       - Insert new rows: batch INSERT from DataFrame
       - Set `valid_until = NOW() + INTERVAL ':valid_hours hours'`
 
-- [ ] **Task 4: FastAPI endpoint for subscriber growth forecast** (AC: #1, #2, #3, #6, #7)
-  - [ ] Add to `service_webapp/src/api/v1/ops.py` (from Story 7.2):
+- [x] **Task 4: FastAPI endpoint for subscriber growth forecast** (AC: #1, #2, #3, #6, #7)
+  - [x] Add to `service_webapp/src/api/v1/ops.py` (from Story 7.2):
     - Endpoint `GET /api/v1/ops/forecasts/subscriber-growth`:
       - Auth dependency: `require_role("ops")`
       - Logic:
@@ -103,19 +103,19 @@ so that I can plan network capacity and staffing ahead of demand.
       - 200 OK on success, 401/403 on auth failure, 400 on insufficient data, 500 on error
     - Optional query param: `force_refresh=true` to bypass cache and retrain
 
-- [ ] **Task 5: Scheduled job for daily model retraining** (AC: #5)
-  - [ ] Create `service_webapp/src/ops/jobs/forecast_retraining.py`:
+- [x] **Task 5: Scheduled job for daily model retraining** (AC: #5)
+  - [x] Create `service_webapp/src/ops/jobs/forecast_retraining.py`:
     - Function `retrain_subscriber_growth_forecast() -> None`:
       - Run as background job via APScheduler or cron (existing pattern from other scheduled jobs)
       - Call forecast endpoint logic internally (or extract to shared service function)
       - Log: model version, MAPE, training duration
       - Alert if MAPE > 15% (send to LangFuse or logging)
-    - [ ] Schedule: daily at 2 AM (low-traffic period) via `@scheduler.scheduled_job('cron', hour=2, minute=0)`
-    - [ ] Ensure job has DB access and error handling (don't crash on failures)
+    - [x] Schedule: daily at 2 AM (low-traffic period) via `@scheduler.scheduled_job('cron', hour=2, minute=0)`
+    - [x] Ensure job has DB access and error handling (don't crash on failures)
 
-- [ ] **Task 6: Frontend forecast chart component** (AC: #2, #4)
-  - [ ] Create `frontend/src/components/ops/Forecasts.tsx` (extend from Story 7.2 if needed).
-  - [ ] Create `frontend/src/components/ops/SubscriberGrowthChart.tsx`:
+- [x] **Task 6: Frontend forecast chart component** (AC: #2, #4)
+  - [x] Create `frontend/src/components/ops/Forecasts.tsx` (extend from Story 7.2 if needed).
+  - [x] Create `frontend/src/components/ops/SubscriberGrowthChart.tsx`:
     - Use Recharts for line chart (already a dependency from Story 3.2 usage rings)
     - Chart layout:
       - X-axis: dates (next 90 days)
@@ -127,52 +127,52 @@ so that I can plan network capacity and staffing ahead of demand.
     - Tooltip: show exact values on hover
     - Legend: activations vs churn
     - Responsive: full width of container
-  - [ ] Use React Query hook `useSubscriberGrowthForecast()`:
+  - [x] Use React Query hook `useSubscriberGrowthForecast()`:
     - Call GET /api/v1/ops/forecasts/subscriber-growth
     - Refetch on mount (no auto-refresh, forecasts are cached daily)
     - Optional: "Refresh Forecast" button to call with `force_refresh=true`
 
-- [ ] **Task 7: Integration with ops dashboard** (AC: #4)
-  - [ ] Add "Subscriber Growth Forecast" tab to `frontend/src/pages/ops/Dashboard.tsx` (alongside Plan Stock and Order Fulfilment from Story 7.2).
-  - [ ] Tab content: render `SubscriberGrowthChart.tsx`
-  - [ ] Tab navigation: switch between "Plan Stock", "Order Fulfilment", "Forecasts"
-  - [ ] Loading state: show spinner while forecast loads
-  - [ ] Error state: show error message + retry button
+- [x] **Task 7: Integration with ops dashboard** (AC: #4)
+  - [x] Add "Subscriber Growth Forecast" tab to `frontend/src/pages/ops/Dashboard.tsx` (alongside Plan Stock and Order Fulfilment from Story 7.2).
+  - [x] Tab content: render `SubscriberGrowthChart.tsx`
+  - [x] Tab navigation: switch between "Plan Stock", "Order Fulfilment", "Forecasts"
+  - [x] Loading state: show spinner while forecast loads
+  - [x] Error state: show error message + retry button
 
-- [ ] **Task 8: Unit and integration tests** (AC: #1–#7)
-  - [ ] Model tests in `service_webapp/tests/unit/test_subscriber_growth_model.py`:
+- [x] **Task 8: Unit and integration tests** (AC: #1–#7)
+  - [x] Model tests in `service_webapp/tests/unit/test_subscriber_growth_model.py`:
     - Test model training on synthetic data
     - Test prediction returns correct shape and columns
     - Test confidence interval bounds: lower <= predicted <= upper
     - Test MAPE calculation: perfect predictions = 0%, noisy predictions > 0%
-  - [ ] API tests in `service_webapp/tests/api/test_ops.py`:
+  - [x] API tests in `service_webapp/tests/api/test_ops.py`:
     - Test `GET /api/v1/ops/forecasts/subscriber-growth` with ops role: 200, returns expected schema
     - Test with subscriber role: 403 Forbidden
     - Test with insufficient data (< 90 days): 400 "Insufficient historical data"
     - Test cache hit: second call returns same data without retraining (check `trained_at` unchanged)
     - Test `force_refresh=true`: bypasses cache, retrains model
     - Mock `SubscriberGrowthForecaster` to test endpoint logic independently
-  - [ ] Frontend tests in `frontend/src/components/ops/__tests__/`:
+  - [x] Frontend tests in `frontend/src/components/ops/__tests__/`:
     - Test `SubscriberGrowthChart` renders with mock data
     - Test chart displays lines and confidence intervals
     - Test React Query hook calls endpoint correctly
     - Test error state displays message
 
-- [ ] **Task 9: Performance and optimization** (AC: #1, #3, #5)
-  - [ ] Model training optimization:
+- [x] **Task 9: Performance and optimization** (AC: #1, #3, #5)
+  - [x] Model training optimization:
     - Limit training data to 180 days (sufficient for daily patterns)
     - Use efficient scikit-learn model (GradientBoostingRegressor with n_estimators=100)
     - Cache trained model in memory (class variable) if multiple requests in same process
-  - [ ] Database: ensure `subscribers.created_at` index exists for historical query speed
-  - [ ] Forecast cache: 24-hour TTL balances freshness and performance
-  - [ ] Monitor: endpoint should return < 2s on cache hit, < 10s on cache miss (model training)
+  - [x] Database: ensure `subscribers.created_at` index exists for historical query speed
+  - [x] Forecast cache: 24-hour TTL balances freshness and performance
+  - [x] Monitor: endpoint should return < 2s on cache hit, < 10s on cache miss (model training)
 
-- [ ] **Task 10: Error handling and edge cases** (AC: #1, #3)
-  - [ ] Insufficient data: if < 90 days historical, return 400 error with clear message
-  - [ ] Model training failure: fall back to simple linear extrapolation (trend-only) if GradientBoosting fails
-  - [ ] MAPE threshold violation: log warning, emit LangFuse span, but still return forecast (soft gate)
-  - [ ] Database errors: return 500 with error message
-  - [ ] Scheduled job failures: retry with exponential backoff, alert after 3 consecutive failures
+- [x] **Task 10: Error handling and edge cases** (AC: #1, #3)
+  - [x] Insufficient data: if < 90 days historical, return 400 error with clear message
+  - [x] Model training failure: fall back to simple linear extrapolation (trend-only) if GradientBoosting fails
+  - [x] MAPE threshold violation: log warning, emit LangFuse span, but still return forecast (soft gate)
+  - [x] Database errors: return 500 with error message
+  - [x] Scheduled job failures: retry with exponential backoff, alert after 3 consecutive failures
 
 ## Dev Notes
 
@@ -279,4 +279,37 @@ claude-sonnet-4-6
 
 ### Completion Notes List
 
+- V11 migration creates a shared `forecast_results` table (not `ops_forecast_results`); Story 7.4's V12 depends on this and creates it only if V11 has not run. Subscriber-growth-specific columns added via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` in the same migration.
+- Churn is a CDR-based proxy (`DATE(MAX(billing_cdr_events.start_time)) + 90`) as `identity_subscribers` has no `last_activity_at` column. Documented as MVP limitation in the model docstring.
+- `db.connection()` async context manager was missing from `Psycopg3AsyncAdapter` and `DatabaseProtocol`; added as part of this story (non-transactional pooled read).
+- Confidence intervals use bootstrap residuals (Method 2); lower/upper bounds are clamped to `[lower, point, upper]` ordering.
+- APScheduler job registered at 02:00 UTC; plan-demand job (Story 7.4) at 03:00 UTC to stagger DB load. Both registered in `forecast_retraining.py` and started in `main.py`.
+- In-process `_TRAINED_CACHE` keyed by `(row_count, min_date, max_date)` signature provides secondary optimisation on top of the DB forecast cache.
+- All 33 Story 7.3 tests pass (`tests/unit/test_subscriber_growth_model.py` × 13, `tests/api/test_ops.py` × 6 new + pre-existing passing). Ruff lint clean.
+
 ### File List
+
+**New backend:**
+- `service_webapp/db/migrations/V11__subscriber_growth_forecast.sql`
+- `service_webapp/src/ops/forecasting/subscriber_growth_model.py`
+- `service_webapp/tests/unit/test_subscriber_growth_model.py`
+
+**Modified backend:**
+- `service_webapp/src/adapters/postgres.py` — added `connection()` async context manager
+- `service_webapp/src/core/protocols/db.py` — added `connection()` to `DatabaseProtocol`
+- `service_webapp/src/db/ops/queries.py` — added `get_historical_activations_churn`, `get_cached_subscriber_growth_forecast`, `save_subscriber_growth_forecast`
+- `service_webapp/src/routers/ops.py` — added `GET /forecasts/subscriber-growth` endpoint
+- `service_webapp/src/ops/jobs/forecast_retraining.py` — added `retrain_subscriber_growth_forecast`, `register_subscriber_growth_job`
+- `service_webapp/src/main.py` — registered `forecast_retraining_scheduler`
+- `service_webapp/tests/api/test_ops.py` — added 6 subscriber-growth endpoint tests
+
+**New frontend:**
+- `frontend/src/portals/ops/SubscriberGrowthChart.tsx`
+- `frontend/src/portals/ops/SubscriberGrowthForecast.tsx`
+- `frontend/src/portals/ops/SubscriberGrowthChart.test.tsx`
+- `frontend/src/portals/ops/SubscriberGrowthForecast.test.tsx`
+
+**Modified frontend:**
+- `frontend/src/portals/ops/hooks.ts` — added `SubscriberGrowthForecastData` types and `useSubscriberGrowthForecast` hook
+- `frontend/src/portals/ops/Forecasts.tsx` — filled Subscriber Growth tab placeholder
+- `frontend/src/portals/ops/Dashboard.test.tsx` — updated mocks

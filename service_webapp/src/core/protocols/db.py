@@ -32,6 +32,14 @@ class DatabaseProtocol(Protocol):
         """
         ...
 
+    def connection(self) -> AbstractAsyncContextManager[AsyncConnection]:
+        """Yield a pooled connection for SELECT-only reads (no explicit transaction).
+
+        CQRS read side (ARCH-4). Callers must not mutate on a connection yielded here;
+        use :meth:`transaction` for writes so they commit.
+        """
+        ...
+
     def transaction(self) -> AbstractAsyncContextManager[AsyncConnection]:
         """Yield a pooled connection inside an explicit transaction (commit/rollback)."""
         ...
