@@ -105,7 +105,7 @@ def get_langfuse_client() -> Langfuse | None:
     # Built from settings only — no hard-coded host/keys (architecture §1.11.1).
     try:
         _langfuse_client = Langfuse(
-            host=settings.langfuse_host,
+            host=settings.langfuse_base_url,
             public_key=settings.langfuse_public_key,
             secret_key=settings.langfuse_secret_key,
         )

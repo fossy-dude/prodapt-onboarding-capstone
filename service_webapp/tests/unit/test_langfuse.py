@@ -105,7 +105,7 @@ def test_get_client_is_singleton_when_enabled(monkeypatch: pytest.MonkeyPatch) -
     assert len(constructed) == 1  # constructor invoked exactly once
     # Built from settings, never hard-coded (architecture §1.11.1).
     assert captured == {
-        "host": settings.langfuse_host,
+        "host": settings.langfuse_base_url,
         "public_key": settings.langfuse_public_key,
         "secret_key": settings.langfuse_secret_key,
     }

@@ -81,7 +81,7 @@ class Settings(BaseSettings):
 
     # ── Optional: LangFuse (Story 1.5) — connection-free when disabled ───────
     langfuse_enabled: bool = False
-    langfuse_host: str = "http://localhost:3000"
+    langfuse_base_url: str = "http://localhost:3000"
     langfuse_secret_key: str = ""
     langfuse_public_key: str = ""
 
