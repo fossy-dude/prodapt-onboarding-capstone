@@ -247,6 +247,40 @@ async def login_verify(payload: LoginVerifyRequest, request: Request) -> JSONRes
     )
 
 
+class TokenRefreshRequest(BaseModel):
+    """Exchange a Cognito refresh token for a new access token."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    refresh_token: str = Field(min_length=1, max_length=2048)
+
+
+@auth_router.post("/token/refresh", status_code=200)
+async def token_refresh(payload: TokenRefreshRequest, request: Request) -> JSONResponse:
+    """Exchange a refresh token for a new access token.
+
+    Returns ``{access_token, id_token, token_type}``.
+    Responds 401 UNAUTHENTICATED when the refresh token is invalid or expired.
+    """
+    from core.errors import OtpVerificationError  # noqa: PLC0415
+
+    provider = _cognito(request)
+    try:
+        tokens = await provider.refresh_token(payload.refresh_token)
+    except OtpVerificationError as exc:
+        err = DomainError(str(exc))
+        err.code = "UNAUTHENTICATED"
+        err.http_status = 401
+        raise err from exc
+    return JSONResponse(
+        status_code=200,
+        content=success_envelope(
+            tokens,
+            trace_id=getattr(request.state, "trace_id", "unknown"),
+        ),
+    )
+
+
 def _db(request: Request):
     """Resolve the database adapter from app state."""
     db = getattr(request.app.state, "db_adapter", None)

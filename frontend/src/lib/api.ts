@@ -9,7 +9,7 @@ import type {
   PaymentMethodResponse,
   AddPaymentMethodPayload,
 } from "../types/payment-method";
-import { getToken, removeToken } from "./auth";
+import { getRefreshToken, getToken, logout, saveToken } from "./auth";
 
 // Base URL for the service_webapp REST API. Vite exposes VITE_-prefixed env vars.
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
@@ -31,29 +31,86 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-/** Routes that must NOT trigger a /login redirect on 401 (they are part of the login flow). */
-const _LOGIN_PATHS = ["/auth/login/initiate", "/auth/login/verify"];
+/** Routes that bypass the token-refresh retry (login + refresh itself). */
+const _SKIP_REFRESH_PATHS = [
+  "/auth/login/initiate",
+  "/auth/login/verify",
+  "/auth/token/refresh",
+];
 
-/** On 401 response: clear the stored token and redirect to /login.
+type QueueEntry = { resolve: (token: string) => void; reject: (err: unknown) => void };
+
+let _isRefreshing = false;
+let _refreshQueue: QueueEntry[] = [];
+
+function _drainQueue(token: string): void {
+  _refreshQueue.forEach((cb) => cb.resolve(token));
+  _refreshQueue = [];
+}
+
+function _rejectQueue(err: unknown): void {
+  _refreshQueue.forEach((cb) => cb.reject(err));
+  _refreshQueue = [];
+}
+
+async function _doRefresh(): Promise<string> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) throw new Error("No refresh token stored.");
+  const { data } = await apiClient.post<{
+    data: { access_token: string; id_token: string; token_type: string };
+  }>("/auth/token/refresh", { refresh_token: refreshToken });
+  const newToken = data.data.access_token;
+  saveToken(newToken);
+  // id_token is not used client-side; refresh_token itself is long-lived and unchanged.
+  return newToken;
+}
+
+/** On 401 response: attempt a silent token refresh then retry the original request.
  *
- * P7: skip the redirect when the 401 comes from a login endpoint itself —
- * otherwise a wrong OTP causes a redirect loop while the user is already on /login.
+ * Concurrent requests that 401 during a refresh are queued and replayed once the
+ * refresh resolves. If the refresh itself fails (expired/revoked refresh token),
+ * all queued requests are rejected and the user is logged out.
+ *
+ * P7: login and refresh endpoints skip this logic to prevent redirect loops.
  */
 apiClient.interceptors.response.use(
   (response) => response,
-  (error: unknown) => {
-    if (error instanceof AxiosError && error.response?.status === 401) {
-      const url = error.config?.url ?? "";
-      const isLoginRoute = _LOGIN_PATHS.some((path) => url.includes(path));
-      if (!isLoginRoute) {
-        removeToken();
-        // P8: window.location.href is a full reload that bypasses React Router.
-        // Acceptable for the auth redirect (avoids needing a shared event bus),
-        // but guarded to login-route exclusion above to prevent loops.
-        window.location.href = "/login";
-      }
+  async (error: unknown) => {
+    if (!(error instanceof AxiosError) || error.response?.status !== 401) {
+      return Promise.reject(error);
     }
-    return Promise.reject(error);
+
+    const url = error.config?.url ?? "";
+    const isSkippedRoute = _SKIP_REFRESH_PATHS.some((p) => url.includes(p));
+    if (isSkippedRoute) {
+      return Promise.reject(error);
+    }
+
+    const originalConfig = error.config;
+    if (!originalConfig) return Promise.reject(error);
+
+    if (_isRefreshing) {
+      return new Promise<string>((resolve, reject) => {
+        _refreshQueue.push({ resolve, reject });
+      }).then((token) => {
+        originalConfig.headers["Authorization"] = `Bearer ${token}`;
+        return apiClient(originalConfig);
+      });
+    }
+
+    _isRefreshing = true;
+    try {
+      const newToken = await _doRefresh();
+      _drainQueue(newToken);
+      originalConfig.headers["Authorization"] = `Bearer ${newToken}`;
+      return apiClient(originalConfig);
+    } catch (refreshErr) {
+      _rejectQueue(refreshErr);
+      logout();
+      return Promise.reject(refreshErr);
+    } finally {
+      _isRefreshing = false;
+    }
   },
 );
 

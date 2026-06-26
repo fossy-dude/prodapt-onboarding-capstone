@@ -21,7 +21,7 @@ import {
   verifyLoginOtp,
   ERROR_CODES,
 } from "../../lib/api";
-import { getRole, isAuthenticated, saveToken } from "../../lib/auth";
+import { getRole, isAuthenticated, saveRefreshToken, saveToken } from "../../lib/auth";
 import { validateIdentifier } from "./identifier";
 
 /** Map portal role to its root route. */
@@ -57,6 +57,7 @@ function Login() {
       verifyLoginOtp(id, code),
     onSuccess: (tokens) => {
       saveToken(tokens.access_token);
+      if (tokens.refresh_token) saveRefreshToken(tokens.refresh_token);
       const role = getRole();
       // P18: guard unknown role — don't navigate to '/' which wildcard-redirects to /login.
       const route = role !== null ? (ROLE_ROUTE[role] ?? null) : null;

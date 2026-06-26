@@ -77,6 +77,14 @@ class CognitoProvider(Protocol):
         """
         ...
 
+    async def refresh_token(self, refresh_token: str) -> dict:
+        """Exchange a refresh token for a new access token.
+
+        On success returns ``{access_token, id_token, token_type}``.
+        Raises :class:`~core.errors.OtpVerificationError` if the refresh token is invalid or expired.
+        """
+        ...
+
 
 class FakeCognitoProvider:
     """Deterministic in-memory Cognito stand-in for fast unit tests.
@@ -129,6 +137,16 @@ class FakeCognitoProvider:
         if not ok:
             raise OtpVerificationError(f"Invalid OTP for {_safe_phone(identifier)}")
         return dict(self.TOKENS)
+
+    async def refresh_token(self, refresh_token: str) -> dict:
+        """Return a new fake access token (refresh always succeeds in tests)."""
+        if refresh_token != self.TOKENS["refresh_token"]:
+            raise OtpVerificationError("Invalid refresh token.")
+        return {
+            "access_token": self.TOKENS["access_token"],
+            "id_token": self.TOKENS["id_token"],
+            "token_type": self.TOKENS["token_type"],
+        }
 
 
 class MinistackCognitoProvider:
@@ -302,6 +320,39 @@ class MinistackCognitoProvider:
         return {
             "access_token": access_token,
             "refresh_token": auth_result.get("RefreshToken", ""),
+            "id_token": auth_result.get("IdToken", ""),
+            "token_type": auth_result.get("TokenType", "Bearer"),
+        }
+
+    async def refresh_token(self, refresh_token: str) -> dict:
+        """Exchange a Cognito refresh token for a new access token via REFRESH_TOKEN_AUTH."""
+        try:
+            pool_id, client_id = await self._ensure_pool()
+            resp = await asyncio.to_thread(
+                self._boto_client().initiate_auth,
+                ClientId=client_id,
+                AuthFlow="REFRESH_TOKEN_AUTH",
+                AuthParameters={"REFRESH_TOKEN": refresh_token},
+            )
+        except Exception as exc:
+            err_code = ""
+            try:
+                err_code = exc.response["Error"]["Code"]  # type: ignore[attr-defined]
+            except (AttributeError, KeyError, TypeError):
+                pass
+            if err_code in ("NotAuthorizedException", "InvalidGrantException"):
+                raise OtpVerificationError("Refresh token is invalid or expired.") from exc
+            logger.exception("Cognito token refresh failed")
+            raise CognitoProvisioningError(f"Token refresh failed: {exc}") from exc
+
+        auth_result = resp.get("AuthenticationResult", {})
+        if not auth_result:
+            raise CognitoProvisioningError("Cognito returned no AuthenticationResult on refresh.")
+        access_token = auth_result.get("AccessToken", "")
+        if not access_token:
+            raise CognitoProvisioningError("Cognito did not return an access token on refresh.")
+        return {
+            "access_token": access_token,
             "id_token": auth_result.get("IdToken", ""),
             "token_type": auth_result.get("TokenType", "Bearer"),
         }

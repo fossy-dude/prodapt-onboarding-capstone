@@ -58,7 +58,7 @@ function App() {
   // (Story 5.4 AC #3). Owned here so the CopilotKit provider can forward it as
   // the X-Chat-Session-Id header that the backend identity middleware reads.
   const [sessionId] = useState(getOrCreateChatSessionId);
-  const [token] = useState<string | null>(getToken);
+  const token = getToken();
   const chatHeaders = useMemo<Record<string, string>>(() => {
     const h: Record<string, string> = { "X-Chat-Session-Id": sessionId };
     if (token) h["Authorization"] = `Bearer ${token}`;
@@ -95,6 +95,7 @@ function App() {
             */}
             <CopilotKit
               runtimeUrl="/api/chat"
+              agent="support_agent"
               headers={chatHeaders}
             >
               <Routes>

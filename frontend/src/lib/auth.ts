@@ -10,6 +10,7 @@
  */
 
 const TOKEN_KEY = "sboai_access_token";
+const REFRESH_TOKEN_KEY = "sboai_refresh_token";
 
 /** Valid portal roles — each maps to a route prefix. */
 export type PortalRole =
@@ -68,6 +69,21 @@ export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
 
+/** Store the refresh token in localStorage. */
+export function saveRefreshToken(token: string): void {
+  localStorage.setItem(REFRESH_TOKEN_KEY, token);
+}
+
+/** Return the stored refresh token, or null if absent. */
+export function getRefreshToken(): string | null {
+  return localStorage.getItem(REFRESH_TOKEN_KEY);
+}
+
+/** Remove the refresh token from localStorage. */
+export function removeRefreshToken(): void {
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
+}
+
 /**
  * Return true if a valid, non-expired token is present in localStorage.
  *
@@ -116,9 +132,10 @@ export function getSub(): string | null {
   return payload.sub ?? null;
 }
 
-/** Clear the token and reload to /login — use for logout. */
+/** Clear all tokens and reload to /login — use for logout. */
 export function logout(): void {
   removeToken();
+  removeRefreshToken();
   window.location.href = "/login";
 }
 
