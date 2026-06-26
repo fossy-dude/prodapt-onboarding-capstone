@@ -22,9 +22,14 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from ag_ui.core import RunAgentInput
+from ag_ui.encoder import EventEncoder
+from ag_ui_langgraph import add_langgraph_fastapi_endpoint
 from copilotkit import CopilotKitRemoteEndpoint, LangGraphAGUIAgent
 from copilotkit.integrations.fastapi import add_fastapi_endpoint
 from copilotkit.sdk import CopilotKitContext
+from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
 from langchain_openai import AzureChatOpenAI
 
 from agents.support.graph import build_support_graph
@@ -40,28 +45,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 __all__ = ["CHAT_ENDPOINT_PREFIX", "setup_copilotkit"]
-
-
-class _V1CompatEndpoint(CopilotKitRemoteEndpoint):
-    """Shim that converts the info response to the object format expected by JS SDK v1.x.
-
-    Python copilotkit v0.x returns ``agents`` as an array of ``{name, description}``
-    dicts. JS @copilotkit v1.x calls ``Object.entries(runtimeInfo.agents)`` and
-    expects an object keyed by agent name. Without this shim the JS client uses the
-    array index ``0`` as the agent id instead of ``"support_agent"``.
-    """
-
-    def info(self, *, context: CopilotKitContext) -> dict:  # type: ignore[override]
-        result = super().info(context=context)
-        agents_obj = {
-            agent["name"]: {
-                "description": agent.get("description", ""),
-                "capabilities": agent.get("capabilities", []),
-            }
-            for agent in result.get("agents", [])
-        }
-        result["agents"] = agents_obj
-        return result
 
 
 # CopilotKit registers a catch-all at ``{prefix}/{path:path}``; ``/api/chat`` puts
@@ -119,17 +102,24 @@ def setup_copilotkit(
         temperature=0.2,
     )
     graph = build_support_graph(llm)
-
-    # LangGraphAGUIAgent is a copilotkit Agent; the SDK stubs model the param as
-    # list[Agent] which pyrefly flags as a variance mismatch — this is the
-    # documented usage, so suppress the static-only error.
-    agents = [
-        LangGraphAGUIAgent(
+    add_langgraph_fastapi_endpoint(
+        app=app,
+        agent=LangGraphAGUIAgent(
             name=_SUPPORT_AGENT_NAME,
             description=_SUPPORT_AGENT_DESCRIPTION,
             graph=graph,
-        )
-    ]
-    sdk = _V1CompatEndpoint(agents=agents)  # type: ignore[arg-type]
-    add_fastapi_endpoint(app, sdk, CHAT_ENDPOINT_PREFIX)
+        ),
+        path=CHAT_ENDPOINT_PREFIX,
+    )
+
+    # # Register the direct AG-UI run route BEFORE the copilotkit catch-all so the
+    # # JS SDK's POST /api/chat/agent/{name}/run hits agent.run() rather than the
+    # # copilotkit sdk.execute_agent() path that calls agent.execute() (which
+    # # LangGraphAGUIAgent does not implement, causing AttributeError → 500).
+    # _register_agui_run_routes(app, CHAT_ENDPOINT_PREFIX, agents)
+
+    # # _V1CompatEndpoint handles the info probe: JS SDK v1.x expects agents as an
+    # # object keyed by name, but copilotkit v0.x returns an array.
+    # sdk = _V1CompatEndpoint(agents=agents)  # type: ignore[arg-type]
+    # add_fastapi_endpoint(app, sdk, CHAT_ENDPOINT_PREFIX)
     logger.info("CopilotKit runtime registered at %s/* (agent=%s)", CHAT_ENDPOINT_PREFIX, _SUPPORT_AGENT_NAME)

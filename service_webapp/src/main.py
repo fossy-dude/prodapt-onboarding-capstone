@@ -702,6 +702,7 @@ def create_app(
     app.include_router(support_router)
     app.include_router(simulator_router)
     app.include_router(simulator_ws_router)
+    setup_copilotkit(app)
     app.state.db_adapter = db_adapter
     app.state.cache_adapter = cache_adapter
     app.state.milvus_adapter = milvus_adapter
@@ -719,7 +720,6 @@ def create_app(
     # re-bound in the lifespan once the real adapters exist (tests inject fakes via
     # app.state). Azure OpenAI is optional — registration is a no-op without it so
     # the app still boots for lint/test (AC: degrade, never crash).
-    setup_copilotkit(app)
     return app
 
 
