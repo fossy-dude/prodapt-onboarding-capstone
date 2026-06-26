@@ -54,9 +54,10 @@ function isExpired(payload: JwtPayload): boolean {
   return Date.now() / 1000 > payload.exp;
 }
 
-/** Store the access token in localStorage. */
+/** Store the access token in localStorage and notify same-tab listeners. */
 export function saveToken(token: string): void {
   localStorage.setItem(TOKEN_KEY, token);
+  window.dispatchEvent(new Event("sboai:token_updated"));
 }
 
 /** Remove the access token from localStorage (logout). */

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Navigate, Route, Routes } from "react-router-dom";
 
@@ -58,7 +58,17 @@ function App() {
   // (Story 5.4 AC #3). Owned here so the CopilotKit provider can forward it as
   // the X-Chat-Session-Id header that the backend identity middleware reads.
   const [sessionId] = useState(getOrCreateChatSessionId);
-  const token = getToken();
+  const [token, setToken] = useState(getToken);
+
+  // Re-sync token when saveToken() fires sboai:token_updated (e.g. after silent
+  // Axios refresh). The storage event only fires in other tabs, so we use a
+  // custom event dispatched by saveToken() for same-tab updates.
+  useEffect(() => {
+    const sync = () => setToken(getToken());
+    window.addEventListener("sboai:token_updated", sync);
+    return () => window.removeEventListener("sboai:token_updated", sync);
+  }, []);
+
   const chatHeaders = useMemo<Record<string, string>>(() => {
     const h: Record<string, string> = { "X-Chat-Session-Id": sessionId };
     if (token) h["Authorization"] = `Bearer ${token}`;
