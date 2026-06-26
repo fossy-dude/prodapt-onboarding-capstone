@@ -185,6 +185,10 @@ export function Recharge() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {plans
             ?.filter((plan) => plan.is_active !== false)
+            .filter((plan) => {
+              const planId = searchParams.get("plan_id");
+              return !planId || plan.id === planId;
+            })
             .map((plan) => (
               <div
                 key={plan.id}
