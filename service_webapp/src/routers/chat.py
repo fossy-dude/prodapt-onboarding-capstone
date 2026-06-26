@@ -35,6 +35,7 @@ from langchain_openai import AzureChatOpenAI
 from agents.support.graph import build_support_graph
 from agents.support.tools import set_support_adapters
 from core.config import settings
+from core.observability.langfuse import get_langfuse_callback_handler, get_langfuse_client
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -53,6 +54,8 @@ CHAT_ENDPOINT_PREFIX = "/api/chat"
 
 _SUPPORT_AGENT_NAME = "support_agent"
 _SUPPORT_AGENT_DESCRIPTION = "Billing and account assistant for MVNO subscribers."
+
+langfuse_handler = get_langfuse_callback_handler()
 
 
 def setup_copilotkit(
@@ -108,6 +111,7 @@ def setup_copilotkit(
             name=_SUPPORT_AGENT_NAME,
             description=_SUPPORT_AGENT_DESCRIPTION,
             graph=graph,
+            config={"configurable": {"callbacks": [langfuse_handler]}},
         ),
         path=CHAT_ENDPOINT_PREFIX,
     )

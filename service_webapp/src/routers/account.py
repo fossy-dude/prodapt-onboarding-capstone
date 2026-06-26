@@ -645,9 +645,9 @@ async def add_payment_method(
         sub = await resolve_subscriber_id(conn, jwt_payload)
         cur = await conn.execute(
             """
-            INSERT INTO recharge_payment_methods (subscriber_id, type, token, display_label, is_default)
+            INSERT INTO recharge_payment_methods (subscriber_id, method_type, token, display_label, is_default)
             VALUES (%s::uuid, %s, %s, %s, false)
-            RETURNING id::text, type, token, display_label, is_default, created_at
+            RETURNING id::text, method_type AS type, token, display_label, is_default, created_at
             """,
             (sub, payload.type, payload.token, payload.display_label),
         )
@@ -690,7 +690,7 @@ async def list_payment_methods(
         sub = await resolve_subscriber_id(conn, jwt_payload)
         cur = await conn.execute(
             """
-            SELECT id::text, type, token, display_label, is_default, created_at
+            SELECT id::text, method_type AS type, token, display_label, is_default, created_at
             FROM recharge_payment_methods
             WHERE subscriber_id = %s::uuid
             ORDER BY created_at DESC
@@ -776,7 +776,7 @@ async def set_default_payment_method(
         # Re-read to return the updated record
         cur = await conn.execute(
             """
-            SELECT id::text, type, token, display_label, is_default, created_at
+            SELECT id::text, method_type AS type, token, display_label, is_default, created_at
             FROM recharge_payment_methods
             WHERE id = %s::uuid
             """,

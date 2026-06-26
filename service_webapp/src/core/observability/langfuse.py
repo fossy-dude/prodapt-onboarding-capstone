@@ -42,6 +42,7 @@ import logging
 import sys
 from collections.abc import Awaitable, Callable
 from typing import Any
+from langfuse.langchain import CallbackHandler
 
 from langfuse import Langfuse
 
@@ -75,6 +76,10 @@ _langfuse_client_initialised: bool = False
 #   decorator can record token usage (FR-72) without the agent returning it.
 _trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("langfuse_trace_id", default=None)
 _usage_var: contextvars.ContextVar[dict[str, int] | None] = contextvars.ContextVar("langfuse_usage", default=None)
+
+
+def get_langfuse_callback_handler():
+    return CallbackHandler()
 
 
 def get_langfuse_client() -> Langfuse | None:

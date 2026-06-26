@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any
 from copilotkit.langgraph import CopilotKitState
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.prebuilt import ToolNode
 
 from agents.guardrails.validator import log_rejection
@@ -403,4 +404,5 @@ def build_support_graph(llm: BaseChatModel) -> CompiledStateGraph:
     builder.add_conditional_edges("support_agent_node", _route_after_agent, ["tools", END])
     builder.add_edge("tools", "support_agent_node")
 
-    return builder.compile()
+    checkpointer = InMemorySaver()
+    return builder.compile(checkpointer=checkpointer)

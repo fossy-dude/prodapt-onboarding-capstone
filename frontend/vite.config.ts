@@ -17,7 +17,7 @@ function copilotKitPlugin(backendChatUrl: string): Plugin {
         }
         try {
           if (!handler) {
-            const { CopilotRuntime, createCopilotRuntimeHandler } = await import("@copilotkit/runtime");
+            const { CopilotRuntime, createCopilotRuntimeHandler } = await import("@copilotkit/runtime/v2");
             const { LangGraphHttpAgent } = await import("@copilotkit/runtime/langgraph");
             const { createCopilotNodeHandler } = await import("@copilotkit/runtime/v2/node");
 
@@ -35,6 +35,7 @@ function copilotKitPlugin(backendChatUrl: string): Plugin {
                   }),
                 }),
                 basePath: "/api/chat",
+                mode: "single-route",
               }),
             );
           }
