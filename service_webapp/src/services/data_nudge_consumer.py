@@ -78,7 +78,8 @@ async def run_data_nudge_consumer(db, producer) -> None:
                             continue
 
                         # Check data quota
-                        quota = await get_active_plan_data_quota(db, subscriber_id_str)
+                        async with db.connection() as conn:
+                            quota = await get_active_plan_data_quota(conn, subscriber_id_str)
                         if quota is None:
                             # No active plan or unlimited data plan
                             continue

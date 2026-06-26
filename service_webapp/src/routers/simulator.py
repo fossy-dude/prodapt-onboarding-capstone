@@ -47,6 +47,7 @@ from core.config import settings
 from core.errors import DomainError, NotFoundError, UnauthenticatedError
 from core.responses import success_envelope
 from core.security import mask_msisdn
+from db.identity.queries import get_subscriber_id_by_msisdn
 from models.cdr import CdrEvent, CdrType
 from models.envelope import EventEnvelope
 
@@ -201,10 +202,6 @@ async def dispatch_cdr(
 
     Reuses the OTEL ``request.state.trace_id`` for end-to-end trace continuity:
     HTTP span → Kafka header → cdr-pipeline consumer (NFR-17).
-
-    The subscriber_id is a synthetic UUID derived deterministically from the MSISDN
-    for the simulator — no DB lookup is performed so the simulator works without
-    real subscriber rows.
     """
     producer = getattr(request.app.state, "kafka_producer", None)
     if producer is None:
@@ -213,8 +210,20 @@ async def dispatch_cdr(
         err.http_status = 503
         raise err
 
+    db = getattr(request.app.state, "db_adapter", None)
+    if db is None:
+        err = DomainError("DB adapter is not initialised.")
+        err.code = "NOT_READY"
+        err.http_status = 503
+        raise err
+
+    async with db.connection() as conn:
+        subscriber_id_str = await get_subscriber_id_by_msisdn(conn, body.subscriber_msisdn)
+    if subscriber_id_str is None:
+        raise NotFoundError(f"Subscriber not found for MSISDN {body.subscriber_msisdn}")
+    subscriber_id = uuid.UUID(subscriber_id_str)
+
     trace_id = getattr(request.state, "trace_id", "0" * 32)
-    subscriber_id = uuid.uuid5(uuid.NAMESPACE_DNS, body.subscriber_msisdn)
     cdr_payload = _build_cdr_payload(body, subscriber_id)
 
     _CDR_EVENT_ADAPTER.validate_python(cdr_payload)
@@ -249,7 +258,7 @@ async def dispatch_cdr(
     )
 
 
-@router.websocket("/ws/simulator/trace")
+@ws_router.websocket("/ws/simulator/trace")
 async def simulator_trace_ws(ws: WebSocket) -> None:
     """Stream pipeline stage events to connected developer clients (AC #2, #3, #4).
 
