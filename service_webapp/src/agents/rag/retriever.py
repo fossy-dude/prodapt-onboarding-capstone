@@ -123,6 +123,15 @@ class HybridRetriever:
         if "://" not in milvus_uri:
             Path(milvus_uri).parent.mkdir(parents=True, exist_ok=True)
         self._milvus = MilvusClient(uri=milvus_uri)
+        # Milvus Lite persists collections in a released state between restarts;
+        # load each known collection so searches work without per-call overhead.
+        _existing = set(self._milvus.list_collections())
+        for _col in _COLLECTIONS:
+            if _col in _existing:
+                try:
+                    self._milvus.load_collection(_col)
+                except Exception as exc:
+                    logger.warning("Could not load collection %r: %s", _col, exc)
         self._azure = azure_client
         # The ``model`` passed to ``embeddings.create`` — for Azure this is the
         # deployment name; the codebase convention (config.py:75) names the
