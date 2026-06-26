@@ -374,7 +374,8 @@ async def get_charge_breakdown(
             cdr.volume_mb,
             cdr.cost_paise as charge_paise,
             cdr.start_time,
-            pp.plan_name,
+            pp.id,
+            ps.plan_id,
             pp.voice_minutes,
             pp.data_limit_mb,
             pp.sms_count
@@ -402,6 +403,7 @@ async def get_charge_breakdown(
         volume_mb,
         charge_paise,
         _start_time,
+        _plan_id,
         _plan_name,
         _voice_minutes,
         _data_limit_mb,
@@ -411,7 +413,7 @@ async def get_charge_breakdown(
     # Get per-unit rates from plan config (fallback to defaults if not configured)
     rate_per_unit = await _get_rate_from_config(
         conn,
-        str(row[7]),  # plan_id from subscription would be better, but using defaults
+        str(row[6]),  # plan_id from subscription would be better, but using defaults
         event_type,
     )
 

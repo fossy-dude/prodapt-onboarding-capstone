@@ -22,7 +22,7 @@ import {
   ERROR_CODES,
 } from "../../lib/api";
 import { getRole, isAuthenticated, saveRefreshToken, saveToken } from "../../lib/auth";
-import { validateIdentifier } from "./identifier";
+import { type IdentifierKind, validateIdentifier } from "./identifier";
 
 /** Map portal role to its root route. */
 const ROLE_ROUTE: Record<string, string> = {
@@ -41,6 +41,7 @@ function Login() {
   const [step, setStep] = useState<Step>("identifier");
   const [identifier, setIdentifier] = useState("");
   const [normalizedIdentifier, setNormalizedIdentifier] = useState("");
+  const [identifierKind, setIdentifierKind] = useState<IdentifierKind | null>(null);
   const [otp, setOtp] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -60,9 +61,12 @@ function Login() {
       if (tokens.refresh_token) saveRefreshToken(tokens.refresh_token);
       const role = getRole();
       // P18: guard unknown role — don't navigate to '/' which wildcard-redirects to /login.
-      const route = role !== null ? (ROLE_ROUTE[role] ?? null) : null;
+      let route = role !== null ? (ROLE_ROUTE[role] ?? null) : null;
       if (route === null) {
         return; // isSuccess + role === null → error message shown below
+      }
+      if (identifierKind === "registration_id" && role === "subscriber") {
+        route = "/subscriber/activate";
       }
       navigate(route, { replace: true });
     },
@@ -85,6 +89,7 @@ function Login() {
     const result = validateIdentifier(identifier);
     if (result.ok) {
       setNormalizedIdentifier(result.value);
+      setIdentifierKind(result.kind);
       initiateMutation.mutate(result.value);
     } else {
       setValidationError(result.error);

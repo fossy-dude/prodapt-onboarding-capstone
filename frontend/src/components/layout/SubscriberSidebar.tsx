@@ -33,7 +33,6 @@ const MAIN_NAV: readonly NavItem[] = [
 
 const PROFILE_NAV: readonly NavItem[] = [
   { label: "Profile", to: "/subscriber/profile", icon: User, end: true },
-  { label: "My SIM Orders", to: "/subscriber/activate", icon: Package },
   {
     label: "Payment Methods",
     to: "/subscriber/profile/payment-methods",

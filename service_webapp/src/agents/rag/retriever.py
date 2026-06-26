@@ -41,6 +41,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pymilvus import MilvusClient
@@ -119,6 +120,8 @@ class HybridRetriever:
         embedding_deployment: str,
         langfuse_client: Langfuse | None = None,
     ) -> None:
+        if "://" not in milvus_uri:
+            Path(milvus_uri).parent.mkdir(parents=True, exist_ok=True)
         self._milvus = MilvusClient(uri=milvus_uri)
         self._azure = azure_client
         # The ``model`` passed to ``embeddings.create`` — for Azure this is the
