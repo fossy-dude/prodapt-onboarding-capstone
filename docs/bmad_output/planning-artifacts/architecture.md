@@ -16,6 +16,8 @@ completedAt: '2026-06-18'
 
 ## 1.1. AI-Powered Prepaid Billing System
 
+Summary: Refer to [Project Summary](../../01_SGQ.md)
+
 ---
 
 ## 1.2. Project Context Analysis

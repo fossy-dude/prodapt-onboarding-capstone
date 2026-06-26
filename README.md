@@ -4,9 +4,9 @@
 
 This README is focussed on setup and getting started. For other information, refer to:
 
-- User Roles & User Journeys: [`docs/user_journeys.md`](docs/user_journeys.md)
-- Architecture diagrams: [`docs/architecture_diagrams.md`](docs/architecture_diagrams.md)
-- Detailed system design & data flow: [`architecture.md`](docs/bmad_output/planning-artifacts/architecture.md)
+- [User Roles & User Journeys](docs/user_journeys.md)
+- Architecture diagrams: ([Target State](docs/architecture_target.jpg), [MVP](docs/architecture_mvp.jpg))
+- [Detailed system design & data flow](docs/bmad_output/planning-artifacts/architecture.md)
 
 > *Note: The below steps are for setting up a MVP scoped only (Refer to [Decisions](docs/DECISIONS.md) for viewing the differences and rationale for the same). Target State instructions to be created*
 
