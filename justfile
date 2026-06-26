@@ -133,7 +133,7 @@ seed:
     PYTHONPATH="{{ justfile_directory() }}/service_webapp/src" uv run --no-project \
         --with "psycopg[binary]>=3.2" --with "pydantic-settings>=2.3" \
         --with "numpy>=1.26" --with "pandas>=2.0" --with "faker>=26" \
-        python3 "${SCRIPTS}/generate_synthetic_data.py"
+        python3 "${SCRIPTS}/generate_synthetic_data.py" --skip-truncate-if-pre-seeded
     echo "[seed] Seeding SOP knowledge base ..."
     PYTHONPATH="{{ justfile_directory() }}/service_webapp/src" uv run --no-project \
         --with "psycopg[binary]>=3.2" --with "pydantic-settings>=2.3" \

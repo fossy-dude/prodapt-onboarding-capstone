@@ -40,6 +40,8 @@ from core.observability.langfuse import get_langfuse_callback_handler
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
+    from langgraph.checkpoint.base import BaseCheckpointSaver
+
     from core.protocols.cache import CacheProtocol
     from core.protocols.db import DatabaseProtocol
 
@@ -65,6 +67,7 @@ def setup_copilotkit(
     api_key: str | None = None,
     api_version: str | None = None,
     deployment: str | None = None,
+    checkpointer: BaseCheckpointSaver | None = None,
 ) -> None:
     """Wire the CopilotKit runtime + Support Agent onto ``app``.
 
@@ -108,7 +111,7 @@ def setup_copilotkit(
         azure_deployment=deployment_name,
         temperature=0.2,
     )
-    graph = build_support_graph(llm)
+    graph = build_support_graph(llm, checkpointer=checkpointer)
     agent_config: dict = {"configurable": {"callbacks": [langfuse_handler]}} if langfuse_handler is not None else {}
     add_langgraph_fastapi_endpoint(
         app=app,

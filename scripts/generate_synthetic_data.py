@@ -694,25 +694,29 @@ def write_fraud_report(
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 
+def _has_subscribers(conn: psycopg.Connection) -> bool:
+    with conn.cursor() as cur:
+        cur.execute("SELECT EXISTS (SELECT 1 FROM identity_subscribers LIMIT 1)")
+        return cur.fetchone()[0]
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Synthetic data generator for SkyLink.")
+    parser = argparse.ArgumentParser(
+        description="Synthetic data generator for SkyLink."
+    )
     parser.add_argument(
-        "--subscriptions-only",
+        "--skip-truncate-if-pre-seeded",
         action="store_true",
-        help="Only ensure active plans_subscriptions rows exist for existing "
-        "subscribers; does not regenerate subscribers/wallets/CDRs.",
+        help="Skip all seeding steps if subscriber data already exists",
     )
     args = parser.parse_args()
 
-    if args.subscriptions_only:
-        log.info("Connecting to Postgres (subscriptions-only backfill) ...")
-        with psycopg.connect(_conninfo(), autocommit=False) as conn:
-            generate_plan_subscriptions(conn)
-        log.info("Subscriptions backfill complete.")
-        return
-
     log.info("Connecting to Postgres ...")
     with psycopg.connect(_conninfo(), autocommit=False) as conn:
+        if args.skip_truncate_if_pre_seeded and _has_subscribers(conn):
+            log.info("Subscriber data already exists — skipping seed (--skip-truncate)")
+            return
+
         log.info("Seeding plans from %s ...", SEED_PLANS_SQL)
         _seed_plans(conn)
 

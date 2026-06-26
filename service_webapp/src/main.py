@@ -58,6 +58,7 @@ from routers.account import (
     router as subscriber_router,
 )
 from routers.balance import router as balance_router
+from agents.support.graph import create_postgres_checkpointer
 from routers.chat import setup_copilotkit
 from routers.health import router as health_router
 from routers.notifications import router as notifications_router
@@ -157,6 +158,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     set_support_adapters(app.state.cache_adapter, app.state.db_adapter)
     # Story 5.10: Wire Conclusion Agent adapters
     set_conclusion_adapters(app.state.cache_adapter, app.state.db_adapter)
+
+    # Support Agent Postgres checkpointer: reuse DB credentials so conversation
+    # state survives restarts. Best-effort — missing/unavailable DB falls back to
+    # the InMemorySaver compiled into the graph at create_app time.
+    support_checkpointer = None
+    if getattr(app.state, "support_checkpointer", None) is None:
+        try:
+            support_checkpointer = await create_postgres_checkpointer(conninfo_from(settings.db))
+            app.state.support_checkpointer = support_checkpointer
+            owned.append("support_checkpointer")
+            logging.getLogger(__name__).info("Support Agent Postgres checkpointer initialised")
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                "Support Agent checkpointer init failed, falling back to InMemorySaver: %s", exc
+            )
+    setup_copilotkit(app, checkpointer=getattr(app.state, "support_checkpointer", None))
 
     # Story 5.10: Wire Conclusion and Notification Agents at startup
     if getattr(app.state, "conclusion_graph", None) is None:
@@ -634,6 +651,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await ttl_poll_task
             except asyncio.CancelledError:
                 pass
+        if "support_checkpointer" in owned:
+            try:
+                cp = app.state.support_checkpointer
+                if hasattr(cp, "conn") and cp.conn is not None:
+                    await cp.conn.close()
+            except Exception as exc:
+                logging.getLogger(__name__).warning("Support checkpointer close failed: %s", exc)
         if "kafka_producer" in owned:
             await app.state.kafka_producer.stop()
         if "db_adapter" in owned:
@@ -705,7 +729,6 @@ def create_app(
     app.include_router(support_router)
     app.include_router(simulator_router)
     app.include_router(simulator_ws_router)
-    setup_copilotkit(app)
     app.state.db_adapter = db_adapter
     app.state.cache_adapter = cache_adapter
     app.state.milvus_adapter = milvus_adapter
@@ -718,11 +741,10 @@ def create_app(
     app.state.trace_consumer = trace_consumer
     app.state.notification_consumer = notification_consumer
     app.state.notification_dispatcher = notification_dispatcher
-    # CopilotKit Support Agent runtime (Story 5.4): registers POST /api/chat/*
-    # (AC #1, #6) and binds the support tool singletons. The cache/DB adapters are
-    # re-bound in the lifespan once the real adapters exist (tests inject fakes via
-    # app.state). Azure OpenAI is optional — registration is a no-op without it so
-    # the app still boots for lint/test (AC: degrade, never crash).
+    # CopilotKit Support Agent runtime (Story 5.4): registered in the lifespan so
+    # the Postgres checkpointer can be initialised before the graph compiles.
+    # Azure OpenAI is optional — registration is a no-op without it so the app
+    # still boots for lint/test (AC: degrade, never crash).
     return app
 
 

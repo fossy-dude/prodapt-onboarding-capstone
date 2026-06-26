@@ -46,13 +46,20 @@ from core.security import mask_msisdn
 
 if TYPE_CHECKING:
     from langchain_core.language_models.chat_models import BaseChatModel
+    from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.graph.state import CompiledStateGraph
 
     from agents.guardrails.validator import GuardrailResult, InputGuardrail
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["SUPPORT_SYSTEM_PROMPT", "SupportAgentState", "build_support_graph", "set_guardrail"]
+__all__ = [
+    "SUPPORT_SYSTEM_PROMPT",
+    "SupportAgentState",
+    "build_support_graph",
+    "create_postgres_checkpointer",
+    "set_guardrail",
+]
 
 # ReAct loop ceiling (patch 6): guard against unbounded tool-call cycles.
 # StateGraph.compile() does not accept recursion_limit, so the cap is enforced
@@ -311,7 +318,25 @@ def _route_after_agent(state: dict) -> str:
     return END
 
 
-def build_support_graph(llm: BaseChatModel) -> CompiledStateGraph:
+async def create_postgres_checkpointer(conninfo: str) -> BaseCheckpointSaver:
+    """Create and initialise an :class:`AsyncPostgresSaver` from a libpq conninfo string.
+
+    Uses the same ``conninfo`` produced by :func:`adapters.postgres.conninfo_from`
+    so no separate credential configuration is needed.  Calls ``setup()`` to create
+    the checkpoint tables if they do not already exist.  The caller owns the returned
+    saver and is responsible for closing its connection pool on shutdown.
+    """
+    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+    from psycopg_pool import AsyncConnectionPool
+
+    pool = AsyncConnectionPool(conninfo, open=False, min_size=1, max_size=3)
+    await pool.open()
+    checkpointer = AsyncPostgresSaver(pool)
+    await checkpointer.setup()
+    return checkpointer
+
+
+def build_support_graph(llm: BaseChatModel, *, checkpointer: BaseCheckpointSaver | None = None) -> CompiledStateGraph:
     """Compile the Support Agent ReAct graph bound to ``llm``.
 
     The supervisor closure captures the tool-bound LLM; the ``tools`` node is a
@@ -319,6 +344,10 @@ def build_support_graph(llm: BaseChatModel) -> CompiledStateGraph:
 
     Story 5.5: Guardrail node is now the entry point, validating all incoming
     messages before they reach the agent. Rejected messages short-circuit to END.
+
+    Pass ``checkpointer`` (e.g. an :class:`AsyncPostgresSaver`) to persist
+    conversation state across restarts.  Falls back to :class:`InMemorySaver`
+    when ``None`` (tests, local dev without a live DB).
     """
     llm_with_tools = llm.bind_tools(SUPPORT_TOOLS)
 
@@ -371,5 +400,4 @@ def build_support_graph(llm: BaseChatModel) -> CompiledStateGraph:
     builder.add_conditional_edges("support_agent_node", _route_after_agent, ["tools", END])
     builder.add_edge("tools", "support_agent_node")
 
-    checkpointer = InMemorySaver()
-    return builder.compile(checkpointer=checkpointer)
+    return builder.compile(checkpointer=checkpointer if checkpointer is not None else InMemorySaver())
