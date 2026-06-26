@@ -1,3 +1,4 @@
+import { useState, useCallback } from "react";
 import { CopilotChat } from "@copilotkit/react-ui";
 import { useCopilotReadable, useCopilotAction } from "@copilotkit/react-core";
 
@@ -28,18 +29,9 @@ const SUPPORT_INSTRUCTIONS =
   "plan, usage, and account queries. Use tools to fetch real data. Follow TRAI " +
   "regulations. Never reveal PII beyond the MSISDN last-4.";
 
-// Storage key for the chat conversation id — persisted across reloads so the
-// Valkey-backed conversation context (Story 5.4 AC #3) survives a refresh.
 const CHAT_SESSION_STORAGE_KEY = "sboai_chat_session_id";
+const CHAT_MINIMIZED_KEY = "sboai_chat_minimized";
 
-/**
- * Return the persisted chat session id, creating + storing one on first use.
- *
- * ``crypto.randomUUID`` requires a secure context (https or localhost); on a
- * plain-HTTP deploy it is undefined, so we fall back to a ``Math.random``-based
- * id rather than throwing. The id is stable for the browser session (survives
- * reloads and component remounts) so the backend can key conversation memory.
- */
 function getOrCreateChatSessionId(): string {
   try {
     const stored = sessionStorage.getItem(CHAT_SESSION_STORAGE_KEY);
@@ -69,6 +61,32 @@ interface ChatbotProps {
 function Chatbot({ sessionId }: ChatbotProps) {
   const { data: balance } = useBalance();
   const { data: activePlan } = useActivePlan();
+
+  const [isMinimized, setIsMinimized] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(CHAT_MINIMIZED_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const handleMinimize = useCallback(() => {
+    setIsMinimized(true);
+    try {
+      localStorage.setItem(CHAT_MINIMIZED_KEY, "true");
+    } catch {
+      // Best-effort
+    }
+  }, []);
+
+  const handleMaximize = useCallback(() => {
+    setIsMinimized(false);
+    try {
+      localStorage.setItem(CHAT_MINIMIZED_KEY, "false");
+    } catch {
+      // Best-effort
+    }
+  }, []);
 
   // Story 5.10 AC #7: trigger Conclusion Agent when chat panel closes.
   const handleChatClose = async () => {
@@ -152,18 +170,69 @@ function Chatbot({ sessionId }: ChatbotProps) {
     },
   });
 
+  if (isMinimized) {
+    return (
+      <div className="fixed bottom-6 right-6 z-[1000]">
+        <button
+          onClick={handleMaximize}
+          className="flex items-center gap-2 rounded-full border border-neutral-200 bg-white px-4 py-3 text-sm font-medium text-neutral-700 shadow-2xl transition-colors hover:bg-neutral-50"
+          aria-label="Open billing assistant"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+          Billing Assistant
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed bottom-6 right-6 z-[1000] w-[min(380px,92vw)]">
-      <CopilotChat
-        className="h-[520px] rounded-xl shadow-2xl border border-neutral-200 bg-white"
-        instructions={SUPPORT_INSTRUCTIONS}
-        onClose={handleChatClose}
-        labels={{
-          title: "Billing Assistant",
-          initial: "Hi! Ask me about your balance, plan or usage.",
-          placeholder: "Ask about your balance, plan or usage…",
-        }}
-      />
+      <div className="relative">
+        <button
+          onClick={handleMinimize}
+          className="absolute right-10 top-3 z-10 flex h-6 w-6 items-center justify-center rounded text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
+          aria-label="Minimize chat"
+          title="Minimize"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M5 15l7 7 7-7" />
+          </svg>
+        </button>
+        <CopilotChat
+          className="h-[520px] rounded-xl border border-neutral-200 bg-white shadow-2xl"
+          instructions={SUPPORT_INSTRUCTIONS}
+          onClose={handleChatClose}
+          labels={{
+            title: "Billing Assistant",
+            initial: "Hi! Ask me about your balance, plan or usage.",
+            placeholder: "Ask about your balance, plan or usage…",
+          }}
+        />
+      </div>
     </div>
   );
 }
