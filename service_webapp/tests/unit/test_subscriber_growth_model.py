@@ -1,8 +1,8 @@
-"""Unit tests for the subscriber growth forecaster (Story 7.3 Task 8).
+"""Unit tests for the subscriber growth forecaster (Story 7.3).
 
 Covers the MAPE helper, train/predict shape + confidence-interval ordering, the
-minimum-history guard, model fallback, and the ``build_forecast_payload`` orchestration
-shape consumed by the API endpoint and the retraining job.
+minimum-history guard, method validation, and the ``build_forecast_payload``
+orchestration shape consumed by the API endpoint and the retraining job.
 """
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ops.forecasting import subscriber_growth_model as sgm
 from ops.forecasting.subscriber_growth_model import (
     SubscriberGrowthForecaster,
     _mape,
@@ -42,12 +41,6 @@ def _make_history(n_days: int = 180, seed: int = 42) -> list[dict]:
         {"date": d.date().isoformat(), "activations": int(a), "churn": int(c)}
         for d, a, c in zip(dates, activations, churn, strict=True)
     ]
-
-
-@pytest.fixture(autouse=True)
-def _clear_model_cache() -> None:
-    """Reset the in-process forecaster cache between tests for isolation."""
-    sgm._TRAINED_CACHE.clear()
 
 
 # ── MAPE helper ───────────────────────────────────────────────────────────────
@@ -96,7 +89,6 @@ def test_confidence_interval_bounds_enclose_predictions() -> None:
     ):
         assert (forecast[col_low] <= forecast[col_pred]).all()
         assert (forecast[col_pred] <= forecast[col_high]).all()
-    # Counts are non-negative integers.
     for col in _FORECAST_COLUMNS - {"date"}:
         assert (forecast[col] >= 0).all()
 
@@ -113,17 +105,28 @@ def test_train_requires_minimum_history() -> None:
         forecaster.train(pd.DataFrame(_make_history(20)))
 
 
-def test_linear_model_type_trains_and_predicts() -> None:
-    forecaster = SubscriberGrowthForecaster(model_type="linear")
+def test_moving_average_method_works() -> None:
+    forecaster = SubscriberGrowthForecaster(method="moving_average")
     forecaster.train(pd.DataFrame(_make_history(180)))
     forecast = forecaster.predict(horizon_days=30)
-    assert forecaster.effective_model_type == "linear"
     assert len(forecast) == 30
+    assert set(forecast.columns) == _FORECAST_COLUMNS
+    assert (forecast["predicted_activations"] >= 0).all()
 
 
-def test_unknown_model_type_rejected() -> None:
-    with pytest.raises(ValueError, match="model_type"):
-        SubscriberGrowthForecaster(model_type="unknown")
+def test_invalid_method_raises() -> None:
+    with pytest.raises(ValueError, match="Unknown method"):
+        SubscriberGrowthForecaster(method="gradient_boosting")
+
+
+def test_gaps_in_history_are_filled() -> None:
+    history = _make_history(180)
+    # Remove every third row to create gaps.
+    sparse = [row for i, row in enumerate(history) if i % 3 != 0]
+    forecaster = SubscriberGrowthForecaster()
+    forecaster.train(pd.DataFrame(sparse))
+    forecast = forecaster.predict(horizon_days=90)
+    assert len(forecast) == 90
 
 
 def test_evaluate_returns_expected_keys() -> None:
@@ -158,9 +161,7 @@ def test_build_forecast_payload_structure() -> None:
     assert len(forecasts) == 90
     point = forecasts[0]
     assert set(point) == _FORECAST_COLUMNS
-    # Dates are ISO YYYY-MM-DD strings.
     assert len(point["date"]) == 10
-    # Bound ordering preserved through serialisation.
     assert point["lower_bound_activations"] <= point["predicted_activations"] <= point["upper_bound_activations"]
     assert point["lower_bound_churn"] <= point["predicted_churn"] <= point["upper_bound_churn"]
 

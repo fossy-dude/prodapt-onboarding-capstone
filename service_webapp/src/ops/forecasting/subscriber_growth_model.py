@@ -1,12 +1,13 @@
-"""Subscriber growth forecaster using scikit-learn (Story 7.3).
+"""Subscriber growth forecaster using Holt-Winters exponential smoothing (Story 7.3).
 
 Forecasts daily subscriber activations and churn 90 days ahead with 95% confidence
-intervals. Uses ``GradientBoostingRegressor`` (captures non-linear trend plus
-weekly/monthly seasonality) with a ``LinearRegression`` fallback when the boosting
-fit fails or history is sparse. Confidence intervals use a bootstrap of training
-residuals (Dev Notes Method 2) — fast and sufficient for the MVP. The forecaster is
-model-agnostic so a future upgrade to Prophet / TimesFM / Chronos is a drop-in swap
-inside :class:`SubscriberGrowthForecaster`.
+intervals. No complex ML — same approach as Story 7.4's PlanDemandForecaster:
+  1. Fill missing dates with 0.
+  2. Apply 7-day rolling mean to smooth day-of-week noise.
+  3. Fit Holt-Winters (additive trend, no seasonality) — falls back to trailing
+     14-day moving-average when the series is too short or the fit fails.
+  4. Predict *horizon_days* forward; clip negatives to 0.
+  5. Confidence intervals via bootstrap of training residuals (95% CI).
 
 MAPE < 15% (NFR-14) is enforced as a *soft* gate here (log warning, still return);
 the eval harness (Story 7.1) owns the hard gate.
@@ -20,12 +21,9 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import GradientBoostingRegressor  # pyrefly: ignore[missing-import]
-from sklearn.linear_model import LinearRegression  # pyrefly: ignore[missing-import]
 
 logger = logging.getLogger(__name__)
 
-# NFR-14: forecasting quality target.
 MAPE_THRESHOLD = 15.0
 
 _MIN_TRAIN_POINTS = 30
@@ -33,22 +31,11 @@ _DEFAULT_HORIZON = 90
 _DEFAULT_HOLDOUT = 30
 _BOOTSTRAP_SAMPLES = 200
 _RANDOM_STATE = 42
-
-# In-process cache of the last fully-trained forecaster so a burst of cache-miss
-# requests reuse the model instead of retraining (Story 7.3 Task 9). Keyed by the
-# forecast type + a data signature (row count, min/max date); a stale signature
-# (new day's data) invalidates automatically. The DB forecast cache (forecast_results)
-# remains the primary cache; this is a secondary optimisation only.
-_TRAINED_CACHE: dict[str, tuple[str, SubscriberGrowthForecaster]] = {}
+_MA_WINDOW = 14
 
 
 def _mape(actual: np.ndarray, predicted: np.ndarray) -> float:
-    """Mean Absolute Percentage Error, ignoring zero-actual points.
-
-    Zero-actual days (e.g. the churn proxy trailing off) would otherwise divide by
-    zero; they are excluded. If every actual is zero, MAPE is defined as 0.0 (a flat
-    zero series is trivially "perfect").
-    """
+    """Mean Absolute Percentage Error, ignoring zero-actual points."""
     actual = np.asarray(actual, dtype=float)
     predicted = np.asarray(predicted, dtype=float)
     nonzero = actual != 0
@@ -57,88 +44,100 @@ def _mape(actual: np.ndarray, predicted: np.ndarray) -> float:
     return float(np.mean(np.abs((actual[nonzero] - predicted[nonzero]) / actual[nonzero])) * 100)
 
 
-def _engineer_features(dates: pd.Series, origin: pd.Timestamp) -> pd.DataFrame:
-    """Build trend + seasonality features for *dates* relative to *origin*.
+def _fill_series(series: pd.Series) -> pd.Series:
+    """Reindex to a contiguous daily range, fill gaps with 0."""
+    if series.empty:
+        return series
+    full_idx = pd.date_range(series.index.min(), series.index.max(), freq="D")
+    return series.reindex(full_idx, fill_value=0)
 
-    Features: continuous time index ``t`` (days since origin), ``day_of_week``,
-    ``day_of_month``, ``week_of_year``, ``month``, and an ``is_weekend`` flag. ``t``
-    uses the same origin for train and predict so the trend extrapolates forward.
+
+def _smooth(series: pd.Series, window: int = 7) -> pd.Series:
+    """Apply rolling mean to smooth noise; keep original where window too small."""
+    if len(series) < window:
+        return series
+    return series.rolling(window=window, min_periods=1).mean()
+
+
+def _moving_average_forecast(series: pd.Series, horizon_days: int) -> list[float]:
+    """Flat forecast using trailing 14-day moving average."""
+    tail = series.tail(_MA_WINDOW).mean() if len(series) >= _MA_WINDOW else series.mean()
+    daily = max(0.0, float(tail))
+    return [daily] * horizon_days
+
+
+def _holt_winters_forecast(series: pd.Series, horizon_days: int) -> list[float]:
+    """Fit Holt-Winters and return horizon_days predictions.
+
+    Returns empty list if fitting fails so the caller can fall back.
     """
-    ts = pd.to_datetime(dates)
-    return pd.DataFrame(
-        {
-            "t": (ts - origin).dt.days.astype(float),
-            "day_of_week": ts.dt.dayofweek.astype(float),
-            "day_of_month": ts.dt.day.astype(float),
-            "week_of_year": ts.dt.isocalendar().week.astype(float),
-            "month": ts.dt.month.astype(float),
-            "is_weekend": ts.dt.dayofweek.isin([5, 6]).astype(float),
-        }
-    )
+    try:
+        from statsmodels.tsa.holtwinters import ExponentialSmoothing  # noqa: PLC0415  # pyrefly: ignore[missing-import]
+
+        model = ExponentialSmoothing(
+            series.astype(float),
+            trend="add",
+            seasonal=None,
+            initialization_method="estimated",
+        )
+        fit = model.fit(optimized=True, remove_bias=True)
+        preds = fit.forecast(horizon_days)
+        return [max(0.0, float(v)) for v in preds]
+    except Exception:
+        logger.debug("Holt-Winters fit failed — falling back to moving average", exc_info=True)
+        return []
 
 
-def _make_regressor(model_type: str) -> Any:
-    if model_type == "gradient_boosting":
-        return GradientBoostingRegressor(n_estimators=100, max_depth=3, random_state=_RANDOM_STATE)
-    if model_type == "linear":
-        return LinearRegression()
-    raise ValueError(f"Unknown model_type: {model_type!r}")
+def _bootstrap_ci(
+    point: np.ndarray,
+    residuals: np.ndarray,
+    n_samples: int = _BOOTSTRAP_SAMPLES,
+    seed: int = _RANDOM_STATE,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Bootstrap 2.5/97.5 percentile bounds from training residuals."""
+    if len(residuals) == 0 or not np.any(residuals):
+        return point.copy(), point.copy()
+    rng = np.random.default_rng(seed)
+    samples = point[:, None] + rng.choice(residuals, size=(len(point), n_samples))
+    lower = np.percentile(samples, 2.5, axis=1)
+    upper = np.percentile(samples, 97.5, axis=1)
+    # Guarantee lower <= point <= upper.
+    lower = np.minimum(lower, point)
+    upper = np.maximum(upper, point)
+    return lower, upper
 
 
 class SubscriberGrowthForecaster:
     """Daily activations + churn forecaster with bootstrap 95% confidence intervals."""
 
-    def __init__(self, model_type: str = "gradient_boosting") -> None:
-        if model_type not in ("gradient_boosting", "linear"):
-            raise ValueError(f"Unknown model_type: {model_type!r}")
-        self.model_type = model_type
-        # Actual model used after any GradientBoosting -> Linear fallback.
-        self.effective_model_type: str = model_type
-        self._origin: pd.Timestamp | None = None
+    def __init__(self, method: str = "holt_winters") -> None:
+        if method not in ("holt_winters", "moving_average"):
+            raise ValueError(f"Unknown method: {method!r}")
+        self.method = method
         self._last_date: pd.Timestamp | None = None
-        self._model_act: Any = None
-        self._model_churn: Any = None
+        self._smoothed_act: pd.Series | None = None
+        self._smoothed_churn: pd.Series | None = None
         self._resid_act: np.ndarray | None = None
         self._resid_churn: np.ndarray | None = None
 
-    def _fit_series(self, X: pd.DataFrame, y: np.ndarray, label: str) -> tuple[Any, np.ndarray]:
-        """Fit one regressor, falling back to LinearRegression if GradientBoosting fails."""
-        model = _make_regressor(self.model_type)
-        try:
-            model.fit(X, y)
-            if self.model_type == "gradient_boosting":
-                self.effective_model_type = "gradient_boosting"
-        except Exception as exc:
-            if self.model_type != "gradient_boosting":
-                raise
-            logger.warning(
-                "subscriber_growth: GradientBoosting fit failed for %s (%s) — falling back to LinearRegression",
-                label,
-                exc,
-            )
-            model = LinearRegression()
-            model.fit(X, y)
-            self.effective_model_type = "linear"
-        residuals = y - np.asarray(model.predict(X), dtype=float)
-        return model, residuals
-
-    def _predict_series(
-        self, model: Any, residuals: np.ndarray | None, X: pd.DataFrame
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Point predictions + bootstrap 2.5/97.5 percentile bounds."""
-        point = np.asarray(model.predict(X), dtype=float)
-        if residuals is None or len(residuals) == 0 or not np.any(residuals):
-            lower = point.copy()
-            upper = point.copy()
+    def _fit_one(self, series: pd.Series) -> np.ndarray:
+        """Fit a single series; return training residuals for CI bootstrap."""
+        if self.method == "holt_winters":
+            preds = _holt_winters_forecast(series, len(series))
+            if not preds:
+                preds = _moving_average_forecast(series, len(series))
         else:
-            rng = np.random.default_rng(_RANDOM_STATE)
-            samples = point[:, None] + rng.choice(residuals, size=(point.shape[0], _BOOTSTRAP_SAMPLES))
-            lower = np.percentile(samples, 2.5, axis=1)
-            upper = np.percentile(samples, 97.5, axis=1)
-        # Guarantee lower <= point <= upper (bootstrap percentiles can cross for flat series).
-        lower = np.minimum(lower, point)
-        upper = np.maximum(upper, point)
-        return point, lower, upper
+            preds = _moving_average_forecast(series, len(series))
+        return series.to_numpy(dtype=float) - np.array(preds, dtype=float)
+
+    def _forecast_one(self, smoothed: pd.Series, horizon_days: int) -> list[float]:
+        if self.method == "holt_winters":
+            preds = _holt_winters_forecast(smoothed, horizon_days)
+            if not preds:
+                preds = _moving_average_forecast(smoothed, horizon_days)
+        else:
+            preds = _moving_average_forecast(smoothed, horizon_days)
+        return preds
 
     def train(self, historical_data: pd.DataFrame) -> None:
         """Fit activations + churn models on daily counts.
@@ -146,8 +145,7 @@ class SubscriberGrowthForecaster:
         Parameters
         ----------
         historical_data : pd.DataFrame
-            Columns ``date, activations, churn``. ``date`` may be any parseable form;
-            rows are sorted and de-duplicated by date.
+            Columns ``date, activations, churn``. Rows are sorted and de-duplicated.
         """
         df = historical_data.copy()
         df["date"] = pd.to_datetime(df["date"])
@@ -155,23 +153,33 @@ class SubscriberGrowthForecaster:
         if len(df) < _MIN_TRAIN_POINTS:
             raise ValueError(f"Need >= {_MIN_TRAIN_POINTS} daily points to train, got {len(df)}")
 
-        self._origin = df["date"].min()
         self._last_date = df["date"].max()
-        X = _engineer_features(df["date"], self._origin)
-        self._model_act, self._resid_act = self._fit_series(
-            X, df["activations"].astype(float).to_numpy(), "activations"
-        )
-        self._model_churn, self._resid_churn = self._fit_series(X, df["churn"].astype(float).to_numpy(), "churn")
+
+        act_series = pd.Series(df["activations"].astype(float).to_numpy(), index=pd.DatetimeIndex(df["date"]))
+        churn_series = pd.Series(df["churn"].astype(float).to_numpy(), index=pd.DatetimeIndex(df["date"]))
+
+        self._smoothed_act = _smooth(_fill_series(act_series))
+        self._smoothed_churn = _smooth(_fill_series(churn_series))
+
+        self._resid_act = self._fit_one(self._smoothed_act)
+        self._resid_churn = self._fit_one(self._smoothed_churn)
 
     def predict(self, horizon_days: int = _DEFAULT_HORIZON) -> pd.DataFrame:
         """Return a ``horizon_days``-row forecast DataFrame starting the day after training."""
-        if self._last_date is None or self._origin is None:
+        if self._last_date is None:
             raise RuntimeError("SubscriberGrowthForecaster.predict called before train()")
+        assert self._smoothed_act is not None
+        assert self._smoothed_churn is not None
+        assert self._resid_act is not None
+        assert self._resid_churn is not None
 
         future = pd.date_range(self._last_date + pd.Timedelta(days=1), periods=horizon_days, freq="D")
-        X = _engineer_features(pd.Series(future), self._origin)
-        pa, la, ua = self._predict_series(self._model_act, self._resid_act, X)
-        pc, lc, uc = self._predict_series(self._model_churn, self._resid_churn, X)
+
+        act_preds = np.array(self._forecast_one(self._smoothed_act, horizon_days), dtype=float)
+        churn_preds = np.array(self._forecast_one(self._smoothed_churn, horizon_days), dtype=float)
+
+        act_lower, act_upper = _bootstrap_ci(act_preds, self._resid_act)
+        churn_lower, churn_upper = _bootstrap_ci(churn_preds, self._resid_churn)
 
         def _clip_int(arr: np.ndarray) -> np.ndarray:
             return np.clip(np.rint(arr), 0, None).astype(int)
@@ -179,28 +187,36 @@ class SubscriberGrowthForecaster:
         return pd.DataFrame(
             {
                 "date": future,
-                "predicted_activations": _clip_int(pa),
-                "predicted_churn": _clip_int(pc),
-                "lower_bound_activations": _clip_int(la),
-                "upper_bound_activations": _clip_int(ua),
-                "lower_bound_churn": _clip_int(lc),
-                "upper_bound_churn": _clip_int(uc),
+                "predicted_activations": _clip_int(act_preds),
+                "predicted_churn": _clip_int(churn_preds),
+                "lower_bound_activations": _clip_int(act_lower),
+                "upper_bound_activations": _clip_int(act_upper),
+                "lower_bound_churn": _clip_int(churn_lower),
+                "upper_bound_churn": _clip_int(churn_upper),
             }
         )
 
     def evaluate(self, actual_data: pd.DataFrame) -> dict[str, Any]:
-        """Compute MAPE for activations + churn over *actual_data* using the trained models.
+        """Compute MAPE for activations + churn over *actual_data* using the fitted models.
 
         Returns ``{mape_activations, mape_churn, passed_mape_threshold}``.
         """
-        if self._origin is None:
+        if self._last_date is None:
             raise RuntimeError("SubscriberGrowthForecaster.evaluate called before train()")
         df = actual_data.copy()
         df["date"] = pd.to_datetime(df["date"])
         df = df.sort_values("date").drop_duplicates(subset=["date"]).reset_index(drop=True)
-        X = _engineer_features(df["date"], self._origin)
-        mape_act = _mape(df["activations"].astype(float).to_numpy(), self._model_act.predict(X))
-        mape_churn = _mape(df["churn"].astype(float).to_numpy(), self._model_churn.predict(X))
+
+        act_series = pd.Series(df["activations"].astype(float).to_numpy(), index=pd.DatetimeIndex(df["date"]))
+        churn_series = pd.Series(df["churn"].astype(float).to_numpy(), index=pd.DatetimeIndex(df["date"]))
+        act_smooth = _smooth(_fill_series(act_series))
+        churn_smooth = _smooth(_fill_series(churn_series))
+
+        act_preds = self._forecast_one(act_smooth, len(act_smooth))
+        churn_preds = self._forecast_one(churn_smooth, len(churn_smooth))
+
+        mape_act = _mape(act_smooth.to_numpy(), np.array(act_preds))
+        mape_churn = _mape(churn_smooth.to_numpy(), np.array(churn_preds))
         return {
             "mape_activations": mape_act,
             "mape_churn": mape_churn,
@@ -221,27 +237,18 @@ def _point_to_dict(row: Any) -> dict[str, Any]:
     }
 
 
-def _data_signature(df: pd.DataFrame) -> str:
-    """Cheap signature to detect new data and invalidate the in-memory model cache."""
-    return f"{len(df)}:{df['date'].min().date()}:{df['date'].max().date()}"
-
-
 def build_forecast_payload(
     historical_rows: list[dict[str, Any]],
     *,
     horizon_days: int = _DEFAULT_HORIZON,
     holdout_days: int = _DEFAULT_HOLDOUT,
-    model_type: str = "gradient_boosting",
+    method: str = "holt_winters",
 ) -> dict[str, Any]:
     """Train, evaluate (soft MAPE gate), and produce a 90-day forecast payload.
 
-    This is the shared orchestration used by both the API endpoint (cache miss) and
-    the daily retraining job. Returns the payload stored in ``ops_forecast_results``
-    (under ``forecasts``/``metrics``); the caller adds ``cache_expires_at`` /
-    ``from_cache`` for the HTTP response.
-
-    A 30-day trailing holdout evaluates accuracy (soft gate: log warning on MAPE >
-    15%, still return). The final projection is then trained on the full history.
+    Shared by the API endpoint (cache miss) and the daily retraining job. Returns the
+    payload stored in ``forecast_results`` (``forecasts`` / ``metrics``); the caller
+    adds ``cache_expires_at`` / ``from_cache`` for the HTTP response.
     """
     required = {"date", "activations", "churn"}
     missing = required - set(historical_rows[0]) if historical_rows else required
@@ -258,12 +265,11 @@ def build_forecast_payload(
         "passed_mape_threshold": True,
         "holdout_days": holdout_days,
     }
-    # Holdout evaluation only when there is enough data beyond the holdout window.
     if len(df) > holdout_days + _MIN_TRAIN_POINTS:
         train_df = df.iloc[:-holdout_days]
         holdout_df = df.iloc[-holdout_days:]
         try:
-            evaluator = SubscriberGrowthForecaster(model_type=model_type)
+            evaluator = SubscriberGrowthForecaster(method=method)
             evaluator.train(train_df)
             holdout_metrics = evaluator.evaluate(holdout_df)
             metrics.update(
@@ -274,16 +280,8 @@ def build_forecast_payload(
         except Exception as exc:
             logger.warning("subscriber_growth: holdout evaluation failed: %s", exc)
 
-    # Final model trained on ALL history (reuse from in-memory cache when unchanged).
-    signature = _data_signature(df)
-    cached = _TRAINED_CACHE.get("subscriber_growth")
-    if cached is not None and cached[0] == signature:
-        forecaster = cached[1]
-    else:
-        forecaster = SubscriberGrowthForecaster(model_type=model_type)
-        forecaster.train(df)
-        _TRAINED_CACHE["subscriber_growth"] = (signature, forecaster)
-
+    forecaster = SubscriberGrowthForecaster(method=method)
+    forecaster.train(df)
     forecast_df = forecaster.predict(horizon_days)
     forecasts = [_point_to_dict(row) for row in forecast_df.itertuples(index=False)]
 
@@ -297,7 +295,7 @@ def build_forecast_payload(
 
     return {
         "forecast_type": "subscriber_growth",
-        "model_version": f"{forecaster.effective_model_type}_v1",
+        "model_version": f"{method}_v1",
         "trained_at": datetime.now(UTC).isoformat(),
         "horizon_days": horizon_days,
         "metrics": metrics,
