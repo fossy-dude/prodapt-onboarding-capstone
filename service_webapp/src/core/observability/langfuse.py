@@ -50,6 +50,7 @@ from core.config import settings
 
 __all__ = [
     "current_trace_id",
+    "get_langfuse_callback_handler",
     "get_langfuse_client",
     "set_trace_id",
     "set_trace_usage",
@@ -78,7 +79,12 @@ _trace_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("lang
 _usage_var: contextvars.ContextVar[dict[str, int] | None] = contextvars.ContextVar("langfuse_usage", default=None)
 
 
-def get_langfuse_callback_handler():
+def get_langfuse_callback_handler() -> CallbackHandler | None:
+    if not settings.langfuse_enabled:
+        return None
+    # Initialise the Langfuse OTEL provider with credentials from settings so
+    # CallbackHandler (which uses the global provider) can authenticate.
+    get_langfuse_client()
     return CallbackHandler()
 
 

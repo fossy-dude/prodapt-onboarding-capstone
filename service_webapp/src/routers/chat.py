@@ -105,13 +105,14 @@ def setup_copilotkit(
         temperature=0.2,
     )
     graph = build_support_graph(llm)
+    agent_config: dict = {"configurable": {"callbacks": [langfuse_handler]}} if langfuse_handler is not None else {}
     add_langgraph_fastapi_endpoint(
         app=app,
         agent=LangGraphAGUIAgent(
             name=_SUPPORT_AGENT_NAME,
             description=_SUPPORT_AGENT_DESCRIPTION,
             graph=graph,
-            config={"configurable": {"callbacks": [langfuse_handler]}},
+            config=agent_config,
         ),
         path=CHAT_ENDPOINT_PREFIX,
     )
