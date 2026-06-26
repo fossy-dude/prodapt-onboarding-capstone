@@ -118,7 +118,7 @@ development_status:
   7-1-eval-harness-ml-forecast-upsell-quality: skip
   7-2-plan-stock-dashboard-order-fulfilment-view: review
   7-3-subscriber-growth-forecast-ml-3-month: ready-for-dev
-  7-4-plan-demand-forecast-30-90-day: ready-for-dev
+  7-4-plan-demand-forecast-30-90-day: review
   7-5-target-base-builder-dynamic-kpi-filter: backlog
   7-6-llm-segment-labelling-rule-induction-agent: backlog
   7-7-segment-classification-at-scale-upsell-strategy-agent: backlog
