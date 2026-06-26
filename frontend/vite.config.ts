@@ -27,7 +27,7 @@ export default defineConfig(({ mode }) => {
           target: backendOrigin,
           changeOrigin: true,
           secure: false,
-          rewrite: (path) => path.replace(/^\/api\/chat$/, "/api/chat/"),
+          followRedirects: true,
           configure: (proxy) => {
             proxy.on("proxyReq", (proxyReq, req) => {
               const auth = req.headers["authorization"];
