@@ -59,8 +59,7 @@ function SidebarLink({ to, label, icon: Icon, end }: NavItem) {
       to={to}
       end={end}
       className={({ isActive }) =>
-        `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-          isActive ? ACTIVE_CLS : INACTIVE_CLS
+        `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${isActive ? ACTIVE_CLS : INACTIVE_CLS
         }`
       }
     >
@@ -122,11 +121,10 @@ function SubscriberSidebar() {
           type="button"
           onClick={() => setProfileOpen((prev) => !prev)}
           aria-expanded={profileOpen}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-            isOnProfileRoute && !profileOpen
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${isOnProfileRoute && !profileOpen
               ? "bg-neutral-800 text-neutral-100"
               : INACTIVE_CLS
-          }`}
+            }`}
         >
           <User size={16} aria-hidden="true" />
           <span className="flex-1 text-left">My Account</span>
@@ -145,8 +143,7 @@ function SubscriberSidebar() {
                 to={item.to}
                 end={item.end}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isActive ? ACTIVE_CLS : INACTIVE_CLS
+                  `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${isActive ? ACTIVE_CLS : INACTIVE_CLS
                   }`
                 }
               >
