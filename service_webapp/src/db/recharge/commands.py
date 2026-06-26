@@ -50,7 +50,7 @@ async def create_recharge_order(
         """
         SELECT id, price_paise, is_active
         FROM plans_plans
-        WHERE id = $1
+        WHERE id = %s
         """,
         (plan_id,),
     )
@@ -63,7 +63,7 @@ async def create_recharge_order(
     # Check for duplicate idempotency key first
     cur = await conn.execute(
         """
-        SELECT id FROM recharge_orders WHERE idempotency_key = $1
+        SELECT id FROM recharge_orders WHERE idempotency_key = %s
         """,
         (idempotency_key,),
     )
@@ -79,7 +79,7 @@ async def create_recharge_order(
             subscriber_id, plan_id, payment_method_id, idempotency_key,
             amount_paise, status
         )
-        VALUES ($1, $2, $3, $4, $5, 'pending')
+        VALUES (%s, %s, %s, %s, %s, 'pending')
         RETURNING id, subscriber_id, plan_id, amount_paise, status, created_at
         """,
         (subscriber_id, plan_id, payment_method_id, idempotency_key, plan_row[1]),
@@ -111,7 +111,7 @@ async def get_payment_method_owner(
         """
         SELECT subscriber_id
         FROM recharge_payment_methods
-        WHERE id = $1 AND is_active = true
+        WHERE id = %s AND is_active = true
         """,
         (payment_method_id,),
     )
@@ -131,7 +131,7 @@ async def get_subscriber_msisdn(
         """
         SELECT msisdn
         FROM identity_subscribers
-        WHERE id = $1
+        WHERE id = %s
         """,
         (subscriber_id,),
     )
@@ -178,7 +178,7 @@ async def complete_recharge_transaction(
         """
         SELECT price_paise, validity_days
         FROM plans_plans
-        WHERE id = (SELECT plan_id FROM recharge_orders WHERE id = $1)
+        WHERE id = (SELECT plan_id FROM recharge_orders WHERE id = %s)
         """,
         (order_id,),
     )
@@ -197,19 +197,20 @@ async def complete_recharge_transaction(
         """
         UPDATE recharge_orders
         SET status = 'completed', completed_at = NOW()
-        WHERE id = $1
+        WHERE id = %s
         """,
         (order_id,),
     )
 
     # 2. UPSERT wallet balance (credit amount)
+    # EXCLUDED.balance_paise references the rejected INSERT row, avoiding a duplicate parameter.
     cur = await conn.execute(
         """
         INSERT INTO billing_wallet_balances (subscriber_id, msisdn, balance_paise, last_recharge_at)
-        VALUES ($1, $2, $3, NOW())
+        VALUES (%s, %s, %s, NOW())
         ON CONFLICT (subscriber_id)
         DO UPDATE SET
-            balance_paise = billing_wallet_balances.balance_paise + $3,
+            balance_paise = billing_wallet_balances.balance_paise + EXCLUDED.balance_paise,
             last_recharge_at = NOW()
         RETURNING balance_paise
         """,
@@ -229,9 +230,9 @@ async def complete_recharge_transaction(
             balance_before_paise, balance_after_paise
         )
         VALUES (
-            $1, 'recharge', $2,
-            'recharge', $3, 'Plan recharge',
-            $4, $5
+            %s, 'recharge', %s,
+            'recharge', %s, 'Plan recharge',
+            %s, %s
         )
         """,
         (subscriber_id, amount_paise, order_id, new_balance_paise - amount_paise, new_balance_paise),
@@ -248,7 +249,7 @@ async def complete_recharge_transaction(
         """
         UPDATE plans_subscriptions
         SET status = 'inactive', end_date = NOW()
-        WHERE subscriber_id = $1 AND status = 'active'
+        WHERE subscriber_id = %s AND status = 'active'
         """,
         (subscriber_id,),
     )
@@ -259,10 +260,10 @@ async def complete_recharge_transaction(
         INSERT INTO plans_subscriptions (
             subscriber_id, plan_id, start_date, end_date, status
         )
-        SELECT $1, plan_id, NOW(), NOW() + (validity_days || ' days')::interval, 'active'
+        SELECT %s, plan_id, NOW(), NOW() + (validity_days || ' days')::interval, 'active'
         FROM recharge_orders
         JOIN plans_plans ON plans_plans.id = recharge_orders.plan_id
-        WHERE recharge_orders.id = $2
+        WHERE recharge_orders.id = %s
         RETURNING start_date
         """,
         (subscriber_id, order_id),
@@ -277,7 +278,7 @@ async def complete_recharge_transaction(
     await conn.execute(
         """
         INSERT INTO recharge_receipts (recharge_order_id, receipt_number)
-        VALUES ($1, $2)
+        VALUES (%s, %s)
         """,
         (order_id, receipt_number),
     )
@@ -311,7 +312,7 @@ async def get_completed_recharge_result(
         JOIN billing_wallet_balances wb ON wb.subscriber_id = ro.subscriber_id
         JOIN plans_subscriptions ps ON ps.subscriber_id = ro.subscriber_id AND ps.status = 'active'
         JOIN identity_subscribers s ON s.id = ro.subscriber_id
-        WHERE ro.idempotency_key = $1 AND ro.status IN ('completed', 'failed')
+        WHERE ro.idempotency_key = %s AND ro.status IN ('completed', 'failed')
         ORDER BY ro.completed_at DESC
         LIMIT 1
         """,

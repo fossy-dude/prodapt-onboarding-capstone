@@ -105,7 +105,7 @@ def _trace_id(request: Request) -> str:
 
 def _cache(request: Request):
     """Resolve the Valkey cache adapter from app state."""
-    cache = getattr(request.app.state, "cache", None)
+    cache = getattr(request.app.state, "cache_adapter", None)
     if cache is None:
         err = DomainError("Cache adapter is not initialised.")
         err.code = "NOT_READY"
