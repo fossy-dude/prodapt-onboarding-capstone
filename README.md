@@ -18,8 +18,10 @@ Install these once on your machine:
 
 - **Podman** & **Podman-compose** (For container-based setups)
 - **just** — cross-platform task runner ([install](https://github.com/casey/just))
-- **uv** — Python package/environment manager ([install](https://docs.astral.sh/uv/))
-- **Node.js 20+** and **npm** — for the React/Vite frontend
+
+(Optional) For contributors:
+  - **uv** — Python package/environment manager ([install](https://docs.astral.sh/uv/))
+  - **Node.js 20+** and **npm** — for the React/Vite frontend
 
 ---
 
