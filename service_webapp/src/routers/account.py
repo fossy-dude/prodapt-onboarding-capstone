@@ -54,14 +54,16 @@ _ID_PROOF_TYPES = Literal["Aadhaar", "PAN", "Passport", "Voter ID"]
 
 
 class RegisterRequest(BaseModel):
-    """Registration payload: Step 1 personal details + Step 2 TRAI CAF fields."""
+    """Registration payload: Step 1 personal details + Step 2 TRAI CAF fields.
+
+    MSISDN is intentionally absent — it is auto-generated at SIM activation time.
+    """
 
     model_config = ConfigDict(extra="ignore")
 
     # Step 1 — personal details (UX brief §5)
     full_name: str = Field(min_length=1, max_length=200)
     email: str = Field(max_length=254)
-    msisdn: str = Field(description="Mobile number being activated (10-15 digits).")
     alternate_mobile: str = Field(description="Alternate mobile for the pre-activation OTP (PRD A-6).")
 
     # Step 2 — TRAI CAF fields (UX brief §5)
@@ -75,7 +77,7 @@ class RegisterRequest(BaseModel):
     id_proof_number: str = Field(min_length=1)
     consent: bool = Field(description="Data-processing consent (must be True).")
 
-    @field_validator("msisdn", "alternate_mobile")
+    @field_validator("alternate_mobile")
     @classmethod
     def _validate_mobile(cls, v: str) -> str:
         if not _MSISDN_RE.match(v):
@@ -125,7 +127,6 @@ def _to_command(payload: RegisterRequest) -> RegistrationCommand:
     return RegistrationCommand(
         full_name=payload.full_name,
         email=payload.email,
-        msisdn=payload.msisdn,
         alternate_mobile=payload.alternate_mobile,
         date_of_birth=payload.date_of_birth,
         address_line1=payload.address_line1,

@@ -104,6 +104,7 @@ async def get_balance(
 
     resp = WalletBalanceResponse(
         subscriber_id=UUID(sub_id),
+        msisdn=msisdn,
         msisdn_masked=mask_msisdn(msisdn),
         balance_paise=balance_paise,
         balance_inr=f"₹{balance_paise / 100:.2f}",

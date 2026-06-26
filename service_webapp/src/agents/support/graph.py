@@ -33,14 +33,13 @@ from typing import TYPE_CHECKING, Any
 
 from copilotkit.langgraph import CopilotKitState
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from langgraph.graph import END, StateGraph
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from agents.guardrails.validator import log_rejection
-from agents.support.context import load_context, save_turn
 from agents.support.identity import current_msisdn, current_session_id
-from agents.support.tools import SUPPORT_TOOLS, get_support_cache, get_support_db
+from agents.support.tools import SUPPORT_TOOLS, get_support_db
 from core.config import settings
 from core.observability.langfuse import get_langfuse_client, set_trace_usage
 from core.security import mask_msisdn
@@ -86,15 +85,14 @@ class SupportAgentState(CopilotKitState):
     """LangGraph state for the Support Agent.
 
     Extends CopilotKitState (which already carries ``messages`` and the CopilotKit
-    AG-UI fields) with the subscriber identity needed to scope tool calls and the
-    session id used to key the Valkey conversation context.
+    AG-UI fields). The checkpointer persists this full state between turns —
+    no manual Valkey context loading needed.
     """
 
     session_id: str
     msisdn: str
-    context_turns: list[dict]
     rejected: bool  # Set by guardrail_node when input validation fails
-    react_steps: int  # ReAct turns taken; capped by MAX_REACT_STEPS (patch 6)
+    react_steps: int  # ReAct turns taken this run; capped by MAX_REACT_STEPS
 
 
 # ── Guardrail singleton (Story 5.5) ──────────────────────────────────────────────
@@ -169,10 +167,11 @@ async def guardrail_node(state: dict) -> dict:
         return {
             "messages": updated_messages,
             "rejected": True,
+            "react_steps": 0,
         }
 
-    # Passed: continue to support_agent_node
-    return {"rejected": False}
+    # Passed: reset the per-run ReAct counter so it doesn't accumulate across turns.
+    return {"rejected": False, "react_steps": 0}
 
 
 def _route_after_guardrail(state: dict) -> str:
@@ -213,19 +212,6 @@ def _redacted_snapshot(state: dict) -> dict[str, Any]:
         "msisdn": mask_msisdn(current_msisdn()),
         "message_count": len(messages),
     }
-
-
-def _prior_context_messages(turns: list[dict]) -> list[BaseMessage]:
-    """Render Valkey-loaded prior turns into langchain messages."""
-    msgs: list[BaseMessage] = []
-    for turn in turns:
-        role = turn.get("role")
-        content = turn.get("content", "")
-        if role == "user":
-            msgs.append(HumanMessage(content=content))
-        elif role == "assistant":
-            msgs.append(AIMessage(content=content))
-    return msgs
 
 
 # Deterministic reply when the model is unavailable (patch 3). Surfacing a raw
@@ -290,48 +276,17 @@ async def _invoke_llm(
 
 
 async def support_agent_node(state: dict, *, llm: BaseChatModel) -> dict:
-    """Supervisor turn: load context → invoke tool-bound LLM → persist → trace.
+    """Supervisor turn: invoke tool-bound LLM and return the response.
 
-    Returns ``{"messages": [response]}`` for LangGraph to merge. Tool calls in the
-    response route to the ``tools`` node via :func:`_route_after_agent`.
+    The checkpointer restores the full message history into ``state["messages"]``
+    before this node runs — no manual context loading needed. Returns
+    ``{"messages": [response]}`` for LangGraph to merge into state. Tool calls in
+    the response route to the ``tools`` node via :func:`_route_after_agent`.
     """
-    # Identity flows from the request contextvar (bound by
-    # SupportIdentityMiddleware from the JWT), never from the graph state —
-    # CopilotKitState carries only ``messages`` + ``copilotkit.context``, so the
-    # session id / msisdn would never reach top-level state.
-    session_id = current_session_id()
-
-    # AC #3: prepend Valkey-persisted prior turns so the agent has memory across
-    # CopilotKit requests / frontend reloads. Degrades to no context if the cache
-    # is not wired (graph should not be reachable then, but stay safe).
-    cache = get_support_cache()
-    prior_turns: list[dict] = []
-    if cache is not None and session_id:
-        prior_turns = await load_context(cache, session_id)
-
     messages: list[BaseMessage] = [SystemMessage(content=SUPPORT_SYSTEM_PROMPT)]
-    messages.extend(_prior_context_messages(prior_turns))
     messages.extend(state.get("messages", []))
 
     response = await _invoke_llm(llm, messages, state)
-
-    # AC #3: persist this exchange (user ask + agent reply) to Valkey. We persist
-    # the inbound user message and the assistant text; tool-call rounds are an
-    # internal detail and are not stored.
-    if cache is not None and session_id:
-        try:
-            inbound = state.get("messages", [])
-            last_user = next(
-                (m for m in reversed(inbound) if isinstance(m, HumanMessage)),
-                None,
-            )
-            if last_user is not None:
-                await save_turn(cache, session_id, "user", str(last_user.content))
-            if isinstance(response, AIMessage) and not getattr(response, "tool_calls", None):
-                await save_turn(cache, session_id, "assistant", str(response.content))
-        except Exception as exc:
-            # Context persistence must not fail the user-facing reply (patch 3).
-            logger.warning("Support Agent context save failed for session %s: %s", session_id, exc)
 
     return {
         "messages": [response],
@@ -365,9 +320,10 @@ def build_support_graph(llm: BaseChatModel) -> CompiledStateGraph:
     Story 5.5: Guardrail node is now the entry point, validating all incoming
     messages before they reach the agent. Rejected messages short-circuit to END.
     """
+    llm_with_tools = llm.bind_tools(SUPPORT_TOOLS)
 
     async def _node(state: dict) -> dict:
-        return await support_agent_node(state, llm=llm)
+        return await support_agent_node(state, llm=llm_with_tools)
 
     # Tool execution is wrapped in a LangFuse span (patch 4) so DB/Valkey tool
     # latency is observable independently of the LLM call. Observability is

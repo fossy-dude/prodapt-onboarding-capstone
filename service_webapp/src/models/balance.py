@@ -18,6 +18,7 @@ class WalletBalanceResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     subscriber_id: UUID
+    msisdn: str = Field(..., description="Assigned mobile number (shown to the authenticated owner)")
     msisdn_masked: str = Field(..., description="Last-4 masked MSISDN (e.g. ***1234)")
     balance_paise: int = Field(..., ge=0)
     balance_inr: str = Field(..., description="Formatted INR string (e.g. '₹123.45')")

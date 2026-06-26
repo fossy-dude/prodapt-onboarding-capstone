@@ -48,19 +48,31 @@ function BalanceCard() {
         </div>
       )}
 
-      <p className="text-4xl font-bold text-neutral-900">{data.balance_inr}</p>
-
-      <div className="flex items-center gap-3 text-xs text-neutral-400">
-        <span>MSISDN: {data.msisdn_masked}</span>
-        {data.last_updated_at && (
-          <span>
-            Updated:{" "}
-            {new Date(data.last_updated_at).toLocaleString("en-IN", {
-              timeZone: "Asia/Kolkata",
-            })}
-          </span>
-        )}
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs font-medium text-neutral-400 uppercase tracking-wide mb-0.5">
+            Mobile Number
+          </p>
+          <p className="text-lg font-semibold text-neutral-800 tracking-wide">
+            {data.msisdn}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-xs font-medium text-neutral-400 uppercase tracking-wide mb-0.5">
+            Balance
+          </p>
+          <p className="text-3xl font-bold text-neutral-900">{data.balance_inr}</p>
+        </div>
       </div>
+
+      {data.last_updated_at && (
+        <p className="text-xs text-neutral-400">
+          Updated:{" "}
+          {new Date(data.last_updated_at).toLocaleString("en-IN", {
+            timeZone: "Asia/Kolkata",
+          })}
+        </p>
+      )}
     </div>
   );
 }

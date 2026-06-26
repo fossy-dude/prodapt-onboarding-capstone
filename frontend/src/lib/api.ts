@@ -374,6 +374,7 @@ export async function deletePaymentMethod(id: string): Promise<void> {
 
 export interface WalletBalanceData {
   readonly subscriber_id: string;
+  readonly msisdn: string;
   readonly msisdn_masked: string;
   readonly balance_paise: number;
   readonly balance_inr: string;

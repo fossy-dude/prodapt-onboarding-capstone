@@ -15,6 +15,7 @@ const { getBalance, getUsage, getActivePlan } = await import("../../lib/api");
 
 const BALANCE_DATA = {
   subscriber_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  msisdn: "9876543210",
   msisdn_masked: "***3210",
   balance_paise: 50000,
   balance_inr: "₹500.00",
@@ -73,7 +74,7 @@ describe("Dashboard", () => {
     await waitFor(() =>
       expect(screen.getByText("₹500.00")).toBeInTheDocument(),
     );
-    expect(screen.getByText(/\*\*\*3210/)).toBeInTheDocument();
+    expect(screen.getByText("9876543210")).toBeInTheDocument();
   });
 
   it("shows 'Balance depleted' banner when balance is zero (AC #3)", async () => {

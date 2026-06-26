@@ -34,9 +34,13 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
 import uuid
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from psycopg import AsyncConnection
 
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -371,6 +375,31 @@ async def simulator_trace_ws(ws: WebSocket) -> None:
 
 # ── SIM activation (Story 2.9) ────────────────────────────────────────────────
 
+_MSISDN_PREFIXES = ("6", "7", "8", "9")
+_MAX_MSISDN_ATTEMPTS = 10
+
+
+async def _generate_unique_msisdn(conn: AsyncConnection) -> str:
+    """Generate a random 10-digit Indian mobile number not already in use.
+
+    Indian mobile numbers start with 6, 7, 8, or 9. Retries up to
+    _MAX_MSISDN_ATTEMPTS times before raising a DomainError.
+    """
+    for _ in range(_MAX_MSISDN_ATTEMPTS):
+        prefix = _MSISDN_PREFIXES[secrets.randbelow(4)]
+        suffix = "".join(str(secrets.randbelow(10)) for _ in range(9))
+        msisdn = prefix + suffix
+        cur = await conn.execute(
+            "SELECT 1 FROM identity_subscribers WHERE msisdn = %s",
+            (msisdn,),
+        )
+        if await cur.fetchone() is None:
+            return msisdn
+    err = DomainError("Could not allocate a unique MSISDN after multiple attempts.")
+    err.code = "MSISDN_EXHAUSTED"
+    err.http_status = 500
+    raise err
+
 
 class ActivateRequest(BaseModel):
     """Request body for POST /api/v1/simulator/activate (AC #1)."""
@@ -494,7 +523,7 @@ async def activate_subscriber(
         row = await cur.fetchone()
         if row is None:
             raise NotFoundError("No subscriber with an activation order matched the lookup.")
-        subscriber_id, msisdn, order_id, _plan_id, _status, price_paise = row
+        subscriber_id, stored_msisdn, order_id, _plan_id, _status, price_paise = row
 
         # Lock the order before transitioning so two concurrent activations
         # cannot both flip it to ACTIVATED.
@@ -510,6 +539,16 @@ async def activate_subscriber(
             err.code = "ILLEGAL_TRANSITION"
             err.http_status = 400
             raise err
+
+        # Auto-generate an MSISDN if one has not been assigned yet.
+        if stored_msisdn is None:
+            msisdn = await _generate_unique_msisdn(conn)
+            await conn.execute(
+                "UPDATE identity_subscribers SET msisdn = %s WHERE id = %s::uuid",
+                (msisdn, subscriber_id),
+            )
+        else:
+            msisdn = stored_msisdn
 
         await conn.execute(
             """

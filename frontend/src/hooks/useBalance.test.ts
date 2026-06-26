@@ -13,6 +13,7 @@ const { getBalance } = await import("../lib/api");
 
 const BALANCE_DATA = {
   subscriber_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  msisdn: "9876543210",
   msisdn_masked: "***3210",
   balance_paise: 50000,
   balance_inr: "₹500.00",

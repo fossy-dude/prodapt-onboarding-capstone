@@ -42,9 +42,9 @@ import logging
 import sys
 from collections.abc import Awaitable, Callable
 from typing import Any
-from langfuse.langchain import CallbackHandler
 
 from langfuse import Langfuse
+from langfuse.langchain import CallbackHandler
 
 from core.config import settings
 
