@@ -26,6 +26,16 @@ export default defineConfig(({ mode }) => {
         "/api/chat": {
           target: backendOrigin,
           changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path.replace(/^\/api\/chat$/, "/api/chat/"),
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq, req) => {
+              const auth = req.headers["authorization"];
+              if (auth) {
+                proxyReq.setHeader("authorization", auth);
+              }
+            });
+          },
         },
       },
     },

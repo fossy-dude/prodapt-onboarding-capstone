@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Navigate, Route, Routes } from "react-router-dom";
 
@@ -58,7 +58,12 @@ function App() {
   // (Story 5.4 AC #3). Owned here so the CopilotKit provider can forward it as
   // the X-Chat-Session-Id header that the backend identity middleware reads.
   const [sessionId] = useState(getOrCreateChatSessionId);
-  const token = getToken();
+  const [token] = useState<string | null>(getToken);
+  const chatHeaders = useMemo<Record<string, string>>(() => {
+    const h: Record<string, string> = { "X-Chat-Session-Id": sessionId };
+    if (token) h["Authorization"] = `Bearer ${token}`;
+    return h;
+  }, [token, sessionId]);
 
   const notificationPortalOpenInDev =
     import.meta.env.VITE_NOTIFICATION_PORTAL_OPEN_IN_DEV === "true";
@@ -90,10 +95,7 @@ function App() {
             */}
             <CopilotKit
               runtimeUrl="/api/chat"
-              headers={{
-                ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                "X-Chat-Session-Id": sessionId,
-              }}
+              headers={chatHeaders}
             >
               <Routes>
                 <Route path="dashboard" element={<Dashboard />} />
