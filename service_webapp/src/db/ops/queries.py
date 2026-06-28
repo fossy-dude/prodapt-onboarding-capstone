@@ -171,12 +171,12 @@ async def get_historical_plan_recharges(conn: AsyncConnection, days_back: int = 
             DATE(ro.completed_at) AS date,
             COUNT(*) AS recharge_count
           FROM recharge_orders ro
-         WHERE ro.completed_at >= NOW() - INTERVAL %(days_back)s
+         WHERE ro.completed_at >= NOW() - (%(days_back)s::int * INTERVAL '1 day')
            AND ro.completed_at IS NOT NULL
          GROUP BY ro.plan_id, DATE(ro.completed_at)
          ORDER BY ro.plan_id, date
         """,
-        {"days_back": f"{days_back} days"},
+        {"days_back": days_back},
     )
     rows = await cur.fetchall()
     return [
@@ -282,13 +282,13 @@ async def save_plan_forecast_results(
                 uptake_trend_90d
             ) VALUES (
                 'plan_demand', CURRENT_DATE, %s, NOW(),
-                NOW() + INTERVAL %s,
+                NOW() + (%s::int * INTERVAL '1 hour'),
                 %s, %s, %s, %s, %s, %s
             )
             """,
             (
                 model_version,
-                f"{valid_hours} hours",
+                valid_hours,
                 fc["plan_id"],
                 fc.get("plan_name"),
                 fc["predicted_uptake_30d"],

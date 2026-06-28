@@ -311,3 +311,67 @@ async def test_get_orders_by_status_default_limit_and_offset():
 
     # Should work with defaults
     assert isinstance(result, list)
+
+
+@pytest.mark.asyncio
+async def test_get_historical_plan_recharges_uses_bind_safe_interval():
+    """Test get_historical_plan_recharges avoids invalid INTERVAL $1 SQL."""
+    from db.ops.queries import get_historical_plan_recharges
+
+    plan_id = uuid4()
+
+    class CaptureConn:
+        def __init__(self) -> None:
+            self.sql = ""
+            self.params = None
+
+        async def execute(self, sql: str, params=None):
+            self.sql = sql
+            self.params = params
+            return _FakeCursor(rows=[(plan_id, "2026-01-01", 7)])
+
+    conn = CaptureConn()
+
+    result = await get_historical_plan_recharges(conn, days_back=45)
+
+    assert "%(days_back)s::int * INTERVAL '1 day'" in conn.sql
+    assert conn.params == {"days_back": 45}
+    assert result == [{"plan_id": str(plan_id), "date": "2026-01-01", "recharge_count": 7}]
+
+
+@pytest.mark.asyncio
+async def test_save_plan_forecast_results_uses_bind_safe_valid_until_interval():
+    """Test save_plan_forecast_results avoids invalid INTERVAL $2 SQL."""
+    from db.ops.queries import save_plan_forecast_results
+
+    plan_id = str(uuid4())
+
+    class CaptureConn:
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def execute(self, sql: str, params=None):
+            self.calls.append((sql, params))
+            return _FakeCursor()
+
+    conn = CaptureConn()
+
+    await save_plan_forecast_results(
+        conn,
+        [
+            {
+                "plan_id": plan_id,
+                "plan_name": "Basic Plan",
+                "predicted_uptake_30d": 10,
+                "predicted_uptake_60d": 20,
+                "predicted_uptake_90d": 30,
+                "uptake_trend_90d": [1, 2, 3],
+            }
+        ],
+        "holt_winters_v1",
+        valid_hours=12,
+    )
+
+    insert_sql, insert_params = conn.calls[1]
+    assert "%s::int * INTERVAL '1 hour'" in insert_sql
+    assert insert_params[1] == 12
