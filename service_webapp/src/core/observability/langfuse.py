@@ -80,6 +80,12 @@ _usage_var: contextvars.ContextVar[dict[str, int] | None] = contextvars.ContextV
 
 
 def get_langfuse_callback_handler() -> CallbackHandler | None:
+    """Return a LangFuse CallbackHandler singleton, or ``None`` when disabled.
+
+    When ``settings.langfuse_enabled`` is False, returns ``None`` without
+    constructing the handler. Otherwise initialises the Langfuse OTEL provider
+    and returns a CallbackHandler for LangChain integration.
+    """
     if not settings.langfuse_enabled:
         return None
     # Initialise the Langfuse OTEL provider with credentials from settings so

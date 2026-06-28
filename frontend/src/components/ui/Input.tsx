@@ -9,7 +9,7 @@ interface InputProps extends Omit<
   readonly size?: "sm" | "md" | "lg";
 }
 
-export const Input = forwardRef<HTMLInputElement, InputProps>(
+const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ label, error, size = "md", className = "", ...props }, ref) => {
     const sizeClasses = {
       sm: "px-3 py-1.5 text-sm",
@@ -43,3 +43,6 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 );
 
 Input.displayName = "Input";
+
+export { Input };
+export type { InputProps };

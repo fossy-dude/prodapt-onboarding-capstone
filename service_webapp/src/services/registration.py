@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
     from adapters.cognito import CognitoProvider
     from adapters.postgres import Psycopg3AsyncAdapter
+    from core.login_otp import LoginOtpService
 
 logger = logging.getLogger(__name__)
 
@@ -191,16 +192,19 @@ class PostgresRegistrationRepository:
 
 
 class RegistrationService:
-    """Orchestrates persistence (one tx) + Cognito provisioning (after commit)."""
+    """Orchestrates persistence (one tx) + Cognito provisioning + OTP publishing (after commit)."""
 
-    def __init__(self, repo: RegistrationRepository, cognito: CognitoProvider) -> None:
+    def __init__(
+        self, repo: RegistrationRepository, cognito: CognitoProvider, otp_service: LoginOtpService | None = None
+    ) -> None:
         self._repo = repo
         self._cognito = cognito
+        self._otp_service = otp_service
 
     async def register(self, cmd: RegistrationCommand) -> RegistrationResult:
         """Persist the registration, then provision Cognito + dispatch the OTP.
 
-        Persistence runs first in one transaction; Cognito runs after commit
+        Persistence runs first in one transaction; Cognito + OTP publishing run after commit
         (best-effort — see the compensation note below).
         """
         persisted = await self._repo.persist(cmd)
@@ -213,7 +217,12 @@ class RegistrationService:
         otp = ""
         try:
             await self._cognito.provision_user(persisted.registration_id, cmd.alternate_mobile)
-            otp = await self._cognito.start_verification(cmd.alternate_mobile)
+            # Publish OTP to notification.events via LoginOtpService (if available).
+            if self._otp_service is not None:
+                otp = await self._otp_service.issue(cmd.alternate_mobile, "0" * 32)
+            else:
+                # Fallback: generate locally for tests that don't wire otp_service.
+                otp = await self._cognito.start_verification(cmd.alternate_mobile)
         except Exception:
             logger.exception(
                 "Cognito provisioning failed post-commit for registration %s (subscriber %s); "

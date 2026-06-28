@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Configure which branch names should trigger formatting.
+TARGET_BRANCH_PATTERN='^(dev|main)$'
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+branch_matches() {
+    local branch="$1"
+    [[ "$branch" =~ $TARGET_BRANCH_PATTERN ]]
+}
+
+current_branch() {
+    git symbolic-ref --quiet --short HEAD || true
+}
+
+run_formatter() {
+    local reason="$1"
+    echo "Running just format $reason..."
+    just format
+}
+
+handle_pre_commit() {
+    local merge_head
+    merge_head="$(git rev-parse --git-path MERGE_HEAD)"
+
+    if [[ ! -f "$merge_head" ]]; then
+        echo "Skipping just format: not a merge commit."
+        return 0
+    fi
+
+    handle_merge "before committing merge into"
+}
+
+handle_pre_merge_commit() {
+    handle_merge "before merging into"
+}
+
+handle_merge() {
+    local reason_prefix="$1"
+    local branch
+    branch="$(current_branch)"
+
+    if [[ -n "$branch" ]] && branch_matches "$branch"; then
+        run_formatter "$reason_prefix $branch"
+        return 0
+    fi
+
+    echo "Skipping just format: current branch '${branch:-detached HEAD}' does not match $TARGET_BRANCH_PATTERN."
+}
+
+handle_pre_push() {
+    local local_ref local_sha remote_ref remote_sha remote_branch
+
+    while read -r local_ref local_sha remote_ref remote_sha; do
+        if [[ "$local_sha" =~ ^0+$ ]]; then
+            continue
+        fi
+
+        if [[ "$remote_ref" == refs/heads/* ]]; then
+            remote_branch="${remote_ref#refs/heads/}"
+            if branch_matches "$remote_branch"; then
+                run_formatter "before pushing to $remote_branch"
+                return 0
+            fi
+        fi
+    done
+
+    echo "Skipping just format: pushed branch does not match $TARGET_BRANCH_PATTERN."
+}
+
+case "${1:-}" in
+    pre-commit)
+        handle_pre_commit
+        ;;
+    pre-merge-commit)
+        handle_pre_merge_commit
+        ;;
+    pre-push)
+        handle_pre_push
+        ;;
+    *)
+        echo "Usage: $0 {pre-commit|pre-merge-commit|pre-push}" >&2
+        exit 2
+        ;;
+esac

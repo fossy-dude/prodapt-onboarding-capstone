@@ -41,6 +41,17 @@ const ROLE_ROUTE: Record<string, string> = {
 
 type Step = "identifier" | "otp";
 
+function getLoginRoute(
+  role: string | null,
+  kind: IdentifierKind | null,
+): string | null {
+  if (role === null) return null;
+  if (kind === "registration_id" && role === "subscriber") {
+    return "/subscriber/activate";
+  }
+  return ROLE_ROUTE[role] ?? null;
+}
+
 function Login() {
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>("identifier");
@@ -68,12 +79,9 @@ function Login() {
       if (tokens.refresh_token) saveRefreshToken(tokens.refresh_token);
       const role = getRole();
       // P18: guard unknown role — don't navigate to '/' which wildcard-redirects to /login.
-      let route = role !== null ? (ROLE_ROUTE[role] ?? null) : null;
+      const route = getLoginRoute(role, identifierKind);
       if (route === null) {
         return; // isSuccess + role === null → error message shown below
-      }
-      if (identifierKind === "registration_id" && role === "subscriber") {
-        route = "/subscriber/activate";
       }
       navigate(route, { replace: true });
     },
@@ -83,7 +91,7 @@ function Login() {
   // navigate() during render which is a React side-effect anti-pattern.
   if (isAuthenticated()) {
     const role = getRole();
-    const route = role !== null ? (ROLE_ROUTE[role] ?? null) : null;
+    const route = getLoginRoute(role, identifierKind);
     if (route !== null) {
       return <Navigate to={route} replace />;
     }

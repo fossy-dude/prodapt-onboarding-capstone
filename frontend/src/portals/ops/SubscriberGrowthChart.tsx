@@ -47,8 +47,8 @@ function SubscriberGrowthChart({ data }: SubscriberGrowthChartProps) {
   if (data.length === 0) {
     return (
       <p className="text-sm text-neutral-500">
-        No forecast data available. A 90-day projection will appear here once the
-        model has been trained.
+        No forecast data available. A 90-day projection will appear here once
+        the model has been trained.
       </p>
     );
   }

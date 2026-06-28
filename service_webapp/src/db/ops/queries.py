@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
+from psycopg import sql
 from psycopg.types.json import Jsonb
 
 if TYPE_CHECKING:
@@ -194,9 +195,8 @@ async def get_historical_plan_recharges(
         List of ``{"plan_id": str, "date": date, "recharge_count": int}``,
         ordered by plan_id then date ascending.
     """
-    plan_filter = "AND ro.plan_id = ANY(%(plan_ids)s)" if plan_ids else ""
-    cur = await conn.execute(
-        f"""
+    plan_filter = sql.SQL("AND ro.plan_id = ANY(%(plan_ids)s)") if plan_ids else sql.SQL("")
+    query = sql.SQL("""
         SELECT
             ro.plan_id,
             DATE(ro.completed_at) AS date,
@@ -204,10 +204,12 @@ async def get_historical_plan_recharges(
           FROM recharge_orders ro
          WHERE ro.completed_at >= NOW() - (%(days_back)s::int * INTERVAL '1 day')
            AND ro.completed_at IS NOT NULL
-           {plan_filter}
+           {}
          GROUP BY ro.plan_id, DATE(ro.completed_at)
          ORDER BY ro.plan_id, date
-        """,
+        """).format(plan_filter)
+    cur = await conn.execute(
+        query,
         {"days_back": days_back, "plan_ids": plan_ids},
     )
     rows = await cur.fetchall()
@@ -243,10 +245,9 @@ async def get_cached_plan_forecast(
         List of forecast rows with plan_id and uptake predictions.
         Empty list when cache is expired or absent.
     """
-    plan_filter = "AND plan_id = ANY(%s)" if plan_ids else ""
+    plan_filter = sql.SQL("AND plan_id = ANY(%s)") if plan_ids else sql.SQL("")
     params = (forecast_type, plan_ids) if plan_ids else (forecast_type,)
-    cur = await conn.execute(
-        f"""
+    query = sql.SQL("""
         SELECT
             plan_id,
             plan_name,
@@ -261,9 +262,11 @@ async def get_cached_plan_forecast(
          WHERE forecast_type = %s
            AND plan_id IS NOT NULL
            AND valid_until > NOW()
-           {plan_filter}
+           {}
           ORDER BY plan_id
-        """,
+        """).format(plan_filter)
+    cur = await conn.execute(
+        query,
         params,
     )
     rows = await cur.fetchall()

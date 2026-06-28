@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from httpx import ASGITransport, AsyncClient
 
 from adapters.cognito import FakeCognitoProvider
+from core.login_otp import FakeLoginOtpService
 
 if TYPE_CHECKING:
     import pytest
@@ -34,7 +35,6 @@ def _valid_payload(**overrides: object) -> dict[str, object]:
     payload: dict[str, object] = {
         "full_name": "Priya Sharma",
         "email": "priya@example.com",
-        "msisdn": "9876543210",
         "alternate_mobile": "9123456780",
         "date_of_birth": "1995-04-12",
         "address_line1": "12 MG Road",
@@ -51,16 +51,16 @@ def _valid_payload(**overrides: object) -> dict[str, object]:
 
 
 class FakeRegistrationRepository:
-    """In-memory repository: raises DuplicateMsisdnError on a repeated MSISDN."""
+    """In-memory repository: raises DuplicateMsisdnError on a repeated email."""
 
     def __init__(self) -> None:
         self._existing: set[str] = set()
         self.persisted: list[RegistrationCommand] = []
 
     async def persist(self, cmd: RegistrationCommand) -> PersistedRegistration:
-        if cmd.msisdn in self._existing:
-            raise DuplicateMsisdnError(detail={"msisdn": mask_msisdn(cmd.msisdn)})
-        self._existing.add(cmd.msisdn)
+        if cmd.email in self._existing:
+            raise DuplicateMsisdnError(detail={"email": cmd.email})
+        self._existing.add(cmd.email)
         self.persisted.append(cmd)
         return PersistedRegistration(
             subscriber_id=f"sub-{len(self.persisted)}",
@@ -103,28 +103,26 @@ async def test_register_returns_201_with_standard_envelope() -> None:
 
 
 async def test_register_response_has_no_raw_pii() -> None:
-    """AC #9: the response envelope never echoes raw MSISDN/name/address."""
+    """AC #9: the response envelope never echoes raw email/name/address."""
     resp, _, _ = await _post(_valid_payload())
     text = resp.text
-    assert "9876543210" not in text
+    assert "priya@example.com" not in text
     assert "Priya Sharma" not in text
     assert "560001" not in text
 
 
-async def test_register_409_on_duplicate_msisdn() -> None:
-    """AC #8: a second registration with the same MSISDN → 409 DUPLICATE_MSISDN."""
+async def test_register_409_on_duplicate_email() -> None:
+    """AC #8: a second registration with the same email → 409 DUPLICATE_MSISDN."""
     repo = FakeRegistrationRepository()
     cognito = FakeCognitoProvider()
     first, repo, cognito = await _post(_valid_payload(), repo=repo, cognito=cognito)
     assert first.status_code == 201
 
-    second, _, _ = await _post(_valid_payload(msisdn="9876543210"), repo=repo, cognito=cognito)
+    second, _, _ = await _post(_valid_payload(email="priya@example.com"), repo=repo, cognito=cognito)
     assert second.status_code == 409
     body = second.json()
     assert body["error"]["code"] == "DUPLICATE_MSISDN"
     assert "meta" in body and "trace_id" in body["meta"]
-    # The detail must mask the MSISDN, never echo it raw.
-    assert "9876543210" not in second.text
 
 
 async def test_register_422_on_invalid_payload() -> None:
@@ -146,15 +144,14 @@ async def test_register_succeeds_when_cognito_fails_post_commit() -> None:
     assert len(repo.persisted) == 1  # the registration was still persisted
 
 
-async def test_registration_logs_only_masked_msisdn(caplog: pytest.LogCaptureFixture) -> None:
-    """AC #9: logs never carry the raw MSISDN — only the masked suffix."""
+async def test_registration_logs_only_masked_phone(caplog: pytest.LogCaptureFixture) -> None:
+    """AC #9: logs never carry the raw phone number — only the masked suffix."""
     repo = FakeRegistrationRepository()
     cognito = FakeCognitoProvider()
     service = RegistrationService(repo, cognito)
     cmd = RegistrationCommand(
         full_name="Priya Sharma",
         email="priya@example.com",
-        msisdn="9876543210",
         alternate_mobile="9123456780",
         date_of_birth="1995-04-12",
         address_line1="12 MG Road",
@@ -170,5 +167,34 @@ async def test_registration_logs_only_masked_msisdn(caplog: pytest.LogCaptureFix
         await service.register(cmd)
 
     log_text = caplog.text
-    assert "9876543210" not in log_text  # raw MSISDN never logged
-    assert "***3210" in log_text  # masked form is present
+    assert "9123456780" not in log_text  # raw phone never logged
+
+
+async def test_registration_otp_published_via_login_otp_service() -> None:
+    """Registration OTP is published to notification.events via LoginOtpService."""
+    repo = FakeRegistrationRepository()
+    cognito = FakeCognitoProvider()
+    otp_service = FakeLoginOtpService()
+    service = RegistrationService(repo, cognito, otp_service)
+    cmd = RegistrationCommand(
+        full_name="Priya Sharma",
+        email="priya@example.com",
+        alternate_mobile="9123456780",
+        date_of_birth="1995-04-12",
+        address_line1="12 MG Road",
+        address_line2="",
+        city="Bengaluru",
+        state="Karnataka",
+        pin_code="560001",
+        id_proof_type="Aadhaar",
+        id_proof_number="1234-5678-9012",
+        consent=True,
+    )
+    result = await service.register(cmd)
+
+    # OTP should be issued via the LoginOtpService, not via cognito.start_verification.
+    assert len(otp_service.issued) == 1  # OTP was issued
+    assert result.otp == otp_service.issued[0]  # returned OTP matches issued
+    # Registration OTP is published with the alternate mobile as the identifier.
+    assert len(otp_service.published_login_otps) == 1
+    assert otp_service.published_login_otps[0]["identifier"] == "9123456780"

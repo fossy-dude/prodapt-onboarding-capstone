@@ -38,7 +38,10 @@ const _SKIP_REFRESH_PATHS = [
   "/auth/token/refresh",
 ];
 
-type QueueEntry = { resolve: (token: string) => void; reject: (err: unknown) => void };
+type QueueEntry = {
+  resolve: (token: string) => void;
+  reject: (err: unknown) => void;
+};
 
 let _isRefreshing = false;
 let _refreshQueue: QueueEntry[] = [];

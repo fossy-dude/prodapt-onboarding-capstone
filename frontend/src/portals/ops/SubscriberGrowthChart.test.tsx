@@ -44,7 +44,9 @@ describe("SubscriberGrowthChart", () => {
     // jsdom does not compute layout, so ResponsiveContainer receives no size and
     // its Recharts children do not paint; the reliable mount signal is the
     // responsive-container element itself. The empty-state must NOT show.
-    expect(container.querySelector(".recharts-responsive-container")).not.toBeNull();
+    expect(
+      container.querySelector(".recharts-responsive-container"),
+    ).not.toBeNull();
     expect(screen.queryByText(/No forecast data available/)).toBeNull();
   });
 

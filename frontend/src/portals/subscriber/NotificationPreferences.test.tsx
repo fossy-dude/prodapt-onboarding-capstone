@@ -2,7 +2,7 @@
  * Tests for NotificationPreferences component (Story 4.2).
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -148,7 +148,7 @@ describe("NotificationPreferences", () => {
     });
 
     const toggles = screen.getAllByRole("switch");
-    const lowBalanceToggle = toggles[0];
+    const lowBalanceToggle = toggles[0]!;
 
     lowBalanceToggle.click();
 

@@ -41,7 +41,9 @@ function Forecasts() {
 
   const handleTogglePlan = (planId: string) => {
     setSelectedPlanIds((current) =>
-      current.includes(planId) ? current.filter((id) => id !== planId) : [...current, planId],
+      current.includes(planId)
+        ? current.filter((id) => id !== planId)
+        : [...current, planId],
     );
   };
 
@@ -64,7 +66,10 @@ function Forecasts() {
     <div className="rounded-lg border border-neutral-200 bg-white">
       <div className="flex items-center justify-between border-b border-neutral-200 px-6 pt-4">
         <div className="flex gap-1">
-          <button className={tabClass("plan_demand")} onClick={() => setActiveTab("plan_demand")}>
+          <button
+            className={tabClass("plan_demand")}
+            onClick={() => setActiveTab("plan_demand")}
+          >
             Plan Demand
           </button>
           <button
@@ -92,7 +97,10 @@ function Forecasts() {
             {error && (
               <div className="mb-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                 Failed to load forecast data.
-                <button onClick={() => void refetch()} className="ml-2 underline">
+                <button
+                  onClick={() => void refetch()}
+                  className="ml-2 underline"
+                >
                   Retry
                 </button>
               </div>
@@ -108,7 +116,8 @@ function Forecasts() {
 
             <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-xs text-neutral-500">
-                Select one or more plans, then run a fresh forecast for just those plans.
+                Select one or more plans, then run a fresh forecast for just
+                those plans.
               </p>
               <button
                 type="button"
@@ -123,12 +132,20 @@ function Forecasts() {
             {forecastData && (
               <div className="mb-3 flex items-center gap-4 text-xs text-neutral-400">
                 {forecastData.trained_at && (
-                  <span>Trained: {new Date(forecastData.trained_at).toLocaleString()}</span>
+                  <span>
+                    Trained:{" "}
+                    {new Date(forecastData.trained_at).toLocaleString()}
+                  </span>
                 )}
                 {forecastData.cache_expires_at && (
-                  <span>Cache expires: {new Date(forecastData.cache_expires_at).toLocaleString()}</span>
+                  <span>
+                    Cache expires:{" "}
+                    {new Date(forecastData.cache_expires_at).toLocaleString()}
+                  </span>
                 )}
-                {forecastData.model_version && <span>Model: {forecastData.model_version}</span>}
+                {forecastData.model_version && (
+                  <span>Model: {forecastData.model_version}</span>
+                )}
               </div>
             )}
 

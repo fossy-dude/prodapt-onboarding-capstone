@@ -20,7 +20,11 @@ interface PlanDemandTableProps {
   readonly isLoading: boolean;
 }
 
-type SortField = "plan_name" | "predicted_uptake_30d" | "predicted_uptake_60d" | "predicted_uptake_90d";
+type SortField =
+  | "plan_name"
+  | "predicted_uptake_30d"
+  | "predicted_uptake_60d"
+  | "predicted_uptake_90d";
 type SortDirection = "asc" | "desc";
 
 function trendColor(trend: readonly number[]): string {
@@ -35,7 +39,10 @@ function Sparkline({ data }: { readonly data: readonly number[] }) {
   const chartData = data.map((v, i) => ({ i, v }));
   return (
     <ResponsiveContainer width={80} height={36}>
-      <AreaChart data={chartData} margin={{ top: 2, right: 0, bottom: 2, left: 0 }}>
+      <AreaChart
+        data={chartData}
+        margin={{ top: 2, right: 0, bottom: 2, left: 0 }}
+      >
         <Area
           type="monotone"
           dataKey="v"
@@ -61,7 +68,11 @@ const SortIndicator = ({
   readonly direction: SortDirection;
 }) => {
   if (field !== active) return null;
-  return <span className="ml-1 text-neutral-400">{direction === "asc" ? "↑" : "↓"}</span>;
+  return (
+    <span className="ml-1 text-neutral-400">
+      {direction === "asc" ? "↑" : "↓"}
+    </span>
+  );
 };
 
 function PlanDemandTable({ items, isLoading }: PlanDemandTableProps) {
@@ -80,7 +91,10 @@ function PlanDemandTable({ items, isLoading }: PlanDemandTableProps) {
   const sorted = [...items].sort((a, b) => {
     const aVal = a[sortField];
     const bVal = b[sortField];
-    const cmp = typeof aVal === "string" ? aVal.localeCompare(bVal as string) : (aVal as number) - (bVal as number);
+    const cmp =
+      typeof aVal === "string"
+        ? aVal.localeCompare(bVal as string)
+        : (aVal as number) - (bVal as number);
     return sortDirection === "asc" ? cmp : -cmp;
   });
 
@@ -95,7 +109,9 @@ function PlanDemandTable({ items, isLoading }: PlanDemandTableProps) {
   }
 
   if (items.length === 0) {
-    return <p className="text-sm text-neutral-500">No forecast data available.</p>;
+    return (
+      <p className="text-sm text-neutral-500">No forecast data available.</p>
+    );
   }
 
   const thClass =
@@ -107,23 +123,58 @@ function PlanDemandTable({ items, isLoading }: PlanDemandTableProps) {
       <table className="min-w-full divide-y divide-neutral-200">
         <thead className="bg-neutral-50">
           <tr>
-            <th scope="col" className={thClass} onClick={() => handleSort("plan_name")}>
+            <th
+              scope="col"
+              className={thClass}
+              onClick={() => handleSort("plan_name")}
+            >
               Plan Name
-              <SortIndicator field="plan_name" active={sortField} direction={sortDirection} />
+              <SortIndicator
+                field="plan_name"
+                active={sortField}
+                direction={sortDirection}
+              />
             </th>
-            <th scope="col" className={thRight} onClick={() => handleSort("predicted_uptake_30d")}>
+            <th
+              scope="col"
+              className={thRight}
+              onClick={() => handleSort("predicted_uptake_30d")}
+            >
               30-day
-              <SortIndicator field="predicted_uptake_30d" active={sortField} direction={sortDirection} />
+              <SortIndicator
+                field="predicted_uptake_30d"
+                active={sortField}
+                direction={sortDirection}
+              />
             </th>
-            <th scope="col" className={thRight} onClick={() => handleSort("predicted_uptake_60d")}>
+            <th
+              scope="col"
+              className={thRight}
+              onClick={() => handleSort("predicted_uptake_60d")}
+            >
               60-day
-              <SortIndicator field="predicted_uptake_60d" active={sortField} direction={sortDirection} />
+              <SortIndicator
+                field="predicted_uptake_60d"
+                active={sortField}
+                direction={sortDirection}
+              />
             </th>
-            <th scope="col" className={thRight} onClick={() => handleSort("predicted_uptake_90d")}>
+            <th
+              scope="col"
+              className={thRight}
+              onClick={() => handleSort("predicted_uptake_90d")}
+            >
               90-day
-              <SortIndicator field="predicted_uptake_90d" active={sortField} direction={sortDirection} />
+              <SortIndicator
+                field="predicted_uptake_90d"
+                active={sortField}
+                direction={sortDirection}
+              />
             </th>
-            <th scope="col" className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-neutral-700">
+            <th
+              scope="col"
+              className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-neutral-700"
+            >
               Trend
             </th>
           </tr>

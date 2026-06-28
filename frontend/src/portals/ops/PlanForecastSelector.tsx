@@ -68,13 +68,18 @@ function PlanForecastSelector({
         {isLoading ? (
           <div className="space-y-2 p-3">
             {[1, 2, 3].map((item) => (
-              <div key={item} className="h-8 animate-pulse rounded bg-neutral-200" />
+              <div
+                key={item}
+                className="h-8 animate-pulse rounded bg-neutral-200"
+              />
             ))}
           </div>
         ) : (
           <div className="max-h-72 divide-y divide-neutral-100 overflow-auto">
             {visiblePlans.length === 0 && (
-              <p className="px-3 py-4 text-sm text-neutral-500">No plans match the search.</p>
+              <p className="px-3 py-4 text-sm text-neutral-500">
+                No plans match the search.
+              </p>
             )}
             {visiblePlans.map((plan) => (
               <label
@@ -88,7 +93,9 @@ function PlanForecastSelector({
                     onChange={() => onTogglePlan(plan.plan_id)}
                     className="h-4 w-4 rounded border-neutral-300 text-brand-600 focus:ring-brand-500"
                   />
-                  <span className="truncate font-medium text-neutral-900">{plan.plan_name}</span>
+                  <span className="truncate font-medium text-neutral-900">
+                    {plan.plan_name}
+                  </span>
                 </span>
                 <span className="shrink-0 text-xs text-neutral-500">
                   {plan.subscriber_count.toLocaleString()} subscribers
@@ -101,7 +108,8 @@ function PlanForecastSelector({
 
       {filteredPlans.length > visiblePlans.length && (
         <p className="mt-2 text-xs text-neutral-500">
-          Showing first {MAX_VISIBLE_PLANS.toLocaleString()} matches. Refine search to narrow the list.
+          Showing first {MAX_VISIBLE_PLANS.toLocaleString()} matches. Refine
+          search to narrow the list.
         </p>
       )}
     </section>

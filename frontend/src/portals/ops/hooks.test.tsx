@@ -24,7 +24,9 @@ function wrapper({ children }: { readonly children: React.ReactNode }) {
     defaultOptions: { queries: { retry: false } },
   });
 
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
 }
 
 beforeEach(() => {
@@ -53,7 +55,10 @@ describe("ops hooks", () => {
       },
     });
 
-    const { result } = renderHook(() => usePlanDemandForecast({ forceRefresh: true }), { wrapper });
+    const { result } = renderHook(
+      () => usePlanDemandForecast({ forceRefresh: true }),
+      { wrapper },
+    );
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     const config = apiGet.mock.calls[0]?.[1];
@@ -73,13 +78,20 @@ describe("ops hooks", () => {
     });
 
     const { result } = renderHook(
-      () => usePlanDemandForecast({ forceRefresh: true, planIds: ["plan-a", "plan-b"], runId: 1 }),
+      () =>
+        usePlanDemandForecast({
+          forceRefresh: true,
+          planIds: ["plan-a", "plan-b"],
+          runId: 1,
+        }),
       { wrapper },
     );
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     const config = apiGet.mock.calls[0]?.[1];
-    expect(config?.params?.toString()).toBe("force_refresh=true&plan_ids=plan-a&plan_ids=plan-b");
+    expect(config?.params?.toString()).toBe(
+      "force_refresh=true&plan_ids=plan-a&plan_ids=plan-b",
+    );
   });
 
   it("fetches subscriber growth forecasts through the shared API client", async () => {

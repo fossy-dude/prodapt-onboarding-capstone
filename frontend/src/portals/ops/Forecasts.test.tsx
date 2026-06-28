@@ -44,9 +44,11 @@ vi.mock("recharts", async () => {
   const actual = await vi.importActual<Record<string, unknown>>("recharts");
   return {
     ...actual,
-    ResponsiveContainer: ({ children }: { readonly children: React.ReactNode }) => (
-      <div>{children}</div>
-    ),
+    ResponsiveContainer: ({
+      children,
+    }: {
+      readonly children: React.ReactNode;
+    }) => <div>{children}</div>,
   };
 });
 
@@ -54,7 +56,9 @@ describe("Forecasts", () => {
   let queryClient: QueryClient;
 
   beforeEach(() => {
-    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
   });
 
   const wrapper = ({ children }: { readonly children: React.ReactNode }) => (
@@ -87,7 +91,9 @@ describe("Forecasts", () => {
   it("shows Refresh Forecast button on Plan Demand tab", () => {
     render(<Forecasts />, { wrapper });
 
-    expect(screen.getByRole("button", { name: /Refresh Forecast/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Refresh Forecast/i }),
+    ).toBeInTheDocument();
   });
 
   it("runs forecast for selected plans", async () => {
@@ -132,7 +138,9 @@ describe("Forecasts", () => {
     render(<Forecasts />, { wrapper });
 
     await waitFor(() => {
-      expect(screen.getByText(/Failed to load forecast data/i)).toBeInTheDocument();
+      expect(
+        screen.getByText(/Failed to load forecast data/i),
+      ).toBeInTheDocument();
     });
     expect(screen.getByText("Retry")).toBeInTheDocument();
   });

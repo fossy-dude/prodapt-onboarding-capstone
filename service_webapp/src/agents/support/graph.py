@@ -34,8 +34,10 @@ from typing import TYPE_CHECKING, Any
 from copilotkit.langgraph import CopilotKitState
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
+from psycopg_pool import AsyncConnectionPool
 
 from agents.guardrails.validator import log_rejection
 from agents.support.identity import current_msisdn, current_session_id
@@ -326,12 +328,9 @@ async def create_postgres_checkpointer(conninfo: str) -> BaseCheckpointSaver:
     the checkpoint tables if they do not already exist.  The caller owns the returned
     saver and is responsible for closing its connection pool on shutdown.
     """
-    from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-    from psycopg_pool import AsyncConnectionPool
-
     pool = AsyncConnectionPool(conninfo, open=False, min_size=1, max_size=3)
     await pool.open()
-    checkpointer = AsyncPostgresSaver(pool)
+    checkpointer = AsyncPostgresSaver(pool)  # type: ignore[arg-type]
     await checkpointer.setup()
     return checkpointer
 
@@ -352,7 +351,7 @@ def build_support_graph(llm: BaseChatModel, *, checkpointer: BaseCheckpointSaver
     llm_with_tools = llm.bind_tools(SUPPORT_TOOLS)
 
     async def _node(state: dict) -> dict:
-        return await support_agent_node(state, llm=llm_with_tools)
+        return await support_agent_node(state, llm=llm_with_tools)  # type: ignore[arg-type]
 
     # Tool execution is wrapped in a LangFuse span (patch 4) so DB/Valkey tool
     # latency is observable independently of the LLM call. Observability is

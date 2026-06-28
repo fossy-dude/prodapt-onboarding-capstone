@@ -34,7 +34,12 @@ vi.mock("./hooks", () => ({
     error: null,
   })),
   usePlanDemandForecast: vi.fn(() => ({
-    data: { forecasts: [], model_version: null, trained_at: null, cache_expires_at: null },
+    data: {
+      forecasts: [],
+      model_version: null,
+      trained_at: null,
+      cache_expires_at: null,
+    },
     isLoading: false,
     error: null,
     refetch: vi.fn(),
@@ -61,7 +66,8 @@ describe("Dashboard", () => {
 
     // Reset the overview hooks to success defaults before each test so a per-test
     // override (the error-state test) cannot leak into sibling tests.
-    const { usePlanStock, useOrderCounts, useOrdersByStatus } = await import("./hooks");
+    const { usePlanStock, useOrderCounts, useOrdersByStatus } =
+      await import("./hooks");
     (usePlanStock as ReturnType<typeof vi.fn>).mockReturnValue({
       data: [
         {
@@ -97,7 +103,9 @@ describe("Dashboard", () => {
 
     expect(screen.getByText("Operations Dashboard")).toBeInTheDocument();
     expect(
-      screen.getByText(/Real-time plan adoption and order fulfilment monitoring/)
+      screen.getByText(
+        /Real-time plan adoption and order fulfilment monitoring/,
+      ),
     ).toBeInTheDocument();
   });
 
@@ -119,7 +127,9 @@ describe("Dashboard", () => {
     render(<Dashboard />, { wrapper });
 
     await waitFor(() => {
-      expect(screen.getByText("Error loading dashboard data")).toBeInTheDocument();
+      expect(
+        screen.getByText("Error loading dashboard data"),
+      ).toBeInTheDocument();
       expect(screen.getByText("Retry")).toBeInTheDocument();
     });
   });
@@ -127,6 +137,8 @@ describe("Dashboard", () => {
   it("shows auto-refresh indicator in description", () => {
     render(<Dashboard />, { wrapper });
 
-    expect(screen.getByText(/Auto-refreshes every 30 seconds/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Auto-refreshes every 30 seconds/),
+    ).toBeInTheDocument();
   });
 });

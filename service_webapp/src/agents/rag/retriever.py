@@ -125,7 +125,7 @@ class HybridRetriever:
         self._milvus = MilvusClient(uri=milvus_uri)
         # Milvus Lite persists collections in a released state between restarts;
         # load each known collection so searches work without per-call overhead.
-        _existing = set(self._milvus.list_collections())
+        _existing = set(self._milvus.list_collections())  # type: ignore[arg-type]
         for _col in _COLLECTIONS:
             if _col in _existing:
                 try:

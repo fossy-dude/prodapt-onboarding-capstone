@@ -61,7 +61,9 @@ function BalanceCard() {
           <p className="text-xs font-medium text-neutral-400 uppercase tracking-wide mb-0.5">
             Balance
           </p>
-          <p className="text-3xl font-bold text-neutral-900">{data.balance_inr}</p>
+          <p className="text-3xl font-bold text-neutral-900">
+            {data.balance_inr}
+          </p>
         </div>
       </div>
 

@@ -54,7 +54,7 @@ function Receipts() {
 
   const billingItems = items.filter(
     (txn) =>
-      txn.transaction_type === "recharge" || txn.transaction_type === "refund"
+      txn.transaction_type === "recharge" || txn.transaction_type === "refund",
   );
 
   return (

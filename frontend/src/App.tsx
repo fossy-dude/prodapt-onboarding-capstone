@@ -11,10 +11,8 @@ import { SubscriberLayout } from "./components/layout/SubscriberLayout";
 import { getRole, getToken } from "./lib/auth";
 import { Login } from "./portals/auth/Login";
 import { Logout } from "./portals/auth/Logout";
-import {
-  Chatbot,
-  getOrCreateChatSessionId,
-} from "./portals/subscriber/Chatbot";
+import { Chatbot } from "./portals/subscriber/Chatbot";
+import { getOrCreateChatSessionId } from "./portals/subscriber/utils/chatSessionId";
 import { Dashboard } from "./portals/subscriber/Dashboard";
 import { NotificationPreferences } from "./portals/subscriber/NotificationPreferences";
 import { PaymentMethods } from "./portals/subscriber/PaymentMethods";

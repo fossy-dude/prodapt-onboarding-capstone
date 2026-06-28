@@ -39,7 +39,6 @@ from core.observability.langfuse import get_langfuse_callback_handler
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
-
     from langgraph.checkpoint.base import BaseCheckpointSaver
 
     from core.protocols.cache import CacheProtocol

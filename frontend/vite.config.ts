@@ -11,39 +11,50 @@ function copilotKitPlugin(backendChatUrl: string): Plugin {
     configureServer(server) {
       let handler: NodeHandler | null = null;
 
-      server.middlewares.use(async (req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) => {
-        if (!req.url?.startsWith("/api/chat")) {
-          return next();
-        }
-        try {
-          if (!handler) {
-            const { CopilotRuntime, createCopilotRuntimeHandler } = await import("@copilotkit/runtime/v2");
-            const { LangGraphHttpAgent } = await import("@copilotkit/runtime/langgraph");
-            const { createCopilotNodeHandler } = await import("@copilotkit/runtime/v2/node");
+      server.middlewares.use(
+        async (
+          req: IncomingMessage,
+          res: ServerResponse,
+          next: (err?: unknown) => void,
+        ) => {
+          if (!req.url?.startsWith("/api/chat")) {
+            return next();
+          }
+          try {
+            if (!handler) {
+              const { CopilotRuntime, createCopilotRuntimeHandler } =
+                await import("@copilotkit/runtime/v2");
+              const { LangGraphHttpAgent } =
+                await import("@copilotkit/runtime/langgraph");
+              const { createCopilotNodeHandler } =
+                await import("@copilotkit/runtime/v2/node");
 
-            handler = createCopilotNodeHandler(
-              createCopilotRuntimeHandler({
-                runtime: new CopilotRuntime({
-                  agents: ({ request }: { request: Request }) => ({
-                    support_agent: new LangGraphHttpAgent({
-                      url: backendChatUrl,
-                      headers: {
-                        authorization: request.headers.get("authorization") ?? "",
-                        "x-chat-session-id": request.headers.get("x-chat-session-id") ?? "",
-                      },
+              handler = createCopilotNodeHandler(
+                createCopilotRuntimeHandler({
+                  runtime: new CopilotRuntime({
+                    agents: ({ request }: { request: Request }) => ({
+                      support_agent: new LangGraphHttpAgent({
+                        url: backendChatUrl,
+                        headers: {
+                          authorization:
+                            request.headers.get("authorization") ?? "",
+                          "x-chat-session-id":
+                            request.headers.get("x-chat-session-id") ?? "",
+                        },
+                      }),
                     }),
                   }),
+                  basePath: "/api/chat",
+                  mode: "single-route",
                 }),
-                basePath: "/api/chat",
-                mode: "single-route",
-              }),
-            );
+              );
+            }
+            await handler(req, res);
+          } catch (err) {
+            next(err);
           }
-          await handler(req, res);
-        } catch (err) {
-          next(err);
-        }
-      });
+        },
+      );
     },
   };
 }

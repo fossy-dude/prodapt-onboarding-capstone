@@ -125,11 +125,13 @@ export function NotificationPreferences() {
   });
 
   // Mutation for updating preferences
-  const updateMutation = useMutation({
-    mutationFn: (variables: {
-      notification_type: string;
-      is_enabled: boolean;
-    }) => patchNotificationPreference(variables),
+  const updateMutation = useMutation<
+    { readonly notification_type: string; readonly is_enabled: boolean },
+    unknown,
+    { readonly notification_type: string; readonly is_enabled: boolean },
+    { previous: unknown }
+  >({
+    mutationFn: (variables) => patchNotificationPreference(variables),
     onMutate: async (variables) => {
       await queryClient.cancelQueries({
         queryKey: ["notification-preferences"],
@@ -150,7 +152,10 @@ export function NotificationPreferences() {
     },
     onError: (
       _err: unknown,
-      _variables: unknown,
+      _variables: {
+        readonly notification_type: string;
+        readonly is_enabled: boolean;
+      },
       context: { previous: unknown } | undefined,
     ) => {
       if (context?.previous !== undefined) {

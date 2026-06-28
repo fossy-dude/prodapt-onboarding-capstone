@@ -327,7 +327,7 @@ class MinistackCognitoProvider:
     async def refresh_token(self, refresh_token: str) -> dict:
         """Exchange a Cognito refresh token for a new access token via REFRESH_TOKEN_AUTH."""
         try:
-            pool_id, client_id = await self._ensure_pool()
+            _, client_id = await self._ensure_pool()
             resp = await asyncio.to_thread(
                 self._boto_client().initiate_auth,
                 ClientId=client_id,

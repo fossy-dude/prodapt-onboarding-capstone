@@ -112,10 +112,6 @@ function OrderFulfilment({
         {statuses.map((status) => {
           const count = counts[status] || 0;
           const isSelected = selectedStatus === status;
-          const colors = STATUS_COLORS[status] || {
-            bg: "bg-gray-100",
-            text: "text-gray-800",
-          };
 
           return (
             <div

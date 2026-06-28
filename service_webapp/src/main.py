@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 import uvicorn
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from opentelemetry import trace
@@ -37,6 +38,7 @@ from agents.notification import (
     set_kafka_producer,
     set_notification_graph,
 )
+from agents.support.graph import create_postgres_checkpointer
 
 # Importing settings eager-loads + validates config at boot (fail-fast, AC #1); it is
 # also consumed in the lifespan below, so the import is not merely a side effect.
@@ -58,7 +60,6 @@ from routers.account import (
     router as subscriber_router,
 )
 from routers.balance import router as balance_router
-from agents.support.graph import create_postgres_checkpointer
 from routers.chat import setup_copilotkit
 from routers.health import router as health_router
 from routers.notifications import router as notifications_router
@@ -142,8 +143,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from tests) are left for the caller to manage so lifespan never destroys
     externally-owned resources.
     """
-    from dotenv import load_dotenv
-
     load_dotenv("../.env")
     owned: list[str] = []
     if getattr(app.state, "db_adapter", None) is None:
@@ -259,11 +258,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             app.state.rag_retriever = None
             set_retriever(None)
             set_guardrail(None)  # Story 5.5: Clear guardrail if Azure unavailable
-    # The registration service composes the DB repository + Cognito provider; build
-    # it only when not injected (tests inject a service wired to fakes).
-    if getattr(app.state, "registration_service", None) is None:
-        repo = PostgresRegistrationRepository(app.state.db_adapter)
-        app.state.registration_service = RegistrationService(repo, app.state.cognito_provider)
     if getattr(app.state, "jwt_validator", None) is None:
         app.state.jwt_validator = JWTValidator(_cognito_jwks_url(settings), dev_mode=settings.dev_mode)
     if getattr(app.state, "step_up_service", None) is None:
@@ -287,6 +281,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             cache=app.state.cache_adapter,
             producer=app.state.kafka_producer,
             ttl_seconds=settings.otp_login_ttl_seconds,
+        )
+
+    # The registration service composes the DB repository + Cognito provider + OTP service; build
+    # it only when not injected (tests inject a service wired to fakes).
+    # Must initialize after login_otp_service (line above) so it's available.
+    if getattr(app.state, "registration_service", None) is None:
+        repo = PostgresRegistrationRepository(app.state.db_adapter)
+        app.state.registration_service = RegistrationService(
+            repo, app.state.cognito_provider, app.state.login_otp_service
         )
 
     trace_consumer_task: asyncio.Task | None = None

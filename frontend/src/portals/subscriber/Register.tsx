@@ -183,7 +183,8 @@ function Register() {
             {step === 1 && (
               <CardSection title="Personal details">
                 <p className="mb-4 rounded-md bg-blue-50 px-4 py-3 text-sm text-blue-700">
-                  A mobile number will be automatically assigned when your SIM is activated.
+                  A mobile number will be automatically assigned when your SIM
+                  is activated.
                 </p>
                 <Field
                   label="Full name"

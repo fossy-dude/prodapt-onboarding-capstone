@@ -2,18 +2,21 @@
  * Tests for PlanDemandTable component (Story 7.4 Task 9).
  */
 
+import type * as Recharts from "recharts";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { PlanDemandTable } from "./PlanDemandTable";
 
 vi.mock("recharts", async () => {
-  const actual = await vi.importActual<typeof import("recharts")>("recharts");
+  const actual = await vi.importActual<typeof Recharts>("recharts");
   return {
     ...actual,
-    ResponsiveContainer: ({ children }: { readonly children: React.ReactNode }) => (
-      <div data-testid="responsive-container">{children}</div>
-    ),
+    ResponsiveContainer: ({
+      children,
+    }: {
+      readonly children: React.ReactNode;
+    }) => <div data-testid="responsive-container">{children}</div>,
   };
 });
 
@@ -88,10 +91,15 @@ describe("PlanDemandTable", () => {
   });
 
   it("shows dash when uptake_trend_90d is empty", () => {
+    const mockItem = MOCK_ITEMS[0]!;
     const itemWithNoTrend = [
       {
-        ...MOCK_ITEMS[0],
-        uptake_trend_90d: [],
+        plan_id: mockItem.plan_id,
+        plan_name: mockItem.plan_name,
+        predicted_uptake_30d: mockItem.predicted_uptake_30d,
+        predicted_uptake_60d: mockItem.predicted_uptake_60d,
+        predicted_uptake_90d: mockItem.predicted_uptake_90d,
+        uptake_trend_90d: [] as readonly number[],
       },
     ];
     render(<PlanDemandTable items={itemWithNoTrend} isLoading={false} />);

@@ -6,7 +6,6 @@ import "@copilotkit/react-ui/styles.css";
 
 import { useActivePlan } from "../../hooks/useActivePlan";
 import { useBalance } from "../../hooks/useBalance";
-import { endChatSession } from "../../lib/api";
 import { PlanRecommendationCard } from "./components/PlanRecommendationCard";
 import { ChargeBreakdownTable } from "./components/ChargeBreakdownTable";
 import { TicketConfirmationBanner } from "./components/TicketConfirmationBanner";
@@ -29,29 +28,7 @@ const SUPPORT_INSTRUCTIONS =
   "plan, usage, and account queries. Use tools to fetch real data. Follow TRAI " +
   "regulations. Never reveal PII beyond the MSISDN last-4.";
 
-const CHAT_SESSION_STORAGE_KEY = "sboai_chat_session_id";
 const CHAT_MINIMIZED_KEY = "sboai_chat_minimized";
-
-function getOrCreateChatSessionId(): string {
-  try {
-    const stored = sessionStorage.getItem(CHAT_SESSION_STORAGE_KEY);
-    if (stored) {
-      return stored;
-    }
-  } catch {
-    // sessionStorage may be unavailable (private mode / disabled) — derive fresh.
-  }
-  const id =
-    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID()
-      : `chat-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  try {
-    sessionStorage.setItem(CHAT_SESSION_STORAGE_KEY, id);
-  } catch {
-    // Best-effort persistence; the in-memory id still works for this session.
-  }
-  return id;
-}
 
 interface ChatbotProps {
   /** Stable chat session id (owned by App.tsx) — keys the Valkey context. */
@@ -87,16 +64,6 @@ function Chatbot({ sessionId }: ChatbotProps) {
       // Best-effort
     }
   }, []);
-
-  // Story 5.10 AC #7: trigger Conclusion Agent when chat panel closes.
-  const handleChatClose = async () => {
-    try {
-      await endChatSession({ session_id: sessionId });
-    } catch (error) {
-      // Best-effort: log failure but don't block UI
-      console.error("Failed to trigger session end:", error);
-    }
-  };
 
   // ARCH-23: expose live subscriber context to the agent graph (AC #4).
   useCopilotReadable({
@@ -142,32 +109,40 @@ function Chatbot({ sessionId }: ChatbotProps) {
   });
 
   // Story 5.7 AC #3: render charge breakdown table when charge_explain tool is called.
+
   useCopilotAction({
     name: "charge_explain",
     available: "disabled",
-    render: ({ result }) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    render: (({ result }: { readonly result: any }) => {
       if (!result?.found || !result?.breakdown) {
         return null;
       }
+
       return <ChargeBreakdownTable {...result.breakdown} />;
-    },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any,
   });
 
   // Story 5.8 AC #2/#3: render ticket confirmation banner when ticket_create tool is called.
+
   useCopilotAction({
     name: "ticket_create",
     available: "disabled",
-    render: ({ result }) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    render: (({ result }: { readonly result: any }) => {
       if (!result?.ticket_id) {
         return null;
       }
+
       return (
         <TicketConfirmationBanner
           ticket_id={result.ticket_id}
           message={result.message ?? ""}
         />
       );
-    },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any,
   });
 
   if (isMinimized) {
@@ -225,7 +200,6 @@ function Chatbot({ sessionId }: ChatbotProps) {
         <CopilotChat
           className="h-[520px] rounded-xl border border-neutral-200 bg-white shadow-2xl"
           instructions={SUPPORT_INSTRUCTIONS}
-          onClose={handleChatClose}
           labels={{
             title: "Billing Assistant",
             initial: "Hi! Ask me about your balance, plan or usage.",
@@ -237,4 +211,4 @@ function Chatbot({ sessionId }: ChatbotProps) {
   );
 }
 
-export { Chatbot, getOrCreateChatSessionId };
+export { Chatbot };
