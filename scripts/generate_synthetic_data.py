@@ -7,6 +7,8 @@ Env overrides:
     SEED              (int, default 42)  — random seed for determinism
     SUBSCRIBER_COUNT  (int, default 300000)
     CDR_COUNT         (int, default 5000000)
+    RECHARGE_ORDER_COUNT (int, default 2000)
+    RECHARGE_PLAN_COUNT  (int, default 8)
     SUBSCRIBER_BATCH  (int, default 50000)
     CDR_BATCH         (int, default 100000)
     FRAUD_REPORT_PATH (str, default scripts/fraud_report.json)
@@ -26,22 +28,23 @@ import os
 import random
 import sys
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import psycopg
 from faker import Faker
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "service_webapp" / "src"))
-from core.config import settings  # noqa: E402
+from core.config import settings
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 SEED = int(os.getenv("SEED", "42"))
 SUBSCRIBER_COUNT = int(os.getenv("SUBSCRIBER_COUNT", "300000"))
 CDR_COUNT = int(os.getenv("CDR_COUNT", "5000000"))
+RECHARGE_ORDER_COUNT = int(os.getenv("RECHARGE_ORDER_COUNT", "2000"))
+RECHARGE_PLAN_COUNT = int(os.getenv("RECHARGE_PLAN_COUNT", "8"))
 SUBSCRIBER_BATCH = int(os.getenv("SUBSCRIBER_BATCH", "50000"))
 CDR_BATCH = int(os.getenv("CDR_BATCH", "100000"))
 FRAUD_FRACTION = 0.005
@@ -58,7 +61,6 @@ SEED_PLANS_SQL = (
 # ── Seeding ───────────────────────────────────────────────────────────────────
 
 random.seed(SEED)
-np.random.seed(SEED)
 fake = Faker("en_IN")
 Faker.seed(SEED)
 
@@ -116,7 +118,7 @@ def _conninfo() -> str:
 
 
 def _admin_conninfo() -> str:
-    """Connection string using elevated credentials for truncation of append-only tables.
+    """Return a connection string using elevated credentials for truncation.
 
     billing_cdr_events/billing_transactions/billing_audit_log have DELETE revoked from
     sboai_app (V5 migration). Seed resets require a superuser connection. Falls back to
@@ -207,12 +209,10 @@ SUB_COPY_SQL = (
 )
 
 
-def generate_subscribers(
-    conn: psycopg.Connection, plans_df: pd.DataFrame
-) -> pd.DataFrame:
-    """Insert 300K subscribers; return DataFrame with (id, msisdn, plan_id)."""
+def generate_subscribers(conn: psycopg.Connection, plans_df: pd.DataFrame) -> pd.DataFrame:
+    """Insert subscribers; return DataFrame with identity and activation metadata."""
     log.info("Generating %d subscribers ...", SUBSCRIBER_COUNT)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     plan_ids = plans_df["id"].tolist()
 
     msisdn_set: set[str] = set()
@@ -233,6 +233,7 @@ def generate_subscribers(
         name = fake.name()
         email = fake.email()
         plan_id = random.choice(plan_ids)
+        activated_at = now - timedelta(seconds=random.randint(0, 365 * 24 * 3600))
 
         # Indian address fields
         addr1 = fake.street_address()[:200]
@@ -253,11 +254,11 @@ def generate_subscribers(
             city,
             state,
             pin,
-            now,
+            activated_at,
             now,
         )
         pending.append(row)
-        sub_meta.append({"id": sub_id, "msisdn": msisdn, "plan_id": plan_id})
+        sub_meta.append({"id": sub_id, "msisdn": msisdn, "plan_id": plan_id, "created_at": activated_at})
 
         if len(pending) == SUBSCRIBER_BATCH or i == SUBSCRIBER_COUNT - 1:
             _flush_batch(pending)
@@ -265,7 +266,7 @@ def generate_subscribers(
             pending = []
 
     all_rows = sub_meta  # keep for wallet + CDR generation
-    return pd.DataFrame(all_rows, columns=["id", "msisdn", "plan_id"])
+    return pd.DataFrame(all_rows, columns=["id", "msisdn", "plan_id", "created_at"])
 
 
 # ── Wallet balance generation ─────────────────────────────────────────────────
@@ -280,9 +281,10 @@ WALLET_COPY_SQL = (
 def generate_wallets(
     conn: psycopg.Connection, subs_df: pd.DataFrame, plans_df: pd.DataFrame
 ) -> None:
+    """Generate wallet balance rows for all synthetic subscribers."""
     log.info("Generating wallet balances ...")
     price_map = plans_df.set_index("id")["price_paise"].to_dict()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     pending: list[tuple] = []
 
@@ -313,31 +315,141 @@ def generate_plan_subscriptions(conn: psycopg.Connection) -> int:
     """Ensure every plan-bearing subscriber has an active plans_subscriptions row.
 
     Uses each subscriber's assigned ``identity_subscribers.plan_id``; the subscription
-    window starts now and ends ``validity_days`` later (so GET /subscriber/plan returns
-    the plan and it expires at its natural end). Idempotent — skips subscribers that
-    already have an active subscription. Returns the number of rows inserted.
+    window starts after the subscriber activation timestamp and remains active at seed
+    time, so plan history never predates activation. Idempotent — skips subscribers
+    that already have an active subscription. Returns the number of rows inserted.
     """
     with conn.cursor() as cur:
         cur.execute(
             """
+            WITH subscription_windows AS (
+                SELECT
+                    s.id AS subscriber_id,
+                    s.plan_id,
+                    GREATEST(
+                        s.created_at,
+                        NOW() - (random() * GREATEST(p.validity_days - 1, 0)) * INTERVAL '1 day'
+                    ) AS start_date,
+                    p.validity_days
+                  FROM identity_subscribers s
+                  JOIN plans_plans p ON p.id = s.plan_id
+                 WHERE s.plan_id IS NOT NULL
+                   AND NOT EXISTS (
+                       SELECT 1 FROM plans_subscriptions ps
+                        WHERE ps.subscriber_id = s.id AND ps.status = 'active'
+                   )
+            )
             INSERT INTO plans_subscriptions
                 (id, subscriber_id, plan_id, start_date, end_date, status, created_at, modified_at)
-            SELECT gen_random_uuid(), s.id, s.plan_id,
-                   NOW(),
-                   NOW() + make_interval(days => p.validity_days),
-                   'active', NOW(), NOW()
-              FROM identity_subscribers s
-              JOIN plans_plans p ON p.id = s.plan_id
-             WHERE s.plan_id IS NOT NULL
-               AND NOT EXISTS (
-                   SELECT 1 FROM plans_subscriptions ps
-                    WHERE ps.subscriber_id = s.id AND ps.status = 'active'
-               )
+            SELECT gen_random_uuid(), subscriber_id, plan_id,
+                   start_date,
+                   start_date + validity_days * INTERVAL '1 day',
+                   'active', start_date, NOW()
+              FROM subscription_windows
             """
         )
         inserted = cur.rowcount
     conn.commit()
     log.info("  active plan_subscriptions ensured for %d subscribers", inserted)
+    return inserted
+
+
+# ── Recharge order generation ─────────────────────────────────────────────────
+
+RECHARGE_COPY_SQL = (
+    "COPY recharge_orders "
+    "(subscriber_id, plan_id, amount_paise, idempotency_key, status, completed_at, created_at, modified_at) "
+    "FROM STDIN"
+)
+
+
+def generate_recharge_orders(
+    conn: psycopg.Connection,
+    subs_df: pd.DataFrame,
+    plans_df: pd.DataFrame,
+) -> int:
+    """Generate completed recharge orders for forecastable plan-demand history.
+
+    Orders are restricted to the last 90 days and each order timestamp is after the
+    chosen subscriber's activation timestamp. A small set of plans receives orders over
+    many distinct days so the Holt-Winters forecaster has enough non-empty history.
+    """
+    if RECHARGE_ORDER_COUNT <= 0:
+        log.info("Skipping recharge order generation (RECHARGE_ORDER_COUNT=0)")
+        return 0
+
+    log.info(
+        "Generating %d completed recharge orders across up to %d plans ...",
+        RECHARGE_ORDER_COUNT,
+        RECHARGE_PLAN_COUNT,
+    )
+    now = datetime.now(UTC)
+    window_start = now - timedelta(days=CDR_WINDOW_DAYS)
+    plans_by_id = plans_df.set_index("id")
+    plan_ids = plans_df["id"].tolist()
+    established_plan_ids = subs_df.loc[subs_df["created_at"] <= window_start, "plan_id"].drop_duplicates().tolist()
+    candidate_plan_ids = established_plan_ids or plan_ids
+    forecast_plan_ids = random.sample(candidate_plan_ids, min(RECHARGE_PLAN_COUNT, len(candidate_plan_ids)))
+    orders_per_plan = max(1, RECHARGE_ORDER_COUNT // len(forecast_plan_ids))
+    remainder = RECHARGE_ORDER_COUNT % len(forecast_plan_ids)
+    inserted = 0
+    pending: list[tuple] = []
+
+    def _flush(batch: list[tuple]) -> None:
+        with conn.cursor() as cur:
+            with cur.copy(RECHARGE_COPY_SQL) as copy:
+                for row in batch:
+                    copy.write_row(row)
+        conn.commit()
+
+    for plan_idx, plan_id in enumerate(forecast_plan_ids):
+        plan_subs = subs_df[subs_df["plan_id"] == plan_id]
+        if plan_subs.empty:
+            continue
+        established_subs = plan_subs[plan_subs["created_at"] <= window_start]
+        if not established_subs.empty:
+            plan_subs = established_subs.sample(n=min(50, len(established_subs)), random_state=SEED + plan_idx)
+
+        plan = plans_by_id.loc[plan_id]
+        amount_paise = int(plan["price_paise"])
+        target_count = orders_per_plan + (1 if plan_idx < remainder else 0)
+        active_days = random.sample(range(CDR_WINDOW_DAYS), min(45, CDR_WINDOW_DAYS))
+
+        for order_idx in range(target_count):
+            day_offset = active_days[order_idx % len(active_days)]
+            completed_at = window_start + timedelta(
+                days=day_offset,
+                seconds=random.randint(8 * 3600, 23 * 3600),
+            )
+            eligible = plan_subs[plan_subs["created_at"] <= completed_at]
+            if eligible.empty:
+                continue
+
+            sub = eligible.sample(n=1, random_state=SEED + inserted).iloc[0]
+            created_at = completed_at - timedelta(minutes=random.randint(1, 20))
+            idempotency_key = f"synthetic-recharge-{plan_idx}-{order_idx}-{sub['id']}"
+            pending.append(
+                (
+                    sub["id"],
+                    plan_id,
+                    amount_paise,
+                    idempotency_key[:100],
+                    "completed",
+                    completed_at,
+                    created_at,
+                    completed_at,
+                )
+            )
+            inserted += 1
+
+            if len(pending) == SUBSCRIBER_BATCH:
+                _flush(pending)
+                pending = []
+
+    if pending:
+        _flush(pending)
+
+    log.info("  recharge_orders completed: %d", inserted)
     return inserted
 
 
@@ -370,9 +482,6 @@ def _build_fraud_plan(subscriber_ids: list[str]) -> tuple[dict, dict]:
     """
     n_fraud = max(1, int(len(subscriber_ids) * FRAUD_FRACTION))
     fraud_subs = random.sample(subscriber_ids, n_fraud)
-
-    now = datetime.now(timezone.utc)
-    base_time = now - timedelta(days=CDR_WINDOW_DAYS)
 
     signal_cycle = FRAUD_SIGNAL_NAMES * (n_fraud // len(FRAUD_SIGNAL_NAMES) + 1)
     random.shuffle(signal_cycle)
@@ -492,7 +601,7 @@ def _cdr_row(
     # SIM-swap: apply IMEI based on side of swap_day_offset
     if signal == "sim_swap" and fraud_meta:
         swap_off = fraud_meta.get("swap_day_offset", 45)
-        base = datetime.now(timezone.utc) - timedelta(days=CDR_WINDOW_DAYS)
+        base = datetime.now(UTC) - timedelta(days=CDR_WINDOW_DAYS)
         swap_point = base + timedelta(days=swap_off)
         chosen_imei = (
             fraud_meta["imei_after"]
@@ -535,11 +644,11 @@ def generate_cdrs(
     conn: psycopg.Connection,
     sub_ids: list[str],
     fraud_meta: dict,
+    activation_by_subscriber: dict[str, datetime],
 ) -> dict[str, int]:
     """Generate 5M CDRs in two passes. Returns fraud_flag counts by subscriber."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base_time = now - timedelta(days=CDR_WINDOW_DAYS)
-    total_window_secs = CDR_WINDOW_DAYS * 24 * 3600
 
     fraud_sub_set = set(fraud_meta.keys())
     n_velocity = sum(1 for m in fraud_meta.values() if m["signal"] == "velocity_burst")
@@ -570,6 +679,11 @@ def generate_cdrs(
 
     fraud_flagged_counts: dict[str, int] = {}
 
+    def _random_cdr_start(sub_id: str) -> datetime:
+        earliest = max(base_time, activation_by_subscriber.get(sub_id, base_time))
+        span_seconds = max(0, int((now - earliest).total_seconds()))
+        return earliest + timedelta(seconds=random.randint(0, span_seconds))
+
     def _flush_cdr_batch(batch: list[tuple]) -> None:
         with conn.cursor() as cur:
             with cur.copy(CDR_COPY_SQL) as copy:
@@ -581,8 +695,7 @@ def generate_cdrs(
     pending: list[tuple] = []
     for i in range(pass1_count):
         sub_id = sub_ids[i % len(sub_ids)]
-        offset = random.randint(0, total_window_secs)
-        start = base_time + timedelta(seconds=offset)
+        start = _random_cdr_start(sub_id)
         cdr_type = random.choices(["voice", "data", "sms"], weights=[60, 30, 10])[0]
 
         is_fraud_sub = sub_id in fraud_sub_set
@@ -633,10 +746,11 @@ def generate_cdrs(
     for sub_id in velocity_subs:
         meta = fraud_meta[sub_id]
         day_off = meta.get("fraud_day_offset", 20)
-        burst_base = base_time + timedelta(days=day_off)
+        burst_base = max(base_time + timedelta(days=day_off), activation_by_subscriber.get(sub_id, base_time))
+        burst_window_seconds = max(0, min(86400, int((now - burst_base).total_seconds())))
         for j in range(velocity_burst_per):
             # All burst CDRs within the same 24h window
-            start = burst_base + timedelta(seconds=random.randint(0, 86400))
+            start = burst_base + timedelta(seconds=random.randint(0, burst_window_seconds))
             cdr_type = random.choices(["voice", "data", "sms"], weights=[70, 20, 10])[0]
             row = _cdr_row(sub_id, start, True, cdr_type, meta, None, None, None)
             pending.append(row)
@@ -668,6 +782,7 @@ def write_fraud_report(
     subs_df: pd.DataFrame,
     fraud_flagged_counts: dict[str, int],
 ) -> None:
+    """Write a JSON report describing generated fraud subscribers."""
     msisdn_map = subs_df.set_index("id")["msisdn"].to_dict()
     report = []
     for sub_id, meta in fraud_meta.items():
@@ -701,6 +816,7 @@ def _has_subscribers(conn: psycopg.Connection) -> bool:
 
 
 def main() -> None:
+    """Run the synthetic data generation workflow."""
     parser = argparse.ArgumentParser(
         description="Synthetic data generator for SkyLink."
     )
@@ -735,19 +851,22 @@ def main() -> None:
         subs_df = generate_subscribers(conn, plans_df)
         generate_wallets(conn, subs_df, plans_df)
         generate_plan_subscriptions(conn)
+        recharge_count = generate_recharge_orders(conn, subs_df, plans_df)
 
         sub_ids = subs_df["id"].tolist()
+        activation_by_subscriber = subs_df.set_index("id")["created_at"].to_dict()
         fraud_meta, _ = _build_fraud_plan(sub_ids)
 
-        fraud_flagged_counts = generate_cdrs(conn, sub_ids, fraud_meta)
+        fraud_flagged_counts = generate_cdrs(conn, sub_ids, fraud_meta, activation_by_subscriber)
 
     write_fraud_report(fraud_meta, subs_df, fraud_flagged_counts)
 
     total_flagged = len(fraud_meta)
     log.info(
-        "Seed complete — plans=%d subscribers=%d cdrs=%d fraud_flagged_subscribers=%d",
+        "Seed complete — plans=%d subscribers=%d recharge_orders=%d cdrs=%d fraud_flagged_subscribers=%d",
         len(plans_df),
         len(subs_df),
+        recharge_count,
         CDR_COUNT,
         total_flagged,
     )

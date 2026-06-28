@@ -283,6 +283,22 @@ _FORECAST_HOLDOUT_DAYS = 30
 _FORECAST_CACHE_HOURS = 24
 
 
+def _subscriber_growth_data_warning(history: list[dict]) -> dict | None:
+    """Return a low-data warning when recent activation history is sparse."""
+    recent_history = history[-_MIN_HISTORY_DAYS:]
+    active_days = sum(1 for row in recent_history if row["activations"] > 0)
+    if active_days >= _MIN_HISTORY_DAYS:
+        return None
+    return {
+        "code": "INSUFFICIENT_FORECAST_DATA",
+        "message": (
+            f"Forecast is based on limited data: {active_days} data points over the last {_MIN_HISTORY_DAYS} days."
+        ),
+        "data_points": active_days,
+        "window_days": _MIN_HISTORY_DAYS,
+    }
+
+
 @router.get("/forecasts/subscriber-growth", status_code=200)
 async def get_subscriber_growth_forecast(
     request: Request,
@@ -310,18 +326,11 @@ async def get_subscriber_growth_forecast(
         if cached is not None:
             return success_envelope(data=cached, trace_id=_trace_id(request))
 
-    # 2. Cache miss / forced refresh: gather history and validate sufficiency (AC #1).
+    # 2. Cache miss / forced refresh: gather available history. Sparse recent data
+    #    is returned as a response warning rather than blocking the forecast.
     async with db.connection() as conn:
         history = await get_historical_activations_churn(conn, days_back=180)
-
-    active_days = sum(1 for row in history if row["activations"] > 0)
-    if active_days < _MIN_HISTORY_DAYS:
-        err = DomainError(
-            f"Insufficient historical data: need >= {_MIN_HISTORY_DAYS} days of activations, found {active_days}.",
-            detail={"days_available": active_days, "days_required": _MIN_HISTORY_DAYS},
-        )
-        err.code = "INSUFFICIENT_FORECAST_DATA"
-        raise err
+    warning = _subscriber_growth_data_warning(history)
 
     # 3. Train + evaluate (soft MAPE gate) + predict. Any model failure degrades to a
     #    clean 500 envelope instead of an unhandled traceback (Task 10).
@@ -337,6 +346,9 @@ async def get_subscriber_growth_forecast(
         err.code = "FORECAST_GENERATION_FAILED"
         err.http_status = 500
         raise err from exc
+
+    if warning is not None:
+        payload = {**payload, "warning": warning}
 
     # 4. Persist to the cache. Transactional so the DELETE + INSERT commits atomically;
     #    a cache-write failure is non-fatal — the forecast is still returned.

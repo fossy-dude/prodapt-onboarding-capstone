@@ -57,7 +57,38 @@ describe("SubscriberGrowthForecast", () => {
     expect(screen.getByText(/gradient_boosting_v1/)).toBeInTheDocument();
     expect(screen.getByText(/Served from cache/)).toBeInTheDocument();
     expect(screen.getByText(/activations 8.2%/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Refresh Forecast" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Refresh Forecast" }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders a limited-data warning above the forecast", async () => {
+    const { useSubscriberGrowthForecast } = await import("./hooks");
+    (useSubscriberGrowthForecast as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: {
+        ...successData,
+        warning: {
+          code: "INSUFFICIENT_FORECAST_DATA",
+          message:
+            "Forecast is based on limited data: 2 data points over the last 90 days.",
+          data_points: 2,
+          window_days: 90,
+        },
+      },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    render(<SubscriberGrowthForecast />);
+
+    expect(screen.getByText("Limited data forecast.")).toBeInTheDocument();
+    expect(
+      screen.getByText(/2 data points over the last 90 days/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Subscriber Growth Forecast (90-Day Projection)"),
+    ).toBeInTheDocument();
   });
 
   it("renders the loading state", async () => {

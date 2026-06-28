@@ -552,14 +552,14 @@ async def test_plan_demand_selected_plan_ids_use_complete_cache(forecast_client:
 
 
 def _make_growth_history(active_days: int = 120) -> list[dict]:
-    """180-day window with exactly *active_days* non-zero-activation days."""
+    """180-day window with exactly *active_days* recent non-zero-activation days."""
     today = date.today()
     start = today - timedelta(days=179)
     return [
         {
             "date": (start + timedelta(days=i)).isoformat(),
-            "activations": 10 if i < active_days else 0,
-            "churn": 1 if i < active_days else 0,
+            "activations": 10 if i >= 180 - active_days else 0,
+            "churn": 1 if i >= 180 - active_days else 0,
         }
         for i in range(180)
     ]
@@ -709,16 +709,25 @@ async def test_subscriber_growth_cache_miss_trains_and_returns_200(growth_client
 
 
 @pytest.mark.asyncio
-async def test_subscriber_growth_insufficient_history_returns_400(growth_client: GrowthTestContext) -> None:
-    """Fewer than 90 active days returns 400 INSUFFICIENT_FORECAST_DATA."""
+async def test_subscriber_growth_insufficient_history_returns_200_with_warning(
+    growth_client: GrowthTestContext,
+) -> None:
+    """Fewer than 90 recent active days returns a forecast with a warning."""
     growth_client.mock_cached.return_value = None
     growth_client.mock_historical.return_value = _make_growth_history(30)
 
     response = await growth_client.get("/api/v1/ops/forecasts/subscriber-growth")
 
-    assert response.status_code == 400
-    assert response.json()["error"]["code"] == "INSUFFICIENT_FORECAST_DATA"
-    growth_client.mock_build.assert_not_called()
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["warning"] == {
+        "code": "INSUFFICIENT_FORECAST_DATA",
+        "message": "Forecast is based on limited data: 30 data points over the last 90 days.",
+        "data_points": 30,
+        "window_days": 90,
+    }
+    growth_client.mock_build.assert_called_once()
+    growth_client.mock_save.assert_awaited_once()
 
 
 @pytest.mark.asyncio

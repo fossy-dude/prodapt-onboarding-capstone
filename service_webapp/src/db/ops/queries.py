@@ -461,6 +461,9 @@ async def get_cached_subscriber_growth_forecast(
 
     first = rows[0]
     metrics: Any = first[10] if first[10] is not None else {}
+    warning = metrics.get("warning") if isinstance(metrics, dict) else None
+    if isinstance(metrics, dict) and "warning" in metrics:
+        metrics = {key: value for key, value in metrics.items() if key != "warning"}
     return {
         "forecast_type": forecast_type,
         "model_version": first[7],
@@ -469,6 +472,7 @@ async def get_cached_subscriber_growth_forecast(
         "metrics": metrics,
         "cache_expires_at": _isoformat(first[9]),
         "from_cache": True,
+        "warning": warning,
         "forecasts": [
             {
                 "date": _isoformat(row[0]),
@@ -510,6 +514,9 @@ async def save_subscriber_growth_forecast(
     model_version = payload.get("model_version")
     trained_at = payload.get("trained_at")
     metrics = payload.get("metrics") or {}
+    warning = payload.get("warning")
+    if warning is not None:
+        metrics = {**metrics, "warning": warning}
 
     await conn.execute("DELETE FROM forecast_results WHERE forecast_type = %s", (forecast_type,))
 

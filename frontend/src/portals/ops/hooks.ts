@@ -133,6 +133,13 @@ export interface SubscriberGrowthForecastMetrics {
   readonly holdout_days: number;
 }
 
+export interface SubscriberGrowthForecastWarning {
+  readonly code: string;
+  readonly message: string;
+  readonly data_points: number;
+  readonly window_days: number;
+}
+
 /**
  * Subscriber growth forecast API response shape (the `data` payload, Story 7.3).
  */
@@ -144,6 +151,7 @@ export interface SubscriberGrowthForecastData {
   readonly horizon_days: number;
   readonly from_cache: boolean;
   readonly metrics: SubscriberGrowthForecastMetrics;
+  readonly warning?: SubscriberGrowthForecastWarning | null;
   readonly forecasts: readonly SubscriberGrowthForecastPoint[];
 }
 

@@ -14,7 +14,8 @@ import { useSubscriberGrowthForecast } from "./hooks";
 
 function SubscriberGrowthForecast() {
   const [forceRefresh, setForceRefresh] = useState(false);
-  const { data, isLoading, error, refetch } = useSubscriberGrowthForecast(forceRefresh);
+  const { data, isLoading, error, refetch } =
+    useSubscriberGrowthForecast(forceRefresh);
 
   const handleRefresh = () => {
     setForceRefresh(true);
@@ -22,7 +23,11 @@ function SubscriberGrowthForecast() {
   };
 
   if (isLoading) {
-    return <p className="py-8 text-center text-sm text-neutral-500">Loading forecast…</p>;
+    return (
+      <p className="py-8 text-center text-sm text-neutral-500">
+        Loading forecast…
+      </p>
+    );
   }
 
   if (error) {
@@ -41,6 +46,13 @@ function SubscriberGrowthForecast() {
 
   return (
     <div className="space-y-4">
+      {data?.warning && (
+        <div className="rounded border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span className="font-medium">Limited data forecast.</span>{" "}
+          {data.warning.message}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-4 text-xs text-neutral-400">
           {data?.model_version && <span>Model: {data.model_version}</span>}
@@ -48,9 +60,15 @@ function SubscriberGrowthForecast() {
             <span>Trained: {new Date(data.trained_at).toLocaleString()}</span>
           )}
           {data?.cache_expires_at && (
-            <span>Cache expires: {new Date(data.cache_expires_at).toLocaleString()}</span>
+            <span>
+              Cache expires: {new Date(data.cache_expires_at).toLocaleString()}
+            </span>
           )}
-          {data && <span>{data.from_cache ? "Served from cache" : "Newly trained"}</span>}
+          {data && (
+            <span>
+              {data.from_cache ? "Served from cache" : "Newly trained"}
+            </span>
+          )}
           {data && (
             <span>
               Holdout MAPE — activations {mapeActivations}%, churn {mapeChurn}%
