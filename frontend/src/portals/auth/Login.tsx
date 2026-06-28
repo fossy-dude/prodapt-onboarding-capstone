@@ -21,7 +21,12 @@ import {
   verifyLoginOtp,
   ERROR_CODES,
 } from "../../lib/api";
-import { getRole, isAuthenticated, saveRefreshToken, saveToken } from "../../lib/auth";
+import {
+  getRole,
+  isAuthenticated,
+  saveRefreshToken,
+  saveToken,
+} from "../../lib/auth";
 import { type IdentifierKind, validateIdentifier } from "./identifier";
 
 /** Map portal role to its root route. */
@@ -30,8 +35,8 @@ const ROLE_ROUTE: Record<string, string> = {
   ops: "/ops/dashboard",
   fraud: "/fraud",
   dev: "/simulator",
-  admin: "/ops",
-  marketing: "/ops",
+  admin: "/ops/dashboard",
+  marketing: "/ops/dashboard",
 };
 
 type Step = "identifier" | "otp";
@@ -41,7 +46,9 @@ function Login() {
   const [step, setStep] = useState<Step>("identifier");
   const [identifier, setIdentifier] = useState("");
   const [normalizedIdentifier, setNormalizedIdentifier] = useState("");
-  const [identifierKind, setIdentifierKind] = useState<IdentifierKind | null>(null);
+  const [identifierKind, setIdentifierKind] = useState<IdentifierKind | null>(
+    null,
+  );
   const [otp, setOtp] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
 

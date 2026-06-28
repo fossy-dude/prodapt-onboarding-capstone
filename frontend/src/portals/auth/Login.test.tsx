@@ -56,13 +56,13 @@ describe("Login", () => {
   });
 
   it.each(["admin", "marketing"])(
-    "preserves the existing %s landing route",
+    "redirects an authenticated %s user to the ops dashboard",
     (role) => {
       saveToken(makeToken(role));
 
       renderLogin();
 
-      expect(screen.getByText("Ops portal")).toBeInTheDocument();
+      expect(screen.getByText("Ops dashboard")).toBeInTheDocument();
     },
   );
 });

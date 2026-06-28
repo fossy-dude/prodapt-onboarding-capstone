@@ -3,8 +3,8 @@
  * Displays plan stock, order fulfilment, and demand forecast views.
  */
 
-import { PlanStock, type PlanStockItem } from "./PlanStock";
-import { OrderFulfilment, type OrderItem } from "./OrderFulfilment";
+import { PlanStock } from "./PlanStock";
+import { OrderFulfilment } from "./OrderFulfilment";
 import { Forecasts } from "./Forecasts";
 import { usePlanStock, useOrderCounts, useOrdersByStatus } from "./hooks";
 
@@ -34,7 +34,9 @@ function Dashboard() {
   if (plansError || countsError || ordersError) {
     return (
       <div className="rounded-lg border border-red-200 bg-red-50 p-6">
-        <h2 className="mb-2 text-lg font-semibold text-red-900">Error loading dashboard data</h2>
+        <h2 className="mb-2 text-lg font-semibold text-red-900">
+          Error loading dashboard data
+        </h2>
         <p className="text-sm text-red-700">
           {(plansError as Error)?.message ||
             (countsError as Error)?.message ||
@@ -52,11 +54,14 @@ function Dashboard() {
   }
 
   return (
-    <div className="space-y-6">
+    <main className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
       <div>
-        <h1 className="text-2xl font-bold text-neutral-900">Operations Dashboard</h1>
+        <h1 className="text-2xl font-bold text-neutral-900">
+          Operations Dashboard
+        </h1>
         <p className="mt-1 text-sm text-neutral-500">
-          Real-time plan adoption and order fulfilment monitoring. Auto-refreshes every 30 seconds.
+          Real-time plan adoption and order fulfilment monitoring.
+          Auto-refreshes every 30 seconds.
         </p>
       </div>
 
@@ -69,11 +74,13 @@ function Dashboard() {
         ordersIsLoading={ordersIsLoading}
       />
 
-      <div>
-        <h2 className="mb-3 text-lg font-semibold text-neutral-900">Demand Forecasts</h2>
+      <div id="forecasts">
+        <h2 className="mb-3 text-lg font-semibold text-neutral-900">
+          Demand Forecasts
+        </h2>
         <Forecasts />
       </div>
-    </div>
+    </main>
   );
 }
 

@@ -5,10 +5,12 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { CopilotKit } from "@copilotkit/react-core";
 
 import { RoleGuard } from "./components/layout/RoleGuard";
+import { OpsLayout } from "./components/layout/OpsLayout";
 import { SimulatorLayout } from "./components/layout/SimulatorLayout";
 import { SubscriberLayout } from "./components/layout/SubscriberLayout";
 import { getRole, getToken } from "./lib/auth";
 import { Login } from "./portals/auth/Login";
+import { Logout } from "./portals/auth/Logout";
 import {
   Chatbot,
   getOrCreateChatSessionId,
@@ -43,11 +45,7 @@ function PortalPlaceholder({ role }: { readonly role: string }) {
 }
 
 function OpsHome() {
-  return getRole() === "ops" ? (
-    <Navigate to="dashboard" replace />
-  ) : (
-    <PortalPlaceholder role="Ops" />
-  );
+  return getRole() !== null ? <Navigate to="dashboard" replace /> : null;
 }
 
 /**
@@ -93,6 +91,7 @@ function App() {
     <Routes>
       {/* Public routes */}
       <Route path="/login" element={<Login />} />
+      <Route path="/logout" element={<Logout />} />
       <Route path="/register" element={<Register />} />
       {/* Dev-only public route: Notification Portal (when VITE_NOTIFICATION_PORTAL_OPEN_IN_DEV=true) */}
       {notificationPortalOpenInDev && (
@@ -157,11 +156,13 @@ function App() {
         path="/ops/*"
         element={
           <RoleGuard allowedRoles={["ops", "admin", "marketing"]}>
-            <Routes>
-              <Route index element={<OpsHome />} />
-              <Route path="dashboard" element={<OpsDashboard />} />
-              <Route path="*" element={<PortalPlaceholder role="Ops" />} />
-            </Routes>
+            <OpsLayout>
+              <Routes>
+                <Route index element={<OpsHome />} />
+                <Route path="dashboard" element={<OpsDashboard />} />
+                <Route path="*" element={<PortalPlaceholder role="Ops" />} />
+              </Routes>
+            </OpsLayout>
           </RoleGuard>
         }
       />

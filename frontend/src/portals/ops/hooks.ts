@@ -14,6 +14,8 @@ interface PlanStockItem {
   readonly plan_id: string;
   readonly plan_name: string;
   readonly subscriber_count: number;
+  readonly l1m_additions?: number | null;
+  readonly p1m_additions?: number | null;
 }
 
 interface ApiEnvelope<TData> {
@@ -43,9 +45,8 @@ export function usePlanStock() {
   return useQuery<PlanStockItem[]>({
     queryKey: ["ops", "plan-stock"],
     queryFn: async () => {
-      const { data } = await apiClient.get<ApiEnvelope<PlanStockItem[]>>(
-        "/ops/plan-stock",
-      );
+      const { data } =
+        await apiClient.get<ApiEnvelope<PlanStockItem[]>>("/ops/plan-stock");
       return data.data;
     },
     refetchInterval: 30000, // 30-second auto-refresh (Story 7.2 AC #6)
@@ -83,10 +84,11 @@ export function usePlanDemandForecast(forceRefresh = false) {
   return useQuery<PlanDemandForecastResponse>({
     queryKey: ["ops", "forecasts", "plan-demand", forceRefresh],
     queryFn: async () => {
-      const { data } = await apiClient.get<ApiEnvelope<PlanDemandForecastResponse>>(
-        "/ops/forecasts/plan-demand",
-        { params: forceRefresh ? { force_refresh: true } : undefined },
-      );
+      const { data } = await apiClient.get<
+        ApiEnvelope<PlanDemandForecastResponse>
+      >("/ops/forecasts/plan-demand", {
+        params: forceRefresh ? { force_refresh: true } : undefined,
+      });
       return data.data;
     },
     retry: 1,
@@ -139,10 +141,11 @@ export function useSubscriberGrowthForecast(forceRefresh = false) {
   return useQuery<SubscriberGrowthForecastData>({
     queryKey: ["ops", "forecasts", "subscriber-growth", forceRefresh],
     queryFn: async () => {
-      const { data } = await apiClient.get<ApiEnvelope<SubscriberGrowthForecastData>>(
-        "/ops/forecasts/subscriber-growth",
-        { params: forceRefresh ? { force_refresh: true } : undefined },
-      );
+      const { data } = await apiClient.get<
+        ApiEnvelope<SubscriberGrowthForecastData>
+      >("/ops/forecasts/subscriber-growth", {
+        params: forceRefresh ? { force_refresh: true } : undefined,
+      });
       return data.data;
     },
     retry: 1,
@@ -157,9 +160,8 @@ export function useOrderCounts() {
   return useQuery<OrderFulfilmentCounts>({
     queryKey: ["ops", "order-counts"],
     queryFn: async () => {
-      const { data } = await apiClient.get<ApiEnvelope<OrderFulfilmentCounts>>(
-        "/ops/orders",
-      );
+      const { data } =
+        await apiClient.get<ApiEnvelope<OrderFulfilmentCounts>>("/ops/orders");
       return data.data;
     },
     refetchInterval: 30000, // 30-second auto-refresh
@@ -181,9 +183,12 @@ export function useOrdersByStatus(
   return useQuery<OrderItem[]>({
     queryKey: ["ops", "orders", status, limit, offset],
     queryFn: async () => {
-      const { data } = await apiClient.get<ApiEnvelope<OrderItem[]>>("/ops/orders", {
-        params: { status, limit, offset },
-      });
+      const { data } = await apiClient.get<ApiEnvelope<OrderItem[]>>(
+        "/ops/orders",
+        {
+          params: { status, limit, offset },
+        },
+      );
       return data.data;
     },
     refetchInterval: 30000, // 30-second auto-refresh

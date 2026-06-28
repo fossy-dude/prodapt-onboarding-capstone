@@ -2,8 +2,8 @@
  * Tests for PlanStock component (Story 7.2 Task 7).
  */
 
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { PlanStock, type PlanStockItem } from "./PlanStock";
 
 describe("PlanStock", () => {
@@ -12,16 +12,22 @@ describe("PlanStock", () => {
       plan_id: "plan-1",
       plan_name: "Basic Plan",
       subscriber_count: 150,
+      l1m_additions: 25,
+      p1m_additions: 20,
     },
     {
       plan_id: "plan-2",
       plan_name: "Premium Plan",
       subscriber_count: 300,
+      l1m_additions: 60,
+      p1m_additions: 30,
     },
     {
       plan_id: "plan-3",
       plan_name: "Enterprise Plan",
       subscriber_count: 50,
+      l1m_additions: 5,
+      p1m_additions: 10,
     },
   ];
 
@@ -29,6 +35,8 @@ describe("PlanStock", () => {
     render(<PlanStock plans={mockPlans} isLoading={false} />);
 
     expect(screen.getByText("Plan Stock")).toBeInTheDocument();
+    expect(screen.getByText("L1M Additions")).toBeInTheDocument();
+    expect(screen.getByText("Growth vs P1M")).toBeInTheDocument();
     expect(screen.getByText("Basic Plan")).toBeInTheDocument();
     expect(screen.getByText("Premium Plan")).toBeInTheDocument();
     expect(screen.getByText("Enterprise Plan")).toBeInTheDocument();
@@ -47,29 +55,58 @@ describe("PlanStock", () => {
 
     const rows = screen.getAllByRole("row");
     // First data row should be Premium (300 subscribers)
-    expect(rows[1]).toHaveTextContent("Premium Plan300");
+    expect(rows[1]).toHaveTextContent(/Premium Plan.*300/);
   });
 
   it("allows sorting by plan name", () => {
     render(<PlanStock plans={mockPlans} isLoading={false} />);
 
     const planNameHeader = screen.getByText("Plan Name");
-    planNameHeader.click();
+    fireEvent.click(planNameHeader);
 
     const rows = screen.getAllByRole("row");
     // After sorting by name ascending, Basic should be first
-    expect(rows[1]).toHaveTextContent("Basic Plan150");
+    expect(rows[1]).toHaveTextContent(/Basic Plan.*150/);
   });
 
   it("toggles sort direction when clicking same column", () => {
     render(<PlanStock plans={mockPlans} isLoading={false} />);
 
     const subscriberHeader = screen.getByText("Subscribers");
-    subscriberHeader.click(); // First click - should already be desc
+    fireEvent.click(subscriberHeader);
 
     const rows = screen.getAllByRole("row");
-    // Still descending (Premium first with 300)
-    expect(rows[1]).toHaveTextContent("Premium Plan300");
+    expect(rows[1]).toHaveTextContent(/Enterprise Plan.*50/);
+  });
+
+  it("filters plans by search text on the client", () => {
+    render(<PlanStock plans={mockPlans} isLoading={false} />);
+
+    fireEvent.change(screen.getByLabelText("Search plans"), {
+      target: { value: "premium" },
+    });
+
+    expect(screen.getByText("Premium Plan")).toBeInTheDocument();
+    expect(screen.queryByText("Basic Plan")).not.toBeInTheDocument();
+    expect(screen.queryByText("Enterprise Plan")).not.toBeInTheDocument();
+  });
+
+  it("uses a configurable maximum visible row count for the scroll area", () => {
+    render(
+      <PlanStock plans={mockPlans} isLoading={false} maxVisibleRows={2} />,
+    );
+
+    expect(screen.getByLabelText("Scrollable plan stock table")).toHaveStyle({
+      maxHeight: "151px",
+    });
+  });
+
+  it("shows last month additions and growth vs previous month", () => {
+    render(<PlanStock plans={mockPlans} isLoading={false} />);
+
+    expect(screen.getByText("60")).toBeInTheDocument();
+    expect(screen.getByText("+100.0%")).toBeInTheDocument();
+    expect(screen.getByText("-50.0%")).toBeInTheDocument();
   });
 
   it("shows loading skeleton while data is loading", () => {
@@ -89,7 +126,9 @@ describe("PlanStock", () => {
   it("calls onRowClick when a plan row is clicked", () => {
     const onRowClick = vi.fn();
 
-    render(<PlanStock plans={mockPlans} isLoading={false} onRowClick={onRowClick} />);
+    render(
+      <PlanStock plans={mockPlans} isLoading={false} onRowClick={onRowClick} />,
+    );
 
     const basicRow = screen.getByText("Basic Plan").closest("tr");
     basicRow?.click();
@@ -100,11 +139,15 @@ describe("PlanStock", () => {
   it("supports keyboard navigation for row selection", () => {
     const onRowClick = vi.fn();
 
-    render(<PlanStock plans={mockPlans} isLoading={false} onRowClick={onRowClick} />);
+    render(
+      <PlanStock plans={mockPlans} isLoading={false} onRowClick={onRowClick} />,
+    );
 
     const premiumRow = screen.getByText("Premium Plan").closest("tr");
     premiumRow?.focus();
-    premiumRow?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    if (premiumRow !== null) {
+      fireEvent.keyDown(premiumRow, { key: "Enter" });
+    }
 
     expect(onRowClick).toHaveBeenCalledWith("plan-2");
   });
