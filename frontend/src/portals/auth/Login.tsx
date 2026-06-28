@@ -27,7 +27,7 @@ import { type IdentifierKind, validateIdentifier } from "./identifier";
 /** Map portal role to its root route. */
 const ROLE_ROUTE: Record<string, string> = {
   subscriber: "/subscriber/dashboard",
-  ops: "/ops",
+  ops: "/ops/dashboard",
   fraud: "/fraud",
   dev: "/simulator",
   admin: "/ops",

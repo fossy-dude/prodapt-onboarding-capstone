@@ -7,7 +7,7 @@ import { CopilotKit } from "@copilotkit/react-core";
 import { RoleGuard } from "./components/layout/RoleGuard";
 import { SimulatorLayout } from "./components/layout/SimulatorLayout";
 import { SubscriberLayout } from "./components/layout/SubscriberLayout";
-import { getToken } from "./lib/auth";
+import { getRole, getToken } from "./lib/auth";
 import { Login } from "./portals/auth/Login";
 import {
   Chatbot,
@@ -39,6 +39,14 @@ function PortalPlaceholder({ role }: { readonly role: string }) {
       <h1 className="text-2xl font-bold text-neutral-900">{role} portal</h1>
       <p className="mt-2 text-sm text-neutral-500">Dashboard coming soon.</p>
     </main>
+  );
+}
+
+function OpsHome() {
+  return getRole() === "ops" ? (
+    <Navigate to="dashboard" replace />
+  ) : (
+    <PortalPlaceholder role="Ops" />
   );
 }
 
@@ -150,6 +158,7 @@ function App() {
         element={
           <RoleGuard allowedRoles={["ops", "admin", "marketing"]}>
             <Routes>
+              <Route index element={<OpsHome />} />
               <Route path="dashboard" element={<OpsDashboard />} />
               <Route path="*" element={<PortalPlaceholder role="Ops" />} />
             </Routes>

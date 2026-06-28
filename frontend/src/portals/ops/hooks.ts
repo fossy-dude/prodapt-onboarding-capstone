@@ -5,6 +5,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import { apiClient } from "../../lib/api";
+
 /**
  * Plan stock item returned from the API.
  */
@@ -12,6 +14,10 @@ interface PlanStockItem {
   readonly plan_id: string;
   readonly plan_name: string;
   readonly subscriber_count: number;
+}
+
+interface ApiEnvelope<TData> {
+  readonly data: TData;
 }
 
 /**
@@ -37,18 +43,9 @@ export function usePlanStock() {
   return useQuery<PlanStockItem[]>({
     queryKey: ["ops", "plan-stock"],
     queryFn: async () => {
-      const token = localStorage.getItem("token");
-      const response = await fetch("/api/v1/ops/plan-stock", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch plan stock: ${response.statusText}`);
-      }
-
-      const data = await response.json();
+      const { data } = await apiClient.get<ApiEnvelope<PlanStockItem[]>>(
+        "/ops/plan-stock",
+      );
       return data.data;
     },
     refetchInterval: 30000, // 30-second auto-refresh (Story 7.2 AC #6)
@@ -86,21 +83,11 @@ export function usePlanDemandForecast(forceRefresh = false) {
   return useQuery<PlanDemandForecastResponse>({
     queryKey: ["ops", "forecasts", "plan-demand", forceRefresh],
     queryFn: async () => {
-      const token = localStorage.getItem("token");
-      const url = forceRefresh
-        ? "/api/v1/ops/forecasts/plan-demand?force_refresh=true"
-        : "/api/v1/ops/forecasts/plan-demand";
-
-      const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch plan demand forecast: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      return data.data as PlanDemandForecastResponse;
+      const { data } = await apiClient.get<ApiEnvelope<PlanDemandForecastResponse>>(
+        "/ops/forecasts/plan-demand",
+        { params: forceRefresh ? { force_refresh: true } : undefined },
+      );
+      return data.data;
     },
     retry: 1,
     staleTime: 60 * 60 * 1000, // treat as fresh for 1 hour (server TTL is 24h)
@@ -152,23 +139,11 @@ export function useSubscriberGrowthForecast(forceRefresh = false) {
   return useQuery<SubscriberGrowthForecastData>({
     queryKey: ["ops", "forecasts", "subscriber-growth", forceRefresh],
     queryFn: async () => {
-      const token = localStorage.getItem("token");
-      const url = forceRefresh
-        ? "/api/v1/ops/forecasts/subscriber-growth?force_refresh=true"
-        : "/api/v1/ops/forecasts/subscriber-growth";
-
-      const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!response.ok) {
-        throw new Error(
-          `Failed to fetch subscriber growth forecast: ${response.statusText}`,
-        );
-      }
-
-      const data = await response.json();
-      return data.data as SubscriberGrowthForecastData;
+      const { data } = await apiClient.get<ApiEnvelope<SubscriberGrowthForecastData>>(
+        "/ops/forecasts/subscriber-growth",
+        { params: forceRefresh ? { force_refresh: true } : undefined },
+      );
+      return data.data;
     },
     retry: 1,
     staleTime: 24 * 60 * 60 * 1000, // 24h — forecasts are cached daily, no auto-refresh
@@ -182,18 +157,9 @@ export function useOrderCounts() {
   return useQuery<OrderFulfilmentCounts>({
     queryKey: ["ops", "order-counts"],
     queryFn: async () => {
-      const token = localStorage.getItem("token");
-      const response = await fetch("/api/v1/ops/orders", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch order counts: ${response.statusText}`);
-      }
-
-      const data = await response.json();
+      const { data } = await apiClient.get<ApiEnvelope<OrderFulfilmentCounts>>(
+        "/ops/orders",
+      );
       return data.data;
     },
     refetchInterval: 30000, // 30-second auto-refresh
@@ -215,24 +181,9 @@ export function useOrdersByStatus(
   return useQuery<OrderItem[]>({
     queryKey: ["ops", "orders", status, limit, offset],
     queryFn: async () => {
-      const token = localStorage.getItem("token");
-      const params = new URLSearchParams({
-        status,
-        limit: limit.toString(),
-        offset: offset.toString(),
+      const { data } = await apiClient.get<ApiEnvelope<OrderItem[]>>("/ops/orders", {
+        params: { status, limit, offset },
       });
-
-      const response = await fetch(`/api/v1/ops/orders?${params}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch orders: ${response.statusText}`);
-      }
-
-      const data = await response.json();
       return data.data;
     },
     refetchInterval: 30000, // 30-second auto-refresh
