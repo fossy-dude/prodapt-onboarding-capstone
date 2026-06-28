@@ -183,11 +183,17 @@ async def test_get_plan_stock_with_ops_role_returns_200(ops_client: OpsTestConte
             "plan_id": str(plan_id_2),
             "plan_name": "Premium Plan",
             "subscriber_count": 300,
+            "l1m_additions": 60,
+            "p1m_additions": 30,
+            "growth_percent": 100.0,
         },
         {
             "plan_id": str(plan_id_1),
             "plan_name": "Basic Plan",
             "subscriber_count": 150,
+            "l1m_additions": 25,
+            "p1m_additions": 0,
+            "growth_percent": None,
         },
     ]
 
@@ -201,6 +207,10 @@ async def test_get_plan_stock_with_ops_role_returns_200(ops_client: OpsTestConte
     assert plans[0]["plan_id"] == str(plan_id_2)
     assert plans[0]["plan_name"] == "Premium Plan"
     assert plans[0]["subscriber_count"] == 300
+    assert plans[0]["l1m_additions"] == 60
+    assert plans[0]["p1m_additions"] == 30
+    assert plans[0]["growth_percent"] == 100.0
+    assert plans[1]["growth_percent"] is None
 
 
 @pytest.mark.asyncio
@@ -380,6 +390,7 @@ async def forecast_client(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[OpsT
         ctx = OpsTestContext(ac, mock_get_plan_stock, mock_get_order_counts, mock_get_orders_by_status, test_sub)
         ctx._mock_get_cached = mock_get_cached  # type: ignore[attr-defined]
         ctx._mock_get_historical = mock_get_historical  # type: ignore[attr-defined]
+        ctx._mock_save = mock_save  # type: ignore[attr-defined]
         yield ctx
 
     application.dependency_overrides.clear()
@@ -492,6 +503,49 @@ async def test_plan_demand_cache_not_called_when_force_refresh(forecast_client: 
 
     assert response.status_code == 200
     forecast_client._mock_get_cached.assert_not_called()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_plan_demand_selected_plan_ids_filter_history_and_skip_cache_save(
+    forecast_client: OpsTestContext,
+) -> None:
+    """Selected-plan refresh forecasts requested plans without replacing the global cache."""
+    plan_a = str(uuid4())
+    plan_b = str(uuid4())
+    forecast_client._mock_get_historical.return_value = []  # type: ignore[attr-defined]
+
+    response = await forecast_client.get(
+        f"/api/v1/ops/forecasts/plan-demand?force_refresh=true&plan_ids={plan_a}&plan_ids={plan_b}"
+    )
+
+    assert response.status_code == 200
+    body = response.json()["data"]
+    assert {row["plan_id"] for row in body["forecasts"]} == {plan_a, plan_b}
+    assert all(row["predicted_uptake_90d"] == 0 for row in body["forecasts"])
+    forecast_client._mock_get_historical.assert_called_once()  # type: ignore[attr-defined]
+    _, kwargs = forecast_client._mock_get_historical.call_args  # type: ignore[attr-defined]
+    assert kwargs["plan_ids"] == [plan_a, plan_b]
+    forecast_client._mock_save.assert_not_called()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_plan_demand_selected_plan_ids_use_complete_cache(forecast_client: OpsTestContext) -> None:
+    """Selected-plan requests can use cache only when all selected plans are present."""
+    plan_a = str(uuid4())
+    plan_b = str(uuid4())
+    forecast_client._mock_get_cached.return_value = [  # type: ignore[attr-defined]
+        _make_forecast_row(plan_a, "Plan A"),
+        _make_forecast_row(plan_b, "Plan B"),
+    ]
+
+    response = await forecast_client.get(f"/api/v1/ops/forecasts/plan-demand?plan_ids={plan_a}&plan_ids={plan_b}")
+
+    assert response.status_code == 200
+    assert len(response.json()["data"]["forecasts"]) == 2
+    forecast_client._mock_get_cached.assert_called_once()  # type: ignore[attr-defined]
+    _, kwargs = forecast_client._mock_get_cached.call_args  # type: ignore[attr-defined]
+    assert kwargs["plan_ids"] == [plan_a, plan_b]
+    forecast_client._mock_get_historical.assert_not_called()  # type: ignore[attr-defined]
 
 
 # ── Subscriber Growth Forecast fixtures (Story 7.3) ──────────────────────────

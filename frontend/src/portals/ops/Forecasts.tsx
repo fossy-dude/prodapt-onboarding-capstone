@@ -7,26 +7,50 @@
  */
 
 import { useState } from "react";
+import { PlanForecastSelector } from "./PlanForecastSelector";
 import { PlanDemandTable } from "./PlanDemandTable";
 import { SubscriberGrowthForecast } from "./SubscriberGrowthForecast";
-import { usePlanDemandForecast } from "./hooks";
+import { usePlanDemandForecast, usePlanStock } from "./hooks";
 
 type Tab = "plan_demand" | "subscriber_growth";
 
 function Forecasts() {
   const [activeTab, setActiveTab] = useState<Tab>("plan_demand");
-  const [forceRefresh, setForceRefresh] = useState(false);
+  const [selectedPlanIds, setSelectedPlanIds] = useState<readonly string[]>([]);
+  const [forecastRequest, setForecastRequest] = useState({
+    forceRefresh: false,
+    planIds: [] as readonly string[],
+    runId: 0,
+  });
 
   const {
     data: forecastData,
     isLoading,
     error,
     refetch,
-  } = usePlanDemandForecast(forceRefresh);
+  } = usePlanDemandForecast(forecastRequest);
+  const { data: plans = [], isLoading: isPlanStockLoading } = usePlanStock();
 
   const handleRefresh = () => {
-    setForceRefresh(true);
-    void refetch().finally(() => setForceRefresh(false));
+    setForecastRequest((current) => ({
+      forceRefresh: true,
+      planIds: [],
+      runId: current.runId + 1,
+    }));
+  };
+
+  const handleTogglePlan = (planId: string) => {
+    setSelectedPlanIds((current) =>
+      current.includes(planId) ? current.filter((id) => id !== planId) : [...current, planId],
+    );
+  };
+
+  const handleRunSelectedForecast = () => {
+    setForecastRequest((current) => ({
+      forceRefresh: true,
+      planIds: selectedPlanIds,
+      runId: current.runId + 1,
+    }));
   };
 
   const tabClass = (tab: Tab) =>
@@ -73,6 +97,28 @@ function Forecasts() {
                 </button>
               </div>
             )}
+
+            <PlanForecastSelector
+              plans={plans}
+              isLoading={isPlanStockLoading}
+              selectedPlanIds={selectedPlanIds}
+              onTogglePlan={handleTogglePlan}
+              onClear={() => setSelectedPlanIds([])}
+            />
+
+            <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-neutral-500">
+                Select one or more plans, then run a fresh forecast for just those plans.
+              </p>
+              <button
+                type="button"
+                onClick={handleRunSelectedForecast}
+                disabled={selectedPlanIds.length === 0 || isLoading}
+                className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isLoading ? "Running…" : "Run forecast"}
+              </button>
+            </div>
 
             {forecastData && (
               <div className="mb-3 flex items-center gap-4 text-xs text-neutral-400">

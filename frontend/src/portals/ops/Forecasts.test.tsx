@@ -4,7 +4,7 @@
 
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Forecasts } from "./Forecasts";
 
@@ -41,7 +41,7 @@ vi.mock("./hooks", () => ({
 }));
 
 vi.mock("recharts", async () => {
-  const actual = await vi.importActual<typeof import("recharts")>("recharts");
+  const actual = await vi.importActual<Record<string, unknown>>("recharts");
   return {
     ...actual,
     ResponsiveContainer: ({ children }: { readonly children: React.ReactNode }) => (
@@ -90,6 +90,36 @@ describe("Forecasts", () => {
     expect(screen.getByRole("button", { name: /Refresh Forecast/i })).toBeInTheDocument();
   });
 
+  it("runs forecast for selected plans", async () => {
+    const user = userEvent.setup();
+    const { usePlanDemandForecast, usePlanStock } = await import("./hooks");
+    vi.mocked(usePlanStock).mockReturnValue({
+      data: [
+        {
+          plan_id: "plan-2",
+          plan_name: "Premium Plan",
+          subscriber_count: 42,
+        },
+      ],
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof usePlanStock>);
+
+    render(<Forecasts />, { wrapper });
+
+    await user.click(screen.getByRole("checkbox", { name: /Premium Plan/i }));
+    await user.click(screen.getByRole("button", { name: /Run forecast/i }));
+
+    await waitFor(() => {
+      expect(vi.mocked(usePlanDemandForecast)).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          forceRefresh: true,
+          planIds: ["plan-2"],
+        }),
+      );
+    });
+  });
+
   it("shows error and retry when query fails", async () => {
     const { usePlanDemandForecast } = await import("./hooks");
     vi.mocked(usePlanDemandForecast).mockReturnValueOnce({
@@ -97,7 +127,7 @@ describe("Forecasts", () => {
       isLoading: false,
       error: new Error("Network error"),
       refetch: vi.fn(),
-    } as ReturnType<typeof usePlanDemandForecast>);
+    } as unknown as ReturnType<typeof usePlanDemandForecast>);
 
     render(<Forecasts />, { wrapper });
 

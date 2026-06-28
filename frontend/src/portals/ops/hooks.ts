@@ -16,6 +16,7 @@ interface PlanStockItem {
   readonly subscriber_count: number;
   readonly l1m_additions?: number | null;
   readonly p1m_additions?: number | null;
+  readonly growth_percent?: number | null;
 }
 
 interface ApiEnvelope<TData> {
@@ -76,18 +77,31 @@ interface PlanDemandForecastResponse {
   readonly cache_expires_at: string | null;
 }
 
+interface PlanDemandForecastOptions {
+  readonly forceRefresh?: boolean;
+  readonly planIds?: readonly string[];
+  readonly runId?: number;
+}
+
 /**
  * Custom hook to fetch plan demand forecast data (no auto-refresh; forecasts cached daily).
  * Pass forceRefresh=true to bypass the 24-hour cache.
  */
-export function usePlanDemandForecast(forceRefresh = false) {
+export function usePlanDemandForecast({
+  forceRefresh = false,
+  planIds = [],
+  runId = 0,
+}: PlanDemandForecastOptions = {}) {
   return useQuery<PlanDemandForecastResponse>({
-    queryKey: ["ops", "forecasts", "plan-demand", forceRefresh],
+    queryKey: ["ops", "forecasts", "plan-demand", forceRefresh, planIds, runId],
     queryFn: async () => {
+      const params = new URLSearchParams();
+      if (forceRefresh) params.set("force_refresh", "true");
+      planIds.forEach((planId) => params.append("plan_ids", planId));
       const { data } = await apiClient.get<
         ApiEnvelope<PlanDemandForecastResponse>
       >("/ops/forecasts/plan-demand", {
-        params: forceRefresh ? { force_refresh: true } : undefined,
+        params: params.size > 0 ? params : undefined,
       });
       return data.data;
     },

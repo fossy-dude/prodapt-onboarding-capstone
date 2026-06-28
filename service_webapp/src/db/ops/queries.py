@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 async def get_plan_stock_counts(conn: AsyncConnection) -> list[dict]:
-    """Return plan stock counts: plan_id, plan_name, subscriber_count sorted by count DESC.
+    """Return plan stock counts and recent subscriber growth sorted by count DESC.
 
     Joins plans_plans with identity_subscribers to count active subscribers per plan.
     Plans with zero subscribers are included (LEFT JOIN).
@@ -35,19 +35,40 @@ async def get_plan_stock_counts(conn: AsyncConnection) -> list[dict]:
     Returns
     -------
     list[dict]
-        List of plan stock dicts with keys: ``plan_id``, ``plan_name``, ``subscriber_count``.
-        Sorted by ``subscriber_count`` descending.
+        List of plan stock dicts with keys: ``plan_id``, ``plan_name``,
+        ``subscriber_count``, ``l1m_additions``, ``p1m_additions``, and nullable
+        ``growth_percent``. Sorted by ``subscriber_count`` descending.
     """
     cur = await conn.execute(
         """
+        WITH plan_stock AS (
+            SELECT
+                pp.id as plan_id,
+                pp.plan_name,
+                COUNT(isub.id) as subscriber_count,
+                COUNT(isub.id) FILTER (
+                    WHERE isub.created_at >= NOW() - INTERVAL '1 month'
+                ) as l1m_additions,
+                COUNT(isub.id) FILTER (
+                    WHERE isub.created_at < NOW() - INTERVAL '1 month'
+                      AND isub.created_at >= NOW() - INTERVAL '2 months'
+                ) as p1m_additions
+              FROM plans_plans pp
+              LEFT JOIN identity_subscribers isub ON pp.id = isub.plan_id
+             WHERE pp.is_active = TRUE
+             GROUP BY pp.id, pp.plan_name
+        )
         SELECT
-            pp.id as plan_id,
-            pp.plan_name,
-            COUNT(isub.id) as subscriber_count
-          FROM plans_plans pp
-          LEFT JOIN identity_subscribers isub ON pp.id = isub.plan_id
-         WHERE pp.is_active = TRUE
-         GROUP BY pp.id, pp.plan_name
+            plan_id,
+            plan_name,
+            subscriber_count,
+            l1m_additions,
+            p1m_additions,
+            CASE
+                WHEN p1m_additions = 0 THEN NULL
+                ELSE ROUND(((l1m_additions - p1m_additions)::numeric / p1m_additions) * 100, 1)
+            END as growth_percent
+          FROM plan_stock
          ORDER BY subscriber_count DESC
         """,
     )
@@ -57,6 +78,9 @@ async def get_plan_stock_counts(conn: AsyncConnection) -> list[dict]:
             "plan_id": str(row[0]),
             "plan_name": row[1],
             "subscriber_count": row[2],
+            "l1m_additions": row[3],
+            "p1m_additions": row[4],
+            "growth_percent": float(row[5]) if row[5] is not None else None,
         }
         for row in rows
     ]
@@ -145,7 +169,11 @@ async def get_orders_by_status(
     ]
 
 
-async def get_historical_plan_recharges(conn: AsyncConnection, days_back: int = 90) -> list[dict]:
+async def get_historical_plan_recharges(
+    conn: AsyncConnection,
+    days_back: int = 90,
+    plan_ids: list[str] | None = None,
+) -> list[dict]:
     """Return daily recharge counts per plan for the last *days_back* days.
 
     Queries ``recharge_orders`` where ``completed_at`` is non-null (confirmed recharges).
@@ -157,6 +185,8 @@ async def get_historical_plan_recharges(conn: AsyncConnection, days_back: int = 
         Postgres connection.
     days_back : int
         Number of calendar days to look back (default 90).
+    plan_ids : list[str] | None
+        Optional plan IDs to include. When omitted, returns all plans with recharge history.
 
     Returns
     -------
@@ -164,8 +194,9 @@ async def get_historical_plan_recharges(conn: AsyncConnection, days_back: int = 
         List of ``{"plan_id": str, "date": date, "recharge_count": int}``,
         ordered by plan_id then date ascending.
     """
+    plan_filter = "AND ro.plan_id = ANY(%(plan_ids)s)" if plan_ids else ""
     cur = await conn.execute(
-        """
+        f"""
         SELECT
             ro.plan_id,
             DATE(ro.completed_at) AS date,
@@ -173,10 +204,11 @@ async def get_historical_plan_recharges(conn: AsyncConnection, days_back: int = 
           FROM recharge_orders ro
          WHERE ro.completed_at >= NOW() - (%(days_back)s::int * INTERVAL '1 day')
            AND ro.completed_at IS NOT NULL
+           {plan_filter}
          GROUP BY ro.plan_id, DATE(ro.completed_at)
          ORDER BY ro.plan_id, date
         """,
-        {"days_back": days_back},
+        {"days_back": days_back, "plan_ids": plan_ids},
     )
     rows = await cur.fetchall()
     return [
@@ -192,6 +224,7 @@ async def get_historical_plan_recharges(conn: AsyncConnection, days_back: int = 
 async def get_cached_plan_forecast(
     conn: AsyncConnection,
     forecast_type: str = "plan_demand",
+    plan_ids: list[str] | None = None,
 ) -> list[dict]:
     """Return cached plan demand forecast rows that are still valid.
 
@@ -201,6 +234,8 @@ async def get_cached_plan_forecast(
         Postgres connection.
     forecast_type : str
         Forecast type to query (default ``"plan_demand"``).
+    plan_ids : list[str] | None
+        Optional plan IDs to include. When omitted, returns all cached plan forecasts.
 
     Returns
     -------
@@ -208,8 +243,10 @@ async def get_cached_plan_forecast(
         List of forecast rows with plan_id and uptake predictions.
         Empty list when cache is expired or absent.
     """
+    plan_filter = "AND plan_id = ANY(%s)" if plan_ids else ""
+    params = (forecast_type, plan_ids) if plan_ids else (forecast_type,)
     cur = await conn.execute(
-        """
+        f"""
         SELECT
             plan_id,
             plan_name,
@@ -224,9 +261,10 @@ async def get_cached_plan_forecast(
          WHERE forecast_type = %s
            AND plan_id IS NOT NULL
            AND valid_until > NOW()
-         ORDER BY plan_id
+           {plan_filter}
+          ORDER BY plan_id
         """,
-        (forecast_type,),
+        params,
     )
     rows = await cur.fetchall()
     return [

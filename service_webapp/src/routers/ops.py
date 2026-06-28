@@ -157,6 +157,7 @@ async def get_plan_demand_forecast(
     request: Request,
     jwt_payload: dict = require_role("ops", "marketing"),
     force_refresh: bool = Query(False, description="Bypass cache and regenerate forecasts"),
+    plan_ids: list[str] | None = Query(None, description="Optional plan IDs to forecast"),
 ) -> JSONResponse:
     """Return 30/60/90-day demand forecast per plan.
 
@@ -182,10 +183,14 @@ async def get_plan_demand_forecast(
         }
     """
     db = _db(request)
+    selected_plan_ids = list(dict.fromkeys(str(plan_id) for plan_id in (plan_ids or [])))
+    has_selected_plans = len(selected_plan_ids) > 0
     async with db.connection() as conn:
         if not force_refresh:
-            cached = await get_cached_plan_forecast(conn)
-            if cached:
+            cached = await get_cached_plan_forecast(conn, plan_ids=selected_plan_ids if has_selected_plans else None)
+            cached_plan_ids = {row["plan_id"] for row in cached}
+            has_complete_selected_cache = not has_selected_plans or cached_plan_ids == set(selected_plan_ids)
+            if cached and has_complete_selected_cache:
                 trained_at = cached[0]["trained_at"]
                 cache_expires_at = cached[0]["valid_until"]
                 return success_envelope(
@@ -201,9 +206,13 @@ async def get_plan_demand_forecast(
                     trace_id=_trace_id(request),
                 )
 
-        rows = await get_historical_plan_recharges(conn, days_back=90)
+        rows = await get_historical_plan_recharges(
+            conn,
+            days_back=90,
+            plan_ids=selected_plan_ids if has_selected_plans else None,
+        )
 
-    if not rows:
+    if not rows and not has_selected_plans:
         logger.warning("No historical recharge data found; returning empty forecast")
         return success_envelope(
             data={
@@ -215,7 +224,7 @@ async def get_plan_demand_forecast(
             trace_id=_trace_id(request),
         )
 
-    all_plan_data: dict[str, dict] = {}
+    all_plan_data: dict[str, dict] = {plan_id: {} for plan_id in selected_plan_ids}
     for row in rows:
         pid = row["plan_id"]
         if pid not in all_plan_data:
@@ -228,17 +237,21 @@ async def get_plan_demand_forecast(
     forecast_results = forecaster.forecast_all_plans(series_map)
 
     async with db.connection() as conn:
-        plan_names = await _get_plan_names(conn, list(forecast_results.keys()))
+        forecast_plan_ids = selected_plan_ids if has_selected_plans else list(forecast_results.keys())
+        plan_names = await _get_plan_names(conn, forecast_plan_ids)
         forecasts_with_names = [
             {**fc, "plan_name": plan_names.get(fc["plan_id"], "Unknown Plan")} for fc in forecast_results.values()
         ]
         forecasts_with_names.sort(key=lambda x: x["predicted_uptake_90d"], reverse=True)
 
-        await save_plan_forecast_results(conn, forecasts_with_names, _PLAN_DEMAND_MODEL_VERSION)
-        cached_after = await get_cached_plan_forecast(conn)
-
-    trained_at_ts = cached_after[0]["trained_at"] if cached_after else None
-    cache_expires_ts = cached_after[0]["valid_until"] if cached_after else None
+        if has_selected_plans:
+            trained_at_ts = datetime.now(UTC)
+            cache_expires_ts = None
+        else:
+            await save_plan_forecast_results(conn, forecasts_with_names, _PLAN_DEMAND_MODEL_VERSION)
+            cached_after = await get_cached_plan_forecast(conn)
+            trained_at_ts = cached_after[0]["trained_at"] if cached_after else None
+            cache_expires_ts = cached_after[0]["valid_until"] if cached_after else None
 
     return success_envelope(
         data={

@@ -114,9 +114,9 @@ async def test_get_plan_stock_counts_returns_plan_data_sorted_by_count():
 
     fake_db = FakeDb(
         plan_stock_rows=[
-            (plan_id_1, "Basic Plan", 150),
-            (plan_id_2, "Premium Plan", 300),
-            (plan_id_3, "Enterprise Plan", 50),
+            (plan_id_1, "Basic Plan", 150, 25, 20, 25.0),
+            (plan_id_2, "Premium Plan", 300, 60, 30, 100.0),
+            (plan_id_3, "Enterprise Plan", 50, 5, 10, -50.0),
         ]
     )
 
@@ -128,6 +128,9 @@ async def test_get_plan_stock_counts_returns_plan_data_sorted_by_count():
     assert result[0]["plan_id"] == str(plan_id_2)
     assert result[0]["plan_name"] == "Premium Plan"
     assert result[0]["subscriber_count"] == 300
+    assert result[0]["l1m_additions"] == 60
+    assert result[0]["p1m_additions"] == 30
+    assert result[0]["growth_percent"] == 100.0
 
     assert result[1]["plan_id"] == str(plan_id_1)
     assert result[1]["plan_name"] == "Basic Plan"
@@ -157,7 +160,7 @@ async def test_get_plan_stock_counts_handles_plans_with_zero_subscribers():
     from db.ops.queries import get_plan_stock_counts
 
     plan_id = uuid4()
-    fake_db = FakeDb(plan_stock_rows=[(plan_id, "New Plan", 0)])
+    fake_db = FakeDb(plan_stock_rows=[(plan_id, "New Plan", 0, 0, 0, None)])
 
     async with fake_db.connection() as conn:
         result = await get_plan_stock_counts(conn)
@@ -166,6 +169,27 @@ async def test_get_plan_stock_counts_handles_plans_with_zero_subscribers():
     assert result[0]["plan_id"] == str(plan_id)
     assert result[0]["plan_name"] == "New Plan"
     assert result[0]["subscriber_count"] == 0
+    assert result[0]["l1m_additions"] == 0
+    assert result[0]["p1m_additions"] == 0
+    assert result[0]["growth_percent"] is None
+
+
+@pytest.mark.asyncio
+async def test_get_plan_stock_counts_returns_null_growth_when_previous_month_is_zero():
+    """Test growth is null, not zero, when L1M has additions and P1M is zero."""
+    from db.ops.queries import get_plan_stock_counts
+
+    plan_id = uuid4()
+    fake_db = FakeDb(plan_stock_rows=[(plan_id, "New Growth Plan", 12, 12, 0, None)])
+
+    async with fake_db.connection() as conn:
+        result = await get_plan_stock_counts(conn)
+
+    assert len(result) == 1
+    assert result[0]["subscriber_count"] == 12
+    assert result[0]["l1m_additions"] == 12
+    assert result[0]["p1m_additions"] == 0
+    assert result[0]["growth_percent"] is None
 
 
 @pytest.mark.asyncio
@@ -335,8 +359,58 @@ async def test_get_historical_plan_recharges_uses_bind_safe_interval():
     result = await get_historical_plan_recharges(conn, days_back=45)
 
     assert "%(days_back)s::int * INTERVAL '1 day'" in conn.sql
-    assert conn.params == {"days_back": 45}
+    assert conn.params == {"days_back": 45, "plan_ids": None}
     assert result == [{"plan_id": str(plan_id), "date": "2026-01-01", "recharge_count": 7}]
+
+
+@pytest.mark.asyncio
+async def test_get_historical_plan_recharges_filters_selected_plan_ids():
+    """Test get_historical_plan_recharges filters history when plan IDs are supplied."""
+    from db.ops.queries import get_historical_plan_recharges
+
+    class CaptureConn:
+        def __init__(self) -> None:
+            self.sql = ""
+            self.params = None
+
+        async def execute(self, sql: str, params=None):
+            self.sql = sql
+            self.params = params
+            return _FakeCursor()
+
+    conn = CaptureConn()
+    plan_ids = [str(uuid4()), str(uuid4())]
+
+    result = await get_historical_plan_recharges(conn, days_back=30, plan_ids=plan_ids)
+
+    assert "AND ro.plan_id = ANY(%(plan_ids)s)" in conn.sql
+    assert conn.params == {"days_back": 30, "plan_ids": plan_ids}
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_get_cached_plan_forecast_filters_selected_plan_ids():
+    """Test get_cached_plan_forecast filters cache rows when plan IDs are supplied."""
+    from db.ops.queries import get_cached_plan_forecast
+
+    class CaptureConn:
+        def __init__(self) -> None:
+            self.sql = ""
+            self.params = None
+
+        async def execute(self, sql: str, params=None):
+            self.sql = sql
+            self.params = params
+            return _FakeCursor()
+
+    conn = CaptureConn()
+    plan_ids = [str(uuid4())]
+
+    result = await get_cached_plan_forecast(conn, plan_ids=plan_ids)
+
+    assert "AND plan_id = ANY(%s)" in conn.sql
+    assert conn.params == ("plan_demand", plan_ids)
+    assert result == []
 
 
 @pytest.mark.asyncio

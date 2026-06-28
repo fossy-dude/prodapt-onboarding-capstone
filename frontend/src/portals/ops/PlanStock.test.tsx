@@ -14,6 +14,7 @@ describe("PlanStock", () => {
       subscriber_count: 150,
       l1m_additions: 25,
       p1m_additions: 20,
+      growth_percent: 25,
     },
     {
       plan_id: "plan-2",
@@ -21,6 +22,7 @@ describe("PlanStock", () => {
       subscriber_count: 300,
       l1m_additions: 60,
       p1m_additions: 30,
+      growth_percent: 100,
     },
     {
       plan_id: "plan-3",
@@ -28,6 +30,7 @@ describe("PlanStock", () => {
       subscriber_count: 50,
       l1m_additions: 5,
       p1m_additions: 10,
+      growth_percent: -50,
     },
   ];
 
@@ -107,6 +110,27 @@ describe("PlanStock", () => {
     expect(screen.getByText("60")).toBeInTheDocument();
     expect(screen.getByText("+100.0%")).toBeInTheDocument();
     expect(screen.getByText("-50.0%")).toBeInTheDocument();
+  });
+
+  it("shows Null growth when previous month additions are zero", () => {
+    render(
+      <PlanStock
+        plans={[
+          {
+            plan_id: "plan-new",
+            plan_name: "New Plan",
+            subscriber_count: 12,
+            l1m_additions: 12,
+            p1m_additions: 0,
+            growth_percent: null,
+          },
+        ]}
+        isLoading={false}
+      />,
+    );
+
+    expect(screen.getAllByText("12")).toHaveLength(2);
+    expect(screen.getByText("Null")).toBeInTheDocument();
   });
 
   it("shows loading skeleton while data is loading", () => {

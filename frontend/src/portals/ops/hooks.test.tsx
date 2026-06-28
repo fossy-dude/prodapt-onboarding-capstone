@@ -53,12 +53,33 @@ describe("ops hooks", () => {
       },
     });
 
-    const { result } = renderHook(() => usePlanDemandForecast(true), { wrapper });
+    const { result } = renderHook(() => usePlanDemandForecast({ forceRefresh: true }), { wrapper });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(apiGet).toHaveBeenCalledWith("/ops/forecasts/plan-demand", {
-      params: { force_refresh: true },
+    const config = apiGet.mock.calls[0]?.[1];
+    expect(config?.params?.toString()).toBe("force_refresh=true");
+  });
+
+  it("fetches selected plan demand forecasts with repeated plan_ids params", async () => {
+    apiGet.mockResolvedValue({
+      data: {
+        data: {
+          forecasts: [],
+          model_version: null,
+          trained_at: null,
+          cache_expires_at: null,
+        },
+      },
     });
+
+    const { result } = renderHook(
+      () => usePlanDemandForecast({ forceRefresh: true, planIds: ["plan-a", "plan-b"], runId: 1 }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const config = apiGet.mock.calls[0]?.[1];
+    expect(config?.params?.toString()).toBe("force_refresh=true&plan_ids=plan-a&plan_ids=plan-b");
   });
 
   it("fetches subscriber growth forecasts through the shared API client", async () => {

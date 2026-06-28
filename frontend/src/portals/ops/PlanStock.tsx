@@ -11,6 +11,7 @@ interface PlanStockItem {
   readonly subscriber_count: number;
   readonly l1m_additions?: number | null;
   readonly p1m_additions?: number | null;
+  readonly growth_percent?: number | null;
 }
 
 interface PlanStockProps {
@@ -28,6 +29,7 @@ const HEADER_HEIGHT_PX = 45;
 const ROW_HEIGHT_PX = 53;
 
 function getGrowthPercent(plan: PlanStockItem): number | null {
+  if (plan.growth_percent !== undefined) return plan.growth_percent;
   if (plan.l1m_additions === null || plan.l1m_additions === undefined)
     return null;
   if (plan.p1m_additions === null || plan.p1m_additions === undefined)
@@ -41,7 +43,7 @@ function formatNumber(value: number | null | undefined): string {
 }
 
 function formatGrowth(value: number | null): string {
-  if (value === null) return "-";
+  if (value === null) return "Null";
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(1)}%`;
 }
