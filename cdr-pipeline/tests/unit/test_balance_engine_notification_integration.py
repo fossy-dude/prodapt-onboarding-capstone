@@ -148,10 +148,12 @@ async def test_deduct_calls_notification_trigger_when_wired(
     # Wait for async notification task to complete (fire-and-forget via create_task)
     await asyncio.sleep(0.1)
 
-    # Verify notification was published
-    assert mock_producer.publish.call_count == 1
-    envelope = mock_producer.publish.call_args.kwargs["envelope"]
-    assert envelope.payload["type"] == "LOW_BALANCE"
+    # Verify usage alert and low-balance notification were published
+    assert mock_producer.publish.call_count == 2
+    usage_envelope = mock_producer.publish.call_args_list[0].kwargs["envelope"]
+    low_balance_envelope = mock_producer.publish.call_args_list[1].kwargs["envelope"]
+    assert usage_envelope.payload["notification_type"] == "USAGE_TRANSACTION"
+    assert low_balance_envelope.payload["type"] == "LOW_BALANCE"
 
 
 @pytest.mark.asyncio

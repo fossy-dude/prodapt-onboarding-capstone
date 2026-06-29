@@ -29,6 +29,10 @@ const NOTIFICATION_TYPE_CONFIG = {
     label: "Balance Depleted",
     description: "Get notified when your balance is exhausted",
   },
+  USAGE_TRANSACTION: {
+    label: "Usage Transaction SMS",
+    description: "Get an SMS alert after each call, SMS, or data charge",
+  },
   PLAN_EXPIRY_REMINDER: {
     label: "Plan Expiry Reminder",
     description: "Get notified before your plan expires",
@@ -108,7 +112,7 @@ function PreferenceRow({
 /**
  * Notification Preferences page component.
  *
- * Renders the list of all 4 notification types with toggle switches.
+ * Renders all notification types with toggle switches.
  * Supports optimistic updates for better UX.
  */
 export function NotificationPreferences() {
@@ -207,7 +211,7 @@ export function NotificationPreferences() {
         {isLoading ? (
           <Card>
             <div className="space-y-4 p-6">
-              {[1, 2, 3, 4].map((i) => (
+              {[1, 2, 3, 4, 5].map((i) => (
                 <div key={i} className="animate-pulse">
                   <div className="h-4 w-48 bg-neutral-200 rounded" />
                   <div className="mt-2 h-3 w-64 bg-neutral-200 rounded" />

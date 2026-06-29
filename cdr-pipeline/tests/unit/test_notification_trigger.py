@@ -7,7 +7,9 @@ behavior, and threshold crossing logic.
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
+from uuid import UUID
 
 import pytest
 
@@ -49,7 +51,10 @@ async def test_low_balance_fires_when_balance_below_threshold(trigger: Notificat
     envelope = call_args.kwargs["envelope"]
     assert envelope.event_type == "notification.balance"
     assert envelope.payload["type"] == "LOW_BALANCE"
+    assert envelope.payload["notification_type"] == "LOW_BALANCE"
+    assert envelope.payload["message_preview"] == "Low balance alert. Avl Bal: Rs. 5.00. Threshold: Rs. 10.00."
     assert envelope.payload["subscriber_id"] == "sub-123"
+    assert envelope.payload["msisdn"] == "9876543210"
     assert envelope.payload["msisdn_last4"] == "3210"
     assert envelope.payload["balance_paise"] == 500
     assert envelope.payload["threshold_paise"] == 1000
@@ -70,6 +75,8 @@ async def test_balance_depleted_fires_when_balance_zero(trigger: NotificationTri
     envelope = call_args.kwargs["envelope"]
     assert envelope.event_type == "notification.balance"
     assert envelope.payload["type"] == "BALANCE_DEPLETED"
+    assert envelope.payload["notification_type"] == "BALANCE_DEPLETED"
+    assert envelope.payload["message_preview"] == "Balance depleted. Avl Bal: Rs. 0.00. Recharge to continue outgoing services."
     assert envelope.payload["subscriber_id"] == "sub-123"
     assert envelope.payload["msisdn_last4"] == "3210"
 
@@ -264,3 +271,70 @@ async def test_trace_id_propagated_to_envelope(trigger: NotificationTrigger) -> 
 
     envelope = trigger.producer.publish.call_args.kwargs["envelope"]
     assert envelope.trace_id == trace_id
+
+
+@pytest.mark.asyncio
+async def test_usage_transaction_fires_for_voice_cdr(trigger: NotificationTrigger) -> None:
+    """Every voice CDR publishes a USAGE_TRANSACTION SMS alert."""
+    from models.cdr import VoiceCdr
+
+    cdr = VoiceCdr(
+        cdr_id=UUID("00000000-0000-0000-0000-000000000001"),
+        session_id=UUID("00000000-0000-0000-0000-000000000002"),
+        subscriber_id=UUID("00000000-0000-0000-0000-000000000003"),
+        telecom_circle="KA",
+        cost_paise=45,
+        start_time=datetime(2024, 1, 1, 23, 45, tzinfo=UTC),
+        cdr_type="voice",
+        from_number="+919876543210",
+        to_number="+919123456780",
+        call_direction="MO",
+        duration_seconds=60,
+        call_status="answered",
+    )
+
+    await trigger.check_and_publish(
+        msisdn="9876543210",
+        subscriber_id="sub-123",
+        balance_after=45120,
+        trace_id="a" * 32,
+        cdr=cdr,
+    )
+
+    assert trigger.producer.publish.call_count == 1
+    envelope = trigger.producer.publish.call_args.kwargs["envelope"]
+    assert envelope.event_type == "notification.usage"
+    assert envelope.payload["notification_type"] == "USAGE_TRANSACTION"
+    assert envelope.payload["channel"] == "SMS"
+    assert envelope.payload["message_preview"] == "Call made at 11:45 PM. Cost: 45 paise. Avl Bal: Rs. 451.20."
+
+
+@pytest.mark.asyncio
+async def test_usage_transaction_for_data_mentions_data_used(trigger: NotificationTrigger) -> None:
+    """Data CDR alerts include data usage context and available balance."""
+    from models.cdr import DataCdr
+
+    cdr = DataCdr(
+        cdr_id=UUID("00000000-0000-0000-0000-000000000001"),
+        session_id=UUID("00000000-0000-0000-0000-000000000002"),
+        subscriber_id=UUID("00000000-0000-0000-0000-000000000003"),
+        telecom_circle="KA",
+        cost_paise=150,
+        start_time=datetime(2024, 1, 1, 23, 45, tzinfo=UTC),
+        cdr_type="data",
+        network_type="4G",
+        volume_mb=12.5,
+    )
+
+    await trigger.check_and_publish(
+        msisdn="9876543210",
+        subscriber_id="sub-123",
+        balance_after=45120,
+        trace_id="a" * 32,
+        cdr=cdr,
+    )
+
+    envelope = trigger.producer.publish.call_args.kwargs["envelope"]
+    assert envelope.payload["message_preview"] == (
+        "Data used at 11:45 PM. Used: 12.50 MB. Cost: Rs. 1.50. Avl Bal: Rs. 451.20."
+    )

@@ -366,6 +366,7 @@ class BalanceEngine:
                         subscriber_id=sub_id_str,
                         balance_after=balance_after,
                         trace_id=span_trace_id,
+                        cdr=cdr,
                     )
                 )
                 task.add_done_callback(_on_notification_done)

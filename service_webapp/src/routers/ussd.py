@@ -36,6 +36,7 @@ _ROOT_MENU = "Welcome\n1. Balance\n2. My Plan\n3. Recharge\n4. Notifications\n0.
 _NOTIFICATION_TYPES = [
     "LOW_BALANCE",
     "BALANCE_DEPLETED",
+    "USAGE_TRANSACTION",
     "PLAN_EXPIRY_REMINDER",
     "DATA_NUDGE",
 ]
@@ -43,6 +44,7 @@ _NOTIFICATION_TYPES = [
 _NOTIFICATION_LABELS = {
     "LOW_BALANCE": "Low Balance",
     "BALANCE_DEPLETED": "Bal Depleted",
+    "USAGE_TRANSACTION": "Usage Txn",
     "PLAN_EXPIRY_REMINDER": "Plan Expiry",
     "DATA_NUDGE": "Data Nudge",
 }

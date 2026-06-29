@@ -19,6 +19,7 @@ class NotificationTypeEnum:
 
     LOW_BALANCE: Literal["LOW_BALANCE"] = "LOW_BALANCE"
     BALANCE_DEPLETED: Literal["BALANCE_DEPLETED"] = "BALANCE_DEPLETED"
+    USAGE_TRANSACTION: Literal["USAGE_TRANSACTION"] = "USAGE_TRANSACTION"
     PLAN_EXPIRY_REMINDER: Literal["PLAN_EXPIRY_REMINDER"] = "PLAN_EXPIRY_REMINDER"
     DATA_NUDGE: Literal["DATA_NUDGE"] = "DATA_NUDGE"
 
@@ -27,6 +28,7 @@ class NotificationTypeEnum:
 NotificationTypeLiteral = Literal[
     "LOW_BALANCE",
     "BALANCE_DEPLETED",
+    "USAGE_TRANSACTION",
     "PLAN_EXPIRY_REMINDER",
     "DATA_NUDGE",
 ]
@@ -38,7 +40,11 @@ class NotificationPreferenceItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     notification_type: NotificationTypeLiteral = Field(
-        ..., description="Type of notification: LOW_BALANCE, BALANCE_DEPLETED, PLAN_EXPIRY_REMINDER, or DATA_NUDGE"
+        ...,
+        description=(
+            "Type of notification: LOW_BALANCE, BALANCE_DEPLETED, USAGE_TRANSACTION, "
+            "PLAN_EXPIRY_REMINDER, or DATA_NUDGE"
+        ),
     )
     is_enabled: bool = Field(..., description="Whether this notification type is enabled for the subscriber")
 
@@ -60,7 +66,10 @@ class PatchNotificationPreferenceRequest(BaseModel):
 
     notification_type: NotificationTypeLiteral = Field(
         ...,
-        description="Notification type to update (one of LOW_BALANCE, BALANCE_DEPLETED, PLAN_EXPIRY_REMINDER, DATA_NUDGE)",
+        description=(
+            "Notification type to update (one of LOW_BALANCE, BALANCE_DEPLETED, USAGE_TRANSACTION, "
+            "PLAN_EXPIRY_REMINDER, DATA_NUDGE)"
+        ),
     )
     is_enabled: bool = Field(..., description="New enabled state for this notification type")
 

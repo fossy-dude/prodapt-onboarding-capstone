@@ -24,7 +24,7 @@ class TestNotificationTypeEnum:
 
     def test_valid_notification_types(self):
         """Should accept valid notification types."""
-        valid_types = ["LOW_BALANCE", "BALANCE_DEPLETED", "PLAN_EXPIRY_REMINDER", "DATA_NUDGE"]
+        valid_types = ["LOW_BALANCE", "BALANCE_DEPLETED", "USAGE_TRANSACTION", "PLAN_EXPIRY_REMINDER", "DATA_NUDGE"]
         for notification_type in valid_types:
             item = NotificationPreferenceItem(notification_type=notification_type, is_enabled=True)
             assert item.notification_type == notification_type
@@ -59,11 +59,12 @@ class TestNotificationPreferencesResponse:
         preferences = [
             NotificationPreferenceItem(notification_type="LOW_BALANCE", is_enabled=True),
             NotificationPreferenceItem(notification_type="BALANCE_DEPLETED", is_enabled=False),
+            NotificationPreferenceItem(notification_type="USAGE_TRANSACTION", is_enabled=True),
             NotificationPreferenceItem(notification_type="PLAN_EXPIRY_REMINDER", is_enabled=True),
             NotificationPreferenceItem(notification_type="DATA_NUDGE", is_enabled=False),
         ]
         response = NotificationPreferencesResponse(preferences=preferences)
-        assert len(response.preferences) == 4
+        assert len(response.preferences) == 5
         assert response.preferences[0].notification_type == "LOW_BALANCE"
         assert response.preferences[0].is_enabled is True
         assert response.preferences[1].is_enabled is False

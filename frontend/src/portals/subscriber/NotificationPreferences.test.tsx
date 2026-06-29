@@ -34,6 +34,7 @@ describe("NotificationPreferences", () => {
   const mockPreferences = [
     { notification_type: "LOW_BALANCE", is_enabled: true },
     { notification_type: "BALANCE_DEPLETED", is_enabled: false },
+    { notification_type: "USAGE_TRANSACTION", is_enabled: true },
     { notification_type: "PLAN_EXPIRY_REMINDER", is_enabled: true },
     { notification_type: "DATA_NUDGE", is_enabled: false },
   ] as const;
@@ -68,6 +69,7 @@ describe("NotificationPreferences", () => {
     await waitFor(() => {
       expect(screen.getByText("Low Balance Alert")).toBeInTheDocument();
       expect(screen.getByText("Balance Depleted")).toBeInTheDocument();
+      expect(screen.getByText("Usage Transaction SMS")).toBeInTheDocument();
       expect(screen.getByText("Plan Expiry Reminder")).toBeInTheDocument();
       expect(screen.getByText("Data Usage Nudge")).toBeInTheDocument();
     });
@@ -91,7 +93,7 @@ describe("NotificationPreferences", () => {
     });
   });
 
-  it("renders all 4 notification types with correct labels", async () => {
+  it("renders all notification types with correct labels", async () => {
     vi.mocked(api.getNotificationPreferences).mockResolvedValue(
       mockPreferences,
     );
@@ -105,6 +107,7 @@ describe("NotificationPreferences", () => {
     await waitFor(() => {
       expect(screen.getByText("Low Balance Alert")).toBeInTheDocument();
       expect(screen.getByText("Balance Depleted")).toBeInTheDocument();
+      expect(screen.getByText("Usage Transaction SMS")).toBeInTheDocument();
       expect(screen.getByText("Plan Expiry Reminder")).toBeInTheDocument();
       expect(screen.getByText("Data Usage Nudge")).toBeInTheDocument();
     });
@@ -123,7 +126,7 @@ describe("NotificationPreferences", () => {
 
     await waitFor(() => {
       const toggles = screen.getAllByRole("switch");
-      expect(toggles).toHaveLength(4);
+      expect(toggles).toHaveLength(5);
     });
   });
 
@@ -144,7 +147,7 @@ describe("NotificationPreferences", () => {
 
     await waitFor(() => {
       const toggles = screen.getAllByRole("switch");
-      expect(toggles).toHaveLength(4);
+      expect(toggles).toHaveLength(5);
     });
 
     const toggles = screen.getAllByRole("switch");

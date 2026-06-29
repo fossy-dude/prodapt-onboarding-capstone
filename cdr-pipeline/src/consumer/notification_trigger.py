@@ -11,15 +11,10 @@ BalanceEngine.deduct() — never await — to keep the hot path O(1).
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
-from uuid import UUID
-
-from opentelemetry import trace
-from uuid_extensions import uuid7
+from typing import TYPE_CHECKING, Any
 
 from models.envelope import EventEnvelope
 
@@ -27,8 +22,6 @@ if TYPE_CHECKING:
     from core.protocols.broker import MessageBrokerProtocol
 
 logger = logging.getLogger("consumer.notification_trigger")
-
-tracer = trace.get_tracer(__name__)
 
 
 @dataclass(slots=True)
@@ -81,6 +74,7 @@ class NotificationTrigger:
         subscriber_id: str,
         balance_after: int,
         trace_id: str,
+        cdr: Any | None = None,
     ) -> None:
         """Check balance thresholds and publish notification events if crossed.
 
@@ -99,6 +93,9 @@ class NotificationTrigger:
         trace_id : str
             W3C trace-id (32 hex chars) for distributed tracing continuity.
         """
+        if cdr is not None:
+            await self._publish_usage_transaction(msisdn, subscriber_id, balance_after, trace_id, cdr)
+
         # Check for BALANCE_DEPLETED (balance <= 0)
         if balance_after <= 0:
             notified_key = self._make_notified_key(msisdn, "BALANCE_DEPLETED")
@@ -157,10 +154,18 @@ class NotificationTrigger:
             event_type="notification.balance",
             payload={
                 "type": "LOW_BALANCE",
+                "notification_type": "LOW_BALANCE",
+                "channel": "SMS",
                 "subscriber_id": subscriber_id,
+                "msisdn": msisdn,
                 "msisdn_last4": msisdn[-4:],
                 "balance_paise": balance_paise,
                 "threshold_paise": threshold_paise,
+                "message_preview": (
+                    f"Low balance alert. Avl Bal: {_format_rupees(balance_paise)}. "
+                    f"Threshold: {_format_rupees(threshold_paise)}."
+                ),
+                "timestamp": datetime.now(UTC).isoformat(),
             },
             trace_id=trace_id,
         )
@@ -177,8 +182,13 @@ class NotificationTrigger:
             event_type="notification.balance",
             payload={
                 "type": "BALANCE_DEPLETED",
+                "notification_type": "BALANCE_DEPLETED",
+                "channel": "SMS",
                 "subscriber_id": subscriber_id,
+                "msisdn": msisdn,
                 "msisdn_last4": msisdn[-4:],
+                "message_preview": "Balance depleted. Avl Bal: Rs. 0.00. Recharge to continue outgoing services.",
+                "timestamp": datetime.now(UTC).isoformat(),
             },
             trace_id=trace_id,
         )
@@ -188,3 +198,78 @@ class NotificationTrigger:
             key=msisdn,
             envelope=envelope,
         )
+
+    async def _publish_usage_transaction(
+        self,
+        msisdn: str,
+        subscriber_id: str,
+        balance_after: int,
+        trace_id: str,
+        cdr: Any,
+    ) -> None:
+        """Publish one SMS-style usage alert for every billable CDR transaction."""
+        cdr_type = getattr(cdr, "cdr_type", "usage")
+        cost_paise = getattr(cdr, "cost_paise", 0)
+        occurred_at = getattr(cdr, "start_time", None)
+        volume_mb = getattr(cdr, "volume_mb", None)
+
+        envelope = EventEnvelope.new(
+            event_type="notification.usage",
+            payload={
+                "type": "USAGE_TRANSACTION",
+                "notification_type": "USAGE_TRANSACTION",
+                "channel": "SMS",
+                "subscriber_id": subscriber_id,
+                "msisdn": msisdn,
+                "msisdn_last4": msisdn[-4:],
+                "cdr_id": str(getattr(cdr, "cdr_id", "")),
+                "cdr_type": cdr_type,
+                "cost_paise": cost_paise,
+                "balance_paise": balance_after,
+                "message_preview": _format_usage_message(cdr_type, occurred_at, cost_paise, balance_after, volume_mb),
+                "timestamp": datetime.now(UTC).isoformat(),
+            },
+            trace_id=trace_id,
+        )
+
+        await self.producer.publish(
+            topic="notification.events",
+            key=msisdn,
+            envelope=envelope,
+        )
+
+
+def _format_rupees(paise: int) -> str:
+    return f"Rs. {max(paise, 0) / 100:.2f}"
+
+
+def _format_cost(paise: int) -> str:
+    if paise < 100:
+        return f"{paise} paise"
+    return _format_rupees(paise)
+
+
+def _format_time(value: Any) -> str:
+    if isinstance(value, datetime):
+        return value.strftime("%-I:%M %p")
+    return datetime.now(UTC).strftime("%-I:%M %p")
+
+
+def _format_usage_message(
+    cdr_type: str,
+    occurred_at: Any,
+    cost_paise: int,
+    balance_after: int,
+    volume_mb: float | None,
+) -> str:
+    at = _format_time(occurred_at)
+    cost = _format_cost(cost_paise)
+    balance = _format_rupees(balance_after)
+    if cdr_type == "voice":
+        return f"Call made at {at}. Cost: {cost}. Avl Bal: {balance}."
+    if cdr_type == "sms":
+        return f"SMS sent at {at}. Cost: {cost}. Avl Bal: {balance}."
+    if cdr_type == "data":
+        used = f"{volume_mb:.2f} MB" if volume_mb is not None else "data"
+        return f"Data used at {at}. Used: {used}. Cost: {cost}. Avl Bal: {balance}."
+    return f"Usage at {at}. Cost: {cost}. Avl Bal: {balance}."

@@ -393,7 +393,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                         # Extract subscriber_id and notification_type from EventEnvelope
                         payload = msg.value.get("payload", {})
                         subscriber_id = payload.get("subscriber_id")
-                        notification_type = payload.get("type")
+                        notification_type = payload.get("notification_type") or payload.get("type")
 
                         if not subscriber_id or not notification_type:
                             logger.debug("Missing subscriber_id or notification_type in payload")

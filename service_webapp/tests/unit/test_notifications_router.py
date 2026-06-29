@@ -109,7 +109,7 @@ class _FakeDb:
 
 @pytest.mark.asyncio
 async def test_get_preferences_returns_all_types_with_defaults():
-    """Should return all 4 notification types with defaults when no DB rows exist."""
+    """Should return all notification types with defaults when no DB rows exist."""
     app = _make_app(db=_FakeDb(pref_rows=[]))
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -117,7 +117,7 @@ async def test_get_preferences_returns_all_types_with_defaults():
 
     assert r.status_code == 200
     data = r.json()["data"]
-    assert len(data["preferences"]) == 4
+    assert len(data["preferences"]) == 5
     # All should be enabled by default
     for pref in data["preferences"]:
         assert pref["is_enabled"] is True
@@ -138,7 +138,7 @@ async def test_get_preferences_returns_existing_preferences():
 
     assert r.status_code == 200
     data = r.json()["data"]
-    assert len(data["preferences"]) == 4
+    assert len(data["preferences"]) == 5
 
     # LOW_BALANCE should be enabled
     low_balance = next(p for p in data["preferences"] if p["notification_type"] == "LOW_BALANCE")

@@ -102,11 +102,18 @@ async def run_data_nudge_consumer(db, producer) -> None:
                                     event_type="notification.balance",
                                     payload={
                                         "type": "DATA_NUDGE",
+                                        "notification_type": "DATA_NUDGE",
+                                        "channel": "SMS",
                                         "subscriber_id": subscriber_id_str,
+                                        "msisdn": payload.get("from_number", ""),
                                         "msisdn_last4": msisdn,
                                         "data_mb_used": round(data_mb_used, 2),
                                         "data_limit_mb": data_limit_mb,
                                         "pct_remaining": round(pct_remaining, 3),
+                                        "message_preview": (
+                                            f"Data alert. Used: {data_mb_used:.2f} MB of {data_limit_mb} MB. "
+                                            f"Remaining: {pct_remaining:.0%}."
+                                        ),
                                     },
                                     trace_id=envelope.get("trace_id", "0" * 32) if envelope else "0" * 32,  # type: ignore[union-attr]
                                 )

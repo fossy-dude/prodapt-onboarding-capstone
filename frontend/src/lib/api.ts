@@ -698,7 +698,7 @@ export interface PatchNotificationPreferenceResponse {
 
 /**
  * GET /subscriber/notification-preferences — get subscriber's notification preferences (Story 4.2).
- * Returns all 4 notification types with current opt-in status.
+ * Returns all notification types with current opt-in status.
  */
 export async function getNotificationPreferences(): Promise<
   readonly NotificationPreferenceItem[]

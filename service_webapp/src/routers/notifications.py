@@ -29,7 +29,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/subscriber", tags=["notifications"])
 
 # All notification types that must be returned by GET endpoint
-_ALL_NOTIFICATION_TYPES = ["LOW_BALANCE", "BALANCE_DEPLETED", "PLAN_EXPIRY_REMINDER", "DATA_NUDGE"]
+_ALL_NOTIFICATION_TYPES = [
+    "LOW_BALANCE",
+    "BALANCE_DEPLETED",
+    "USAGE_TRANSACTION",
+    "PLAN_EXPIRY_REMINDER",
+    "DATA_NUDGE",
+]
 
 
 def _db(request: Request):
@@ -50,7 +56,7 @@ async def get_notification_preferences(
 ) -> JSONResponse:
     """Get subscriber's notification preferences (AC #1, #2).
 
-    Returns all 4 notification types with their current opt-in status.
+    Returns all notification types with their current opt-in status.
     If no preference row exists for a type, defaults to opted IN (is_enabled=true).
     """
     db = _db(request)
@@ -63,7 +69,7 @@ async def get_notification_preferences(
         # Build a map for quick lookup
         pref_map = {row["notification_type"]: row["is_enabled"] for row in existing_prefs}
 
-        # Build full list of all 4 types, defaulting to enabled
+        # Build full list of all types, defaulting to enabled
         preferences = []
         for notification_type in _ALL_NOTIFICATION_TYPES:
             is_enabled = pref_map.get(notification_type, True)  # Default to True
