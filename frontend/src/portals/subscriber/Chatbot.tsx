@@ -1,6 +1,7 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, type ReactNode } from "react";
 import { CopilotChat } from "@copilotkit/react-ui";
 import { useCopilotReadable, useCopilotAction } from "@copilotkit/react-core";
+import { useNavigate } from "react-router-dom";
 
 import "@copilotkit/react-ui/styles.css";
 
@@ -26,7 +27,8 @@ import { TicketConfirmationBanner } from "./components/TicketConfirmationBanner"
 const SUPPORT_INSTRUCTIONS =
   "You are a billing and account assistant for an MVNO. Answer only billing, " +
   "plan, usage, and account queries. Use tools to fetch real data. Follow TRAI " +
-  "regulations. Never reveal PII beyond the MSISDN last-4.";
+  "regulations. Never reveal PII beyond the MSISDN last-4. Format final answers " +
+  "as concise Markdown using short paragraphs, bullets, and simple tables only.";
 
 const CHAT_MINIMIZED_KEY = "sboai_chat_minimized";
 
@@ -35,9 +37,67 @@ interface ChatbotProps {
   readonly sessionId: string;
 }
 
+interface PlanCardResult {
+  readonly plan_id: string;
+  readonly name: string;
+  readonly price_inr: string;
+  readonly data_limit_mb: number | null;
+  readonly voice_minutes: number | null;
+  readonly sms_count: number | null;
+  readonly recharge_url: string;
+  readonly comparison?: string | null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value : null;
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function ToolResultShell({ children }: { readonly children: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700 shadow-sm">
+      {children}
+    </div>
+  );
+}
+
+function planCardsFromResult(result: unknown): PlanCardResult[] {
+  if (!isRecord(result) || !Array.isArray(result.plans)) {
+    return [];
+  }
+  return result.plans.filter(isRecord).flatMap((plan) => {
+    const planId = stringValue(plan.plan_id);
+    const name = stringValue(plan.name);
+    const priceInr = stringValue(plan.price_inr);
+    if (planId === null || name === null || priceInr === null) {
+      return [];
+    }
+    return [
+      {
+        plan_id: planId,
+        name,
+        price_inr: priceInr,
+        data_limit_mb: numberValue(plan.data_limit_mb),
+        voice_minutes: numberValue(plan.voice_minutes),
+        sms_count: numberValue(plan.sms_count),
+        recharge_url: stringValue(plan.recharge_url) ?? `/subscriber/recharge?plan_id=${planId}`,
+        comparison: stringValue(plan.comparison),
+      },
+    ];
+  });
+}
+
 function Chatbot({ sessionId }: ChatbotProps) {
   const { data: balance } = useBalance();
   const { data: activePlan } = useActivePlan();
+  const navigate = useNavigate();
 
   const [isMinimized, setIsMinimized] = useState<boolean>(() => {
     try {
@@ -84,28 +144,149 @@ function Chatbot({ sessionId }: ChatbotProps) {
     name: "list_plans",
     available: "disabled",
     render: ({ result }) => {
-      const plans = result?.plans ?? [];
+      const plans = planCardsFromResult(result);
       return (
         <div className="plan-cards flex flex-col gap-3">
-          {plans.map(
-            (plan: {
-              plan_id: string;
-              name: string;
-              price_inr: string;
-              data_limit_mb: number | null;
-              voice_minutes: number | null;
-              sms_count: number | null;
-            }) => (
-              <PlanRecommendationCard
-                key={plan.plan_id}
-                {...plan}
-                recharge_url={`/subscriber/recharge?plan_id=${plan.plan_id}`}
-              />
-            ),
+          {plans.map((plan) =>
+            <PlanRecommendationCard key={plan.plan_id} {...plan} />,
           )}
         </div>
       );
     },
+  });
+
+  useCopilotAction({
+    name: "recommend_plan",
+    available: "disabled",
+    render: ({ result }) => {
+      if (isRecord(result) && result.needs_clarification === true) {
+        return <></>;
+      }
+      const plans = planCardsFromResult(result);
+      if (plans.length === 0) {
+        return <></>;
+      }
+      return (
+        <div className="plan-cards flex flex-col gap-3">
+          {plans.map((plan) =>
+            <PlanRecommendationCard key={plan.plan_id} {...plan} />,
+          )}
+        </div>
+      );
+    },
+  });
+
+  useCopilotAction({
+    name: "balance_lookup",
+    available: "disabled",
+    render: ({ result }) => {
+      if (!isRecord(result)) {
+        return <></>;
+      }
+      const balanceInr = stringValue(result.balance_inr);
+      const message = stringValue(result.message);
+      return (
+        <ToolResultShell>
+          <p className="font-medium text-neutral-900">Wallet balance</p>
+          <p>{balanceInr ?? message ?? "Balance is unavailable right now."}</p>
+        </ToolResultShell>
+      );
+    },
+  });
+
+  useCopilotAction({
+    name: "get_balance",
+    available: "disabled",
+    render: ({ result }) => {
+      if (!isRecord(result)) {
+        return <></>;
+      }
+      return (
+        <ToolResultShell>
+          <p className="font-medium text-neutral-900">Wallet balance</p>
+          <p>{stringValue(result.balance_inr) ?? "Balance is unavailable right now."}</p>
+        </ToolResultShell>
+      );
+    },
+  });
+
+  useCopilotAction({
+    name: "get_plan",
+    available: "disabled",
+    render: ({ result }) => {
+      if (!isRecord(result) || !isRecord(result.active_plan)) {
+        return <></>;
+      }
+      const plan = result.active_plan;
+      return (
+        <ToolResultShell>
+          <p className="font-medium text-neutral-900">{stringValue(plan.plan_name) ?? "Active plan"}</p>
+          <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+            <dt className="text-neutral-500">Validity</dt>
+            <dd>{stringValue(plan.validity_expiry) ?? "Not available"}</dd>
+            <dt className="text-neutral-500">Data</dt>
+            <dd>{numberValue(plan.data_limit_mb) ?? "Unlimited"} MB</dd>
+            <dt className="text-neutral-500">Voice</dt>
+            <dd>{numberValue(plan.voice_minutes) ?? "Unlimited"} min</dd>
+            <dt className="text-neutral-500">SMS</dt>
+            <dd>{numberValue(plan.sms_count) ?? "Unlimited"}</dd>
+          </dl>
+        </ToolResultShell>
+      );
+    },
+  });
+
+  useCopilotAction({
+    name: "get_usage",
+    available: "disabled",
+    render: ({ result }) => {
+      if (!isRecord(result)) {
+        return <></>;
+      }
+      return (
+        <ToolResultShell>
+          <p className="font-medium text-neutral-900">Usage summary</p>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+            <span>Data: {numberValue(result.data_mb) ?? 0} MB</span>
+            <span>Voice: {numberValue(result.voice_minutes) ?? 0} min</span>
+            <span>SMS: {numberValue(result.sms_count) ?? 0}</span>
+            <span>Roaming: {numberValue(result.roaming_mb) ?? 0} MB</span>
+          </div>
+        </ToolResultShell>
+      );
+    },
+  });
+
+  useCopilotAction({
+    name: "recharge_flow",
+    available: "disabled",
+    render: ({ result }) => {
+      if (!isRecord(result)) {
+        return <></>;
+      }
+      const url = stringValue(result.url);
+      const message = stringValue(result.message);
+      return (
+        <ToolResultShell>
+          <p>{message ?? "Recharge link is ready."}</p>
+          {url !== null && (
+            <button
+              type="button"
+              onClick={() => navigate(url)}
+              className="mt-2 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-indigo-700"
+            >
+              Continue recharge
+            </button>
+          )}
+        </ToolResultShell>
+      );
+    },
+  });
+
+  useCopilotAction({
+    name: "rag_search_tool",
+    available: "disabled",
+    render: () => <></>,
   });
 
   // Story 5.7 AC #3: render charge breakdown table when charge_explain tool is called.
@@ -198,7 +379,7 @@ function Chatbot({ sessionId }: ChatbotProps) {
           </svg>
         </button>
         <CopilotChat
-          className="h-[520px] rounded-xl border border-neutral-200 bg-white shadow-2xl"
+          className="sboai-chatbot-panel h-[520px] rounded-xl border border-neutral-200 bg-white shadow-2xl"
           instructions={SUPPORT_INSTRUCTIONS}
           labels={{
             title: "Billing Assistant",

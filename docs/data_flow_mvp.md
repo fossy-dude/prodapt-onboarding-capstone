@@ -103,8 +103,8 @@ flowchart TD
 
     Support --> Rating{Charge explanation?}
     Rating --> ChargeTool[Tool: charge_explain]
-    ChargeTool --> RAgent[Rating Agent<br/>separate LangGraph]
-    RAgent --> RatingNodes[Rating tool nodes<br/>CDR lookup + balance check<br/>optional time-window analysis]
+    ChargeTool --> RAgent[Rating Agent<br/>LLM-powered separate LangGraph]
+    RAgent --> RatingNodes[Rating ReAct tools<br/>CDR lookup + balance check<br/>time-window charge search]
     RatingNodes --> PgCDR[PostgreSQL<br/>billing_cdr_events<br/>plans_subscriptions<br/>plans_plan_config<br/>billing_transactions]
     RatingNodes --> ValkeyRating[Valkey<br/>current balance fallback path]
 

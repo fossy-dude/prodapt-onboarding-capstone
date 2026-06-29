@@ -8,10 +8,11 @@ skipped by default.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Any, Self
 from uuid import UUID
 
 import pytest
+from langchain_core.messages import AIMessage
 
 if TYPE_CHECKING:
     from psycopg import AsyncConnection
@@ -233,6 +234,32 @@ class TestRatingAgentGraph:
         assert isinstance(state_with_result["result"], ChargeBreakdown)
         assert state_with_result["result"].cdr_id == "cdr-456"
         assert state_with_result["result"].charge_paise == 275
+
+    async def test_llm_powered_graph_returns_rating_summary(self) -> None:
+        """When built with an LLM, the graph should use the LLM response as summary."""
+        from agents.rating.graph import build_rating_graph
+
+        class FakeRatingLLM:
+            def bind_tools(self, tools: list[Any]) -> FakeRatingLLM:
+                self.tools = tools
+                return self
+
+            async def ainvoke(self, messages: list[Any]) -> AIMessage:
+                return AIMessage(content="This was a ₹2.75 voice charge for a 5m 30s call.")
+
+        graph = build_rating_graph(FakeRatingLLM())  # type: ignore[arg-type]
+
+        result = await graph.ainvoke(
+            {
+                "subscriber_id": "00000000-0000-7000-8000-000000000000",
+                "user_query": "Why was I charged ₹2.75?",
+                "cdr_reference": None,
+                "trace_id": "trace-789",
+                "result": None,
+            }
+        )
+
+        assert result["summary"] == "This was a ₹2.75 voice charge for a 5m 30s call."
 
 
 class TestDurationFormatting:

@@ -372,7 +372,7 @@ async def recharge_flow(plan_id: str) -> dict:
     return await _traced_tool("recharge_flow", {"plan_id": plan_id}, lambda: _run_recharge_flow(plan_id))
 
 
-async def _run_charge_explain(subscriber_id: str, cdr_reference: str) -> dict:
+async def _run_charge_explain(subscriber_id: str, user_query: str, cdr_reference: str | None) -> dict:
     """Core charge_explain logic: invoke Rating Agent A2A and return breakdown.
 
     This is an A2A (agent-to-agent) call — the Support Agent invokes the
@@ -384,8 +384,10 @@ async def _run_charge_explain(subscriber_id: str, cdr_reference: str) -> dict:
     ----------
     subscriber_id : str
         Subscriber UUID string.
-    cdr_reference : str
-        CDR event ID to fetch breakdown for.
+    user_query : str
+        Subscriber's charge explanation question.
+    cdr_reference : str | None
+        Optional CDR event ID when already known.
 
     Returns
     -------
@@ -401,6 +403,7 @@ async def _run_charge_explain(subscriber_id: str, cdr_reference: str) -> dict:
         result = await rating_graph.ainvoke(
             {
                 "subscriber_id": subscriber_id,
+                "user_query": user_query or "Explain this charge.",
                 "cdr_reference": cdr_reference,
                 "trace_id": current_session_id() or "unknown",
                 "result": None,
@@ -408,18 +411,20 @@ async def _run_charge_explain(subscriber_id: str, cdr_reference: str) -> dict:
         )
 
         breakdown = result.get("result")
+        summary = result.get("summary")
         if breakdown is None:
             return {
                 "found": False,
                 "breakdown": None,
-                "message": "I couldn't find a charge with that reference. Could you provide the date instead?",
+                "message": summary
+                or "I couldn't find a charge from those details. Please provide the CDR reference or date/time.",
             }
 
         # Convert dataclass to dict for tool return
         return {
             "found": True,
             "breakdown": dataclasses.asdict(breakdown),
-            "message": f"Found charge details for {breakdown.event_type} event",
+            "message": summary or f"Found charge details for {breakdown.event_type} event",
         }
 
     except Exception:
@@ -432,19 +437,22 @@ async def _run_charge_explain(subscriber_id: str, cdr_reference: str) -> dict:
 
 
 @tool
-async def charge_explain(cdr_reference: str) -> dict:
-    """Fetch detailed charge breakdown for a specific CDR event (Story 5.7).
+async def charge_explain(user_query: str = "", cdr_reference: str | None = None) -> dict:
+    """Explain a charge by invoking the LLM-powered Rating Agent (Story 5.7).
 
-    Invokes the Rating Agent (A2A) to query billing_audit_log and plan
-    configuration, returning a structured charge breakdown including
-    duration/data, rate per unit, charge amount, and balance impact.
+    Pass the subscriber's full charge question in ``user_query``. Include
+    ``cdr_reference`` when the user provided a CDR/reference UUID. The Rating
+    Agent chooses the appropriate rating tools for exact CDR lookup, time-window
+    search, and balance checks, then returns a concise explanation.
 
     The subscriber is resolved server-side from the JWT.
 
     Parameters
     ----------
-    cdr_reference : str
-        CDR event UUID to fetch breakdown for.
+    user_query : str
+        Original subscriber question about the charge.
+    cdr_reference : str | None
+        Optional CDR event UUID when supplied by the subscriber.
 
     Returns
     -------
@@ -458,8 +466,8 @@ async def charge_explain(cdr_reference: str) -> dict:
 
     return await _traced_tool(
         "charge_explain",
-        {"subscriber_id": actual_subscriber_id, "cdr_reference": cdr_reference},
-        lambda: _run_charge_explain(actual_subscriber_id, cdr_reference),
+        {"subscriber_id": actual_subscriber_id, "user_query": user_query, "cdr_reference": cdr_reference},
+        lambda: _run_charge_explain(actual_subscriber_id, user_query, cdr_reference),
     )
 
 
@@ -603,7 +611,7 @@ async def _run_recommend_plan(preference: str | None) -> dict:
                     f"Based on your {data_gb:.1f}GB data usage this month, "
                     f"{c.text} gives you more data at ₹{price_paise // 100}."
                 ),
-                "recharge_url": f"/subscriber/recharge?plan={c.metadata['plan_id']}",
+                "recharge_url": f"/subscriber/recharge?plan_id={c.metadata['plan_id']}",
                 "comparison": _build_plan_comparison(current_plan, c.metadata),
             }
         )

@@ -40,6 +40,7 @@ from langgraph.prebuilt import ToolNode
 from psycopg_pool import AsyncConnectionPool
 
 from agents.guardrails.validator import log_rejection
+from agents.rating.graph import build_rating_graph, set_rating_graph
 from agents.support.identity import current_msisdn, current_session_id
 from agents.support.tools import SUPPORT_TOOLS, get_support_db
 from core.config import settings
@@ -82,11 +83,16 @@ SUPPORT_SYSTEM_PROMPT = (
     "  (omit preference unless they stated one: 'data', 'voice', or 'value')\n"
     "  If recommend_plan returns needs_clarification=true, ask the subscriber their preference then call recommend_plan again with that preference.\n"
     "- Subscriber wants to recharge with a specific plan → call recharge_flow with the plan_id\n"
-    "- Subscriber asks about their balance → call get_balance\n"
+    "- Subscriber asks about their balance → call balance_lookup\n"
     "- Subscriber asks how much data/calls/SMS they have used → call get_usage\n"
-    "- Subscriber asks to explain a specific charge or says a charge looks wrong → ask for the CDR reference ID, then call charge_explain\n"
+    "- Subscriber asks to explain a specific charge or says a charge looks wrong → call charge_explain with their full question and any CDR reference/date/time they supplied\n"
     "- Subscriber wants to dispute a charge after seeing the breakdown → call ticket_create\n"
-    "- Subscriber asks a general question about plans, coverage, or policies → call rag_search_tool\n"
+    "- Subscriber asks a general question about plans, coverage, or policies → call rag_search_tool\n\n"
+    "Response format contract:\n"
+    "- Final answers must be concise Markdown: short paragraphs, bullet lists, or simple Markdown tables only.\n"
+    "- Do not emit HTML, raw JSON, code fences, or raw tool payloads in user-facing replies.\n"
+    "- Let the frontend render structured tool results from tool payloads; summarize only the important outcome in text.\n"
+    "- Keep each paragraph to one or two short sentences so the chat widget can wrap cleanly.\n"
 )
 
 
@@ -348,6 +354,7 @@ def build_support_graph(llm: BaseChatModel, *, checkpointer: BaseCheckpointSaver
     conversation state across restarts.  Falls back to :class:`InMemorySaver`
     when ``None`` (tests, local dev without a live DB).
     """
+    set_rating_graph(build_rating_graph(llm))
     llm_with_tools = llm.bind_tools(SUPPORT_TOOLS)
 
     async def _node(state: dict) -> dict:

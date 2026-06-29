@@ -447,6 +447,91 @@ async def get_charge_breakdown(
     }
 
 
+async def get_charge_events_for_window(
+    conn: AsyncConnection,
+    subscriber_id: str | UUID,
+    start_time: datetime,
+    end_time: datetime,
+    *,
+    event_type: str | None = None,
+    limit: int = 20,
+) -> list[dict]:
+    """Return rated CDR charge candidates in a time window for rating analysis."""
+    clamped_limit = max(1, min(int(limit), 50))
+    if event_type:
+        cur = await conn.execute(
+            """
+            SELECT
+                cdr.id,
+                cdr.cdr_type,
+                cdr.duration_seconds,
+                cdr.volume_mb,
+                cdr.cost_paise,
+                cdr.start_time,
+                tx.balance_before_paise,
+                tx.balance_after_paise,
+                tx.description
+            FROM billing_cdr_events cdr
+            LEFT JOIN billing_transactions tx
+              ON tx.subscriber_id = cdr.subscriber_id
+             AND tx.reference_type = 'cdr'
+             AND tx.reference_id = cdr.id
+             AND tx.transaction_type IN ('cdr_deduction', 'deduction')
+            WHERE cdr.subscriber_id = %s::uuid
+              AND cdr.status = 'rated'
+              AND cdr.start_time >= %s
+              AND cdr.start_time <= %s
+              AND cdr.cdr_type = %s
+            ORDER BY cdr.start_time DESC
+            LIMIT %s
+            """,
+            (str(subscriber_id), start_time, end_time, event_type, clamped_limit),
+        )
+    else:
+        cur = await conn.execute(
+            """
+            SELECT
+                cdr.id,
+                cdr.cdr_type,
+                cdr.duration_seconds,
+                cdr.volume_mb,
+                cdr.cost_paise,
+                cdr.start_time,
+                tx.balance_before_paise,
+                tx.balance_after_paise,
+                tx.description
+            FROM billing_cdr_events cdr
+            LEFT JOIN billing_transactions tx
+              ON tx.subscriber_id = cdr.subscriber_id
+             AND tx.reference_type = 'cdr'
+             AND tx.reference_id = cdr.id
+             AND tx.transaction_type IN ('cdr_deduction', 'deduction')
+            WHERE cdr.subscriber_id = %s::uuid
+              AND cdr.status = 'rated'
+              AND cdr.start_time >= %s
+              AND cdr.start_time <= %s
+            ORDER BY cdr.start_time DESC
+            LIMIT %s
+            """,
+            (str(subscriber_id), start_time, end_time, clamped_limit),
+        )
+    rows = await cur.fetchall()
+    return [
+        {
+            "cdr_id": str(row[0]),
+            "event_type": row[1],
+            "duration_seconds": row[2],
+            "volume_mb": row[3],
+            "charge_paise": row[4],
+            "start_time": row[5],
+            "balance_before": row[6],
+            "balance_after": row[7],
+            "description": row[8],
+        }
+        for row in rows
+    ]
+
+
 async def _get_rate_from_config(
     conn: AsyncConnection,
     plan_id: str,
@@ -532,7 +617,7 @@ async def _get_balance_impact(
         WHERE subscriber_id = %s::uuid
           AND reference_type = 'cdr'
           AND reference_id = %s::uuid
-          AND transaction_type = 'deduction'
+          AND transaction_type IN ('cdr_deduction', 'deduction')
         ORDER BY created_at DESC
         LIMIT 1
         """,
@@ -647,6 +732,7 @@ __all__ = [
     "get_active_plan_data_quota",
     "get_active_subscription",
     "get_charge_breakdown",
+    "get_charge_events_for_window",
     "get_current_plan_details",
     "get_last_recharge_amount",
     "get_msisdn_for_subscriber",

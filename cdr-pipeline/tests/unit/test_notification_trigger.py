@@ -76,7 +76,10 @@ async def test_balance_depleted_fires_when_balance_zero(trigger: NotificationTri
     assert envelope.event_type == "notification.balance"
     assert envelope.payload["type"] == "BALANCE_DEPLETED"
     assert envelope.payload["notification_type"] == "BALANCE_DEPLETED"
-    assert envelope.payload["message_preview"] == "Balance depleted. Avl Bal: Rs. 0.00. Recharge to continue outgoing services."
+    assert (
+        envelope.payload["message_preview"]
+        == "Balance depleted. Avl Bal: Rs. 0.00. Recharge to continue outgoing services."
+    )
     assert envelope.payload["subscriber_id"] == "sub-123"
     assert envelope.payload["msisdn_last4"] == "3210"
 

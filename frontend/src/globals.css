@@ -14,3 +14,78 @@ body {
   color: #1f2937; /* neutral-800 */
   font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
 }
+
+@layer components {
+  .sboai-chatbot-panel .copilotKitMessages {
+    gap: 0.75rem;
+  }
+
+  .sboai-chatbot-panel .copilotKitAssistantMessage,
+  .sboai-chatbot-panel .copilotKitUserMessage,
+  .sboai-chatbot-panel .copilotKitMessage {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  .sboai-chatbot-panel .copilotKitAssistantMessage p,
+  .sboai-chatbot-panel .copilotKitMarkdown p {
+    margin: 0 0 0.5rem;
+    line-height: 1.5;
+  }
+
+  .sboai-chatbot-panel .copilotKitAssistantMessage p:last-child,
+  .sboai-chatbot-panel .copilotKitMarkdown p:last-child {
+    margin-bottom: 0;
+  }
+
+  .sboai-chatbot-panel .copilotKitAssistantMessage ul,
+  .sboai-chatbot-panel .copilotKitMarkdown ul,
+  .sboai-chatbot-panel .copilotKitAssistantMessage ol,
+  .sboai-chatbot-panel .copilotKitMarkdown ol {
+    margin: 0.5rem 0;
+    padding-left: 1.25rem;
+    white-space: normal;
+  }
+
+  .sboai-chatbot-panel .copilotKitAssistantMessage li,
+  .sboai-chatbot-panel .copilotKitMarkdown li {
+    margin: 0.25rem 0;
+  }
+
+  .sboai-chatbot-panel .copilotKitAssistantMessage table,
+  .sboai-chatbot-panel .copilotKitMarkdown table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    white-space: normal;
+  }
+
+  .sboai-chatbot-panel .copilotKitAssistantMessage th,
+  .sboai-chatbot-panel .copilotKitAssistantMessage td,
+  .sboai-chatbot-panel .copilotKitMarkdown th,
+  .sboai-chatbot-panel .copilotKitMarkdown td {
+    @apply border border-neutral-200 px-2 py-1.5 text-left;
+  }
+
+  .sboai-chatbot-panel .copilotKitAssistantMessage pre,
+  .sboai-chatbot-panel .copilotKitMarkdown pre {
+    max-width: 100%;
+    overflow-x: auto;
+    white-space: pre-wrap;
+  }
+
+  .sboai-chatbot-panel [class*="FunctionCall"],
+  .sboai-chatbot-panel [class*="ToolCall"] {
+    max-width: 100%;
+    border-radius: 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .sboai-chatbot-panel [class*="FunctionCall"] svg,
+  .sboai-chatbot-panel [class*="ToolCall"] svg {
+    width: 1rem;
+    height: 1rem;
+  }
+}
