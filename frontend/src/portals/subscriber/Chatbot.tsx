@@ -87,7 +87,9 @@ function planCardsFromResult(result: unknown): PlanCardResult[] {
         data_limit_mb: numberValue(plan.data_limit_mb),
         voice_minutes: numberValue(plan.voice_minutes),
         sms_count: numberValue(plan.sms_count),
-        recharge_url: stringValue(plan.recharge_url) ?? `/subscriber/recharge?plan_id=${planId}`,
+        recharge_url:
+          stringValue(plan.recharge_url) ??
+          `/subscriber/recharge?plan_id=${planId}`,
         comparison: stringValue(plan.comparison),
       },
     ];
@@ -147,9 +149,9 @@ function Chatbot({ sessionId }: ChatbotProps) {
       const plans = planCardsFromResult(result);
       return (
         <div className="plan-cards flex flex-col gap-3">
-          {plans.map((plan) =>
-            <PlanRecommendationCard key={plan.plan_id} {...plan} />,
-          )}
+          {plans.map((plan) => (
+            <PlanRecommendationCard key={plan.plan_id} {...plan} />
+          ))}
         </div>
       );
     },
@@ -168,9 +170,9 @@ function Chatbot({ sessionId }: ChatbotProps) {
       }
       return (
         <div className="plan-cards flex flex-col gap-3">
-          {plans.map((plan) =>
-            <PlanRecommendationCard key={plan.plan_id} {...plan} />,
-          )}
+          {plans.map((plan) => (
+            <PlanRecommendationCard key={plan.plan_id} {...plan} />
+          ))}
         </div>
       );
     },
@@ -204,7 +206,10 @@ function Chatbot({ sessionId }: ChatbotProps) {
       return (
         <ToolResultShell>
           <p className="font-medium text-neutral-900">Wallet balance</p>
-          <p>{stringValue(result.balance_inr) ?? "Balance is unavailable right now."}</p>
+          <p>
+            {stringValue(result.balance_inr) ??
+              "Balance is unavailable right now."}
+          </p>
         </ToolResultShell>
       );
     },
@@ -220,7 +225,9 @@ function Chatbot({ sessionId }: ChatbotProps) {
       const plan = result.active_plan;
       return (
         <ToolResultShell>
-          <p className="font-medium text-neutral-900">{stringValue(plan.plan_name) ?? "Active plan"}</p>
+          <p className="font-medium text-neutral-900">
+            {stringValue(plan.plan_name) ?? "Active plan"}
+          </p>
           <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
             <dt className="text-neutral-500">Validity</dt>
             <dd>{stringValue(plan.validity_expiry) ?? "Not available"}</dd>

@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
 
 import { Badge, Button, Card, CardSection } from "../../components/ui";
-import { registerSubscriber, toApiError } from "../../lib/api";
+import { registerSubscriber, verifyLoginOtp, toApiError } from "../../lib/api";
+import { saveToken, saveRefreshToken } from "../../lib/auth";
 import type { RegisterPayload } from "../../types/subscriber";
 
 const ID_PROOF_TYPES = ["Aadhaar", "PAN", "Passport", "Voter ID"] as const;
@@ -50,6 +52,7 @@ type Step = 1 | 2 | 3;
  * Step 3 — Registration ID display + OTP entry.
  */
 function Register() {
+  const navigate = useNavigate();
   const [step, setStep] = useState<Step>(1);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [registrationId, setRegistrationId] = useState<string>("");
@@ -66,6 +69,22 @@ function Register() {
       const apiError = toApiError(error);
       setStepError(
         apiError?.message ?? "Registration failed. Please try again.",
+      );
+    },
+  });
+
+  const verifyMutation = useMutation({
+    mutationFn: ({ id, code }: { id: string; code: string }) =>
+      verifyLoginOtp(id, code),
+    onSuccess: (tokens) => {
+      saveToken(tokens.access_token);
+      if (tokens.refresh_token) saveRefreshToken(tokens.refresh_token);
+      navigate("/subscriber/activate", { replace: true });
+    },
+    onError: (error: unknown) => {
+      const apiError = toApiError(error);
+      setStepError(
+        apiError?.message ?? "OTP verification failed. Please try again.",
       );
     },
   });
@@ -172,8 +191,20 @@ function Register() {
               onChange={(e) => setOtp(e.target.value)}
               placeholder="6-digit code"
             />
-            <Button type="button" variant="primary" disabled={otp.length !== 6}>
-              Verify &amp; Complete
+            {stepError && (
+              <p role="alert" className="mb-3 text-sm text-danger-600">
+                {stepError}
+              </p>
+            )}
+            <Button
+              type="button"
+              variant="primary"
+              disabled={otp.length !== 6 || verifyMutation.isPending}
+              onClick={() =>
+                verifyMutation.mutate({ id: registrationId, code: otp })
+              }
+            >
+              {verifyMutation.isPending ? "Verifying…" : "Verify & Complete"}
             </Button>
           </CardSection>
         </Card>
