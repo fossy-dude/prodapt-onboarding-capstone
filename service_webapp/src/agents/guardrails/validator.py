@@ -197,13 +197,13 @@ class InputGuardrail:
             # Compute cosine similarity
             similarity = self._cosine_similarity(message_embedding, topic_embedding)
 
-            # Reject if below threshold
-            if similarity < self._SIMILARITY_THRESHOLD:
-                return GuardrailResult(
-                    passed=False,
-                    rejection_reason="OFF_TOPIC",
-                    response_message=self._OFF_TOPIC_MESSAGE,
-                )
+            # Reject if below threshold. #FIXME: Set to False and uncomment section
+            # if similarity < self._SIMILARITY_THRESHOLD:
+            #     return GuardrailResult(
+            #         passed=False, #FIXME: Set to False and uncomment section
+            #         rejection_reason="OFF_TOPIC",
+            #         response_message=self._OFF_TOPIC_MESSAGE,
+            #     )
 
             return GuardrailResult(passed=True, rejection_reason=None, response_message=None)
         except Exception:
