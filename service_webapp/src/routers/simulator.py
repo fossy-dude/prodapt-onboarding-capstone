@@ -411,23 +411,25 @@ class ActivateRequest(BaseModel):
 # Resolve the subscriber + their NEW_ACTIVATION order + plan price. Two SQLs
 # (not a branchy single query) keep the join set clean per lookup type.
 _LOOKUP_BY_MSISDN = """
-    SELECT s.id::text, s.msisdn, o.id::text, o.plan_id::text, o.fulfilment_status, p.price_paise
+    SELECT s.id::text, s.msisdn, o.id::text, o.plan_id::text, o.fulfilment_status,
+           COALESCE(p.price_paise, 0)
       FROM identity_subscribers s
       JOIN ops_order_fulfilment o
         ON o.subscriber_id = s.id AND o.fulfilment_type = 'NEW_ACTIVATION'
-      JOIN plans_plans p ON p.id = o.plan_id
+      LEFT JOIN plans_plans p ON p.id = o.plan_id
      WHERE s.msisdn = %s
      ORDER BY o.created_at DESC
      LIMIT 1
 """
 
 _LOOKUP_BY_REGISTRATION_ID = """
-    SELECT s.id::text, s.msisdn, o.id::text, o.plan_id::text, o.fulfilment_status, p.price_paise
+    SELECT s.id::text, s.msisdn, o.id::text, o.plan_id::text, o.fulfilment_status,
+           COALESCE(p.price_paise, 0)
       FROM identity_registrations reg
       JOIN identity_subscribers s ON s.id = reg.subscriber_id
       JOIN ops_order_fulfilment o
         ON o.subscriber_id = s.id AND o.fulfilment_type = 'NEW_ACTIVATION'
-      JOIN plans_plans p ON p.id = o.plan_id
+      LEFT JOIN plans_plans p ON p.id = o.plan_id
      WHERE reg.registration_id = %s
      ORDER BY o.created_at DESC
      LIMIT 1

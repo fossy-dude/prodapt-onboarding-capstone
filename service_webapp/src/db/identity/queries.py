@@ -55,4 +55,28 @@ async def get_subscriber_id_by_msisdn(conn: AsyncConnection, msisdn: str) -> str
     return str(row[0]) if row is not None else None
 
 
-__all__ = ["get_subscriber_by_msisdn", "get_subscriber_id_by_msisdn"]
+async def get_subscriber_id_by_cognito_username(conn: AsyncConnection, username: str) -> str | None:
+    """Resolve the internal subscriber id from the cognito_user_id column.
+
+    Covers registration-id-based Cognito users where the Cognito username
+    equals the registration_id stored in identity_subscribers.cognito_user_id.
+    Returns None when no match is found.
+    """
+    cur = await conn.execute(
+        """
+        SELECT id
+          FROM identity_subscribers
+         WHERE cognito_user_id = %s
+         LIMIT 1
+        """,
+        (username,),
+    )
+    row = await cur.fetchone()
+    return str(row[0]) if row is not None else None
+
+
+__all__ = [
+    "get_subscriber_by_msisdn",
+    "get_subscriber_id_by_cognito_username",
+    "get_subscriber_id_by_msisdn",
+]

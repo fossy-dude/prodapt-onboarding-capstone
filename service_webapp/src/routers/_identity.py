@@ -17,7 +17,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from core.errors import NotFoundError, UnauthenticatedError
-from db.identity.queries import get_subscriber_id_by_msisdn
+from db.identity.queries import (
+    get_subscriber_id_by_cognito_username,
+    get_subscriber_id_by_msisdn,
+)
 
 if TYPE_CHECKING:
     from psycopg import AsyncConnection
@@ -44,6 +47,10 @@ async def resolve_subscriber_id(conn: AsyncConnection, jwt_payload: dict) -> str
         raise UnauthenticatedError("Access token carries no subscriber phone number.")
 
     subscriber_id = await get_subscriber_id_by_msisdn(conn, raw)
+    if subscriber_id is None:
+        # Fallback: the JWT username may be a Registration ID (pre-activation users)
+        # stored as cognito_user_id in identity_subscribers rather than an MSISDN.
+        subscriber_id = await get_subscriber_id_by_cognito_username(conn, raw)
     if subscriber_id is None:
         raise NotFoundError("Subscriber not found for token phone number.")
     return str(subscriber_id)

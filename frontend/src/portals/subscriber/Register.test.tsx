@@ -60,10 +60,12 @@ describe("Register", () => {
     expect(screen.getByText(/Step 1 of 3/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      "Full name is required.",
-    );
+    // Navigation blocked — still on Step 1
     expect(screen.getByText(/Step 1 of 3/)).toBeInTheDocument();
+    // Per-field inline validation hints visible for each required field
+    expect(screen.getByText("Required")).toBeInTheDocument();
+    expect(screen.getByText("Valid email required")).toBeInTheDocument();
+    expect(screen.getByText("10–15 digits")).toBeInTheDocument();
   });
 
   it("navigates Step 1 → Step 2 → back", async () => {
