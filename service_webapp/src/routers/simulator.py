@@ -225,8 +225,11 @@ async def _compute_cost_paise(
 
 def _build_cdr_payload(body: CdrDispatchRequest, subscriber_id: uuid.UUID) -> dict[str, Any]:
     """Construct the CDR payload dict compatible with the cdr-pipeline CdrEvent schema."""
-    now = datetime.now(UTC)
-    start_time = now.isoformat()
+    if body.timestamp:
+        parsed = datetime.fromisoformat(body.timestamp.replace("Z", "+00:00"))
+        start_time = (parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)).isoformat()
+    else:
+        start_time = datetime.now(UTC).isoformat()
 
     base: dict[str, Any] = {
         "cdr_id": str(uuid.uuid4()),

@@ -65,14 +65,19 @@ function StageRow({ event }: StageRowProps) {
   );
 }
 
-const DEFAULT_FORM: DispatchForm = {
+const DEFAULT_FORM: Omit<DispatchForm, "timestamp"> = {
   subscriberMsisdn: "+919876543210",
   cdrType: "voice",
   durationSeconds: "60",
   volumeMb: "10",
   messageDirection: "MO",
-  timestamp: "",
 };
+
+/** Format a Date as a `datetime-local` input value (local time, minute precision). */
+function toDatetimeLocalValue(date: Date): string {
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 /**
  * CDR Simulator tool — dispatch synthetic CDR events and watch pipeline trace
@@ -80,7 +85,10 @@ const DEFAULT_FORM: DispatchForm = {
  * Route: /simulator/cdr. Requires `dev` role.
  */
 export function CdrSimulator() {
-  const [form, setForm] = useState<DispatchForm>(DEFAULT_FORM);
+  const [form, setForm] = useState<DispatchForm>(() => ({
+    ...DEFAULT_FORM,
+    timestamp: toDatetimeLocalValue(new Date()),
+  }));
   const [dispatchError, setDispatchError] = useState<string | null>(null);
   const [lastTraceId, setLastTraceId] = useState<string | null>(null);
 
@@ -104,7 +112,10 @@ export function CdrSimulator() {
           form.cdrType === "data" ? parseFloat(form.volumeMb) : undefined,
         message_direction:
           form.cdrType === "sms" ? form.messageDirection : undefined,
-        timestamp: form.timestamp !== "" ? form.timestamp : undefined,
+        timestamp:
+          form.timestamp !== ""
+            ? new Date(form.timestamp).toISOString()
+            : undefined,
       }),
     onSuccess: (data) => {
       setLastTraceId(data.trace_id);

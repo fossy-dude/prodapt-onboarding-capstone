@@ -191,7 +191,9 @@ def _initial_rating_messages(state: RatingAgentState) -> list[BaseMessage]:
     cdr_reference = state.get("cdr_reference")
     if cdr_reference:
         query = f"{query}\nKnown CDR reference: {cdr_reference}"
-    return [SystemMessage(content=RATING_SYSTEM_PROMPT), HumanMessage(content=query)]
+    now_iso = dt.datetime.now(dt.UTC).isoformat()
+    system_content = f"{RATING_SYSTEM_PROMPT}\n\nCurrent date/time (UTC): {now_iso}"
+    return [SystemMessage(content=system_content), HumanMessage(content=query)]
 
 
 def _breakdown_from_tool_messages(messages: list[BaseMessage]) -> ChargeBreakdown | None:
