@@ -19,6 +19,12 @@ services:
   cdr-pipeline:
     build:
       context: ../cdr-pipeline
+    # .env.docker (if present) wins key-by-key over .env — see cdr-pipeline/.env.docker.
+    env_file:
+      - path: ../cdr-pipeline/.env
+        required: false
+      - path: ../cdr-pipeline/.env.docker
+        required: false
     environment:
       DATABASE_URL: postgresql://sboai_app:${POSTGRES_APP_PASSWORD}@postgres:5432/sboai
       KAFKA_BOOTSTRAP_SERVERS: redpanda:29092
@@ -43,6 +49,12 @@ services:
   service_webapp:
     build:
       context: ../service_webapp
+    # .env.docker (if present) wins key-by-key over .env — see service_webapp/.env.docker.
+    env_file:
+      - path: ../service_webapp/.env
+        required: false
+      - path: ../service_webapp/.env.docker
+        required: false
     environment:
       DATABASE_URL: postgresql://sboai_app:${POSTGRES_APP_PASSWORD}@postgres:5432/sboai
       VALKEY_URL: redis://valkey:6379
@@ -82,6 +94,12 @@ services:
   frontend:
     build:
       context: ../frontend
+    # .env.docker (if present) wins key-by-key over .env — see frontend/.env.docker.
+    env_file:
+      - path: ../frontend/.env
+        required: false
+      - path: ../frontend/.env.docker
+        required: false
     ports:
       - "5173:5173"
     depends_on:

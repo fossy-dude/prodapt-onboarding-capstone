@@ -205,7 +205,11 @@ def upsert_app_client(client, pool_id: str, client_name: str) -> str:
     ``ALLOW_CUSTOM_AUTH`` enables the passwordless OTP flow; refresh is included so
     the SPA can renew without re-challenging.
     """
-    auth_flows = ["ALLOW_CUSTOM_AUTH", "ALLOW_ADMIN_USER_PASSWORD_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
+    auth_flows = [
+        "ALLOW_CUSTOM_AUTH",
+        "ALLOW_ADMIN_USER_PASSWORD_AUTH",
+        "ALLOW_REFRESH_TOKEN_AUTH",
+    ]
     token_units = {
         "AccessToken": "minutes",
         "IdToken": "minutes",
@@ -309,7 +313,9 @@ def seed_users(client, pool_id: str) -> list[dict]:
                 Permanent=True,
             )
         except ClientError as exc:
-            print(f"[user]  WARNING set-password {role}: {exc.response['Error']['Code']}")
+            print(
+                f"[user]  WARNING set-password {role}: {exc.response['Error']['Code']}"
+            )
 
         # AddUserToGroup is idempotent on AWS/LocalStack; guard regardless.
         try:
@@ -446,16 +452,16 @@ def main() -> int:
     seeded = [] if args.no_seed else seed_users(client, pool_id)
 
     write_env(args.env_file, pool_id, client_id)
-    write_readme(
-        args.readme,
-        args.region,
-        args.endpoint_url,
-        args.pool_name,
-        pool_id,
-        args.client_name,
-        client_id,
-        seeded,
-    )
+    # write_readme(
+    #     args.readme,
+    #     args.region,
+    #     args.endpoint_url,
+    #     args.pool_name,
+    #     pool_id,
+    #     args.client_name,
+    #     client_id,
+    #     seeded,
+    # )
 
     print("\n✓ Cognito provisioning complete")
     print(f"  COGNITO_USER_POOL_ID={pool_id}")

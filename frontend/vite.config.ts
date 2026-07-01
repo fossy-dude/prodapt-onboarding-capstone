@@ -62,7 +62,15 @@ function copilotKitPlugin(backendChatUrl: string): Plugin {
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "VITE_");
-  const backendOrigin = new URL(env.VITE_API_BASE_URL).origin;
+  // BACKEND_INTERNAL_URL (unprefixed — server-side only, never exposed to the
+  // browser bundle) lets the chat proxy reach the backend over the docker
+  // compose network (e.g. http://service_webapp:8000), where VITE_API_BASE_URL
+  // instead holds the browser-facing, host-published address (localhost:8000).
+  // Falls back to VITE_API_BASE_URL's origin for non-docker local dev, where
+  // both the Node process and the browser resolve "localhost" the same way.
+  const backendOrigin = process.env.BACKEND_INTERNAL_URL
+    ? new URL(process.env.BACKEND_INTERNAL_URL).origin
+    : new URL(env.VITE_API_BASE_URL).origin;
 
   return {
     plugins: [react(), copilotKitPlugin(`${backendOrigin}/api/chat`)],

@@ -1,0 +1,9 @@
+.venv
+.tox
+.pytest_cache
+.ruff_cache
+__pycache__
+.env
+.env.docker
+.env.example
+tests
