@@ -1,56 +1,84 @@
-"""Tests for percentile rank and classification helpers (Story 5.9 Task 8)."""
+"""Tests for recommend_plan's preference/filter helpers (Story 5.9 Task 8)."""
 
-from agents.support.tools import _DOMINANT_THRESHOLD, _PREF_MAP, _percentile_rank
-
-
-def test_percentile_rank_below_p25():
-    assert _percentile_rank(50, 100, 200, 300, 400) == 12.5
-
-
-def test_percentile_rank_at_p25():
-    assert _percentile_rank(100, 100, 200, 300, 400) == 25.0
-
-
-def test_percentile_rank_between_p25_and_p50():
-    result = _percentile_rank(150, 100, 200, 300, 400)
-    assert 25.0 < result < 50.0
+from agents.support.tools import (
+    _UNLIMITED_SENTINEL,
+    _build_plan_filter,
+    _current_baseline,
+    _normalize_direction,
+    _normalize_limit,
+    _preference_summary,
+)
 
 
-def test_percentile_rank_at_p50():
-    assert _percentile_rank(200, 100, 200, 300, 400) == 50.0
+def test_normalize_direction_more():
+    assert _normalize_direction("more") == "more"
 
 
-def test_percentile_rank_at_p75():
-    assert _percentile_rank(300, 100, 200, 300, 400) == 75.0
+def test_normalize_direction_less_case_and_whitespace():
+    assert _normalize_direction(" LESS ") == "less"
 
 
-def test_percentile_rank_at_p90():
-    assert _percentile_rank(400, 100, 200, 300, 400) == 90.0
+def test_normalize_direction_none():
+    assert _normalize_direction(None) is None
 
 
-def test_percentile_rank_above_p90():
-    assert _percentile_rank(500, 100, 200, 300, 400) == 91.0
+def test_normalize_direction_invalid_value_drops_to_none():
+    assert _normalize_direction("balanced") is None
 
 
-def test_percentile_rank_with_zero_baseline():
-    assert _percentile_rank(100, 0, 0, 0, 0) == 0.0
+def test_normalize_limit_passes_through_int():
+    assert _normalize_limit(5000) == 5000
 
 
-def test_pref_map_data():
-    assert _PREF_MAP.get("data") == "DATA_HEAVY"
+def test_normalize_limit_maps_none_to_sentinel():
+    assert _normalize_limit(None) == _UNLIMITED_SENTINEL
 
 
-def test_pref_map_voice():
-    assert _PREF_MAP.get("voice") == "VOICE_HEAVY"
+def test_current_baseline_prefers_current_plan():
+    profile = {"total_data_mb": 100, "total_voice_seconds": 60, "total_sms_count": 5}
+    current_plan = {"data_limit_mb": 30720, "voice_minutes": 500, "sms_count": 100}
+    baseline = _current_baseline(profile, current_plan)
+    assert baseline == {"data_limit_mb": 30720, "voice_minutes": 500, "sms_count": 100}
 
 
-def test_pref_map_value():
-    assert _PREF_MAP.get("value") == "VALUE"
+def test_current_baseline_falls_back_to_usage_without_a_plan():
+    profile = {"total_data_mb": 5000, "total_voice_seconds": 6000, "total_sms_count": 100}
+    baseline = _current_baseline(profile, None)
+    assert baseline == {"data_limit_mb": 5000, "voice_minutes": 100, "sms_count": 100}
 
 
-def test_pref_map_balanced():
-    assert _PREF_MAP.get("balanced") == "BALANCED"
+def test_current_baseline_maps_unlimited_plan_fields_to_sentinel():
+    profile = {"total_data_mb": 0, "total_voice_seconds": 0, "total_sms_count": 0}
+    current_plan = {"data_limit_mb": 30720, "voice_minutes": None, "sms_count": None}
+    baseline = _current_baseline(profile, current_plan)
+    assert baseline["voice_minutes"] == _UNLIMITED_SENTINEL
+    assert baseline["sms_count"] == _UNLIMITED_SENTINEL
 
 
-def test_dominant_threshold_value():
-    assert _DOMINANT_THRESHOLD == 70.0
+def test_build_plan_filter_more_data():
+    baseline = {"data_limit_mb": 5000, "voice_minutes": 100, "sms_count": 50}
+    directions = {"data": "more", "voice": None, "sms": None}
+    assert _build_plan_filter(baseline, directions) == "data_limit_mb > 5000"
+
+
+def test_build_plan_filter_combines_multiple_axes():
+    baseline = {"data_limit_mb": 5000, "voice_minutes": 100, "sms_count": 50}
+    directions = {"data": "more", "voice": "less", "sms": None}
+    assert _build_plan_filter(baseline, directions) == "data_limit_mb > 5000 and voice_minutes < 100"
+
+
+def test_build_plan_filter_no_directions_returns_none():
+    baseline = {"data_limit_mb": 5000, "voice_minutes": 100, "sms_count": 50}
+    directions = {"data": None, "voice": None, "sms": None}
+    assert _build_plan_filter(baseline, directions) is None
+
+
+def test_build_plan_filter_skips_more_when_already_unlimited():
+    baseline = {"data_limit_mb": 5000, "voice_minutes": _UNLIMITED_SENTINEL, "sms_count": 50}
+    directions = {"data": None, "voice": "more", "sms": None}
+    assert _build_plan_filter(baseline, directions) is None
+
+
+def test_preference_summary_lists_only_stated_axes():
+    directions = {"data": "more", "voice": None, "sms": "less"}
+    assert _preference_summary(directions) == "more data, less SMS"

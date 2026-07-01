@@ -46,8 +46,6 @@ from core.security import mask_msisdn
 from db.billing.queries import (
     get_active_plan,
     get_current_plan_details,
-    get_last_recharge_amount,
-    get_population_usage_stats,
     get_subscriber_usage_profile,
     get_usage_for_period,
 )
@@ -473,19 +471,80 @@ async def charge_explain(user_query: str = "", cdr_reference: str | None = None)
 
 # ── Plan recommendation helpers (Story 5.9) ────────────────────────────────────
 
+# plans_plans.{data_limit_mb,voice_minutes,sms_count} are NULL for "unlimited".
+# Milvus filters need a real number, so plan_vectors stores unlimited as this
+# sentinel (see scripts/seed_milvus.py) — bigger than any real plan value, so
+# "more than current" correctly favors unlimited plans and "less than current"
+# correctly excludes them.
+_UNLIMITED_SENTINEL = 2_000_000_000
 
-def _percentile_rank(value: float, p25: float, p50: float, p75: float, p90: float) -> float:
-    if p25 == 0 and p50 == 0:
-        return 0.0
-    if value <= p25:
-        return 25.0 * (value / p25) if p25 > 0 else 0.0
-    if value <= p50:
-        return 25.0 + 25.0 * ((value - p25) / (p50 - p25)) if p50 > p25 else 25.0
-    if value <= p75:
-        return 50.0 + 25.0 * ((value - p50) / (p75 - p50)) if p75 > p50 else 50.0
-    if value <= p90:
-        return 75.0 + 15.0 * ((value - p75) / (p90 - p75)) if p90 > p75 else 75.0
-    return 91.0
+_VALID_DIRECTIONS = {"more", "less"}
+
+# Maps a preference axis to its plan_vectors metadata field.
+_AXIS_FIELDS: dict[str, str] = {
+    "data": "data_limit_mb",
+    "voice": "voice_minutes",
+    "sms": "sms_count",
+}
+
+
+def _normalize_direction(value: str | None) -> str | None:
+    """Coerce a preference into 'more' | 'less' | None, dropping anything else."""
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    return normalized if normalized in _VALID_DIRECTIONS else None
+
+
+def _normalize_limit(value: int | None) -> int:
+    """Map a nullable plan limit to a comparable int, using the unlimited sentinel."""
+    return _UNLIMITED_SENTINEL if value is None else int(value)
+
+
+def _current_baseline(profile: dict, current_plan: dict | None) -> dict[str, int]:
+    """Return the subscriber's current data/voice/sms levels to compare candidate plans against.
+
+    Prefers their active plan's limits; falls back to 30-day usage when they have
+    no completed recharge on file yet.
+    """
+    if current_plan is not None:
+        return {
+            "data_limit_mb": _normalize_limit(current_plan.get("data_limit_mb")),
+            "voice_minutes": _normalize_limit(current_plan.get("voice_minutes")),
+            "sms_count": _normalize_limit(current_plan.get("sms_count")),
+        }
+    return {
+        "data_limit_mb": int(profile["total_data_mb"]),
+        "voice_minutes": int(profile["total_voice_seconds"] // 60),
+        "sms_count": int(profile["total_sms_count"]),
+    }
+
+
+def _build_plan_filter(baseline: dict[str, int], directions: dict[str, str | None]) -> str | None:
+    """Build a Milvus metadata filter from stated more/less preferences.
+
+    Skips an axis entirely if its baseline is already the unlimited sentinel and
+    the subscriber wants "more" — no plan offers more than unlimited.
+    """
+    clauses = []
+    for axis, direction in directions.items():
+        if direction is None:
+            continue
+        field = _AXIS_FIELDS[axis]
+        current = baseline[field]
+        if direction == "more":
+            if current >= _UNLIMITED_SENTINEL:
+                continue
+            clauses.append(f"{field} > {current}")
+        else:
+            clauses.append(f"{field} < {current}")
+    return " and ".join(clauses) if clauses else None
+
+
+def _preference_summary(directions: dict[str, str | None]) -> str:
+    labels = {"data": "data", "voice": "calling minutes", "sms": "SMS"}
+    parts = [f"{direction} {labels[axis]}" for axis, direction in directions.items() if direction is not None]
+    return ", ".join(parts)
 
 
 def _build_plan_comparison(current: dict | None, rec_metadata: dict) -> str | None:
@@ -515,6 +574,17 @@ def _build_plan_comparison(current: dict | None, rec_metadata: dict) -> str | No
     elif rec_voice is None and cur_voice is not None:
         parts.append("unlimited calls")
 
+    cur_sms = current.get("sms_count")
+    rec_sms_raw = rec_metadata.get("sms_count")
+    rec_sms = None if rec_sms_raw == 0 else rec_sms_raw
+    if cur_sms is not None and rec_sms is not None:
+        diff = rec_sms - cur_sms
+        if abs(diff) >= 20:
+            label = "more" if diff > 0 else "fewer"
+            parts.append(f"{abs(diff)} {label} SMS")
+    elif rec_sms is None and cur_sms is not None:
+        parts.append("unlimited SMS")
+
     price_diff_paise = rec_metadata.get("price", 0) - current.get("price_paise", 0)
     if price_diff_paise != 0:
         label = "more" if price_diff_paise > 0 else "less"
@@ -523,83 +593,46 @@ def _build_plan_comparison(current: dict | None, rec_metadata: dict) -> str | No
     return " · ".join(parts) if parts else None
 
 
-_PREF_MAP: dict[str, str] = {
-    "data": "DATA_HEAVY",
-    "voice": "VOICE_HEAVY",
-    "value": "VALUE",
-    "balanced": "BALANCED",
-}
+async def _run_recommend_plan(
+    data_preference: str | None,
+    voice_preference: str | None,
+    sms_preference: str | None,
+) -> dict:
+    directions = {
+        "data": _normalize_direction(data_preference),
+        "voice": _normalize_direction(voice_preference),
+        "sms": _normalize_direction(sms_preference),
+    }
+    if all(direction is None for direction in directions.values()):
+        return {
+            "needs_clarification": True,
+            "question": "What would you like more or less of — data, calling minutes, or SMS?",
+        }
 
-_DOMINANT_THRESHOLD = 70.0
-
-
-async def _run_recommend_plan(preference: str | None) -> dict:
     subscriber_id = current_subscriber_id()
     db = _require_db()
 
     async with db.transaction() as conn:
         profile = await get_subscriber_usage_profile(conn, UUID(subscriber_id))
-
-        if preference is not None:
-            category = _PREF_MAP.get(preference.lower(), "BALANCED")
-        else:
-            pop_stats = await get_population_usage_stats(conn)
-            if not pop_stats:
-                category = "BALANCED"
-            else:
-                data_pct = _percentile_rank(
-                    profile["total_data_mb"],
-                    pop_stats.get("data_p25", 0),
-                    pop_stats.get("data_p50", 0),
-                    pop_stats.get("data_p75", 0),
-                    pop_stats.get("data_p90", 0),
-                )
-                voice_pct = _percentile_rank(
-                    profile["total_voice_seconds"],
-                    pop_stats.get("voice_p25", 0),
-                    pop_stats.get("voice_p50", 0),
-                    pop_stats.get("voice_p75", 0),
-                    pop_stats.get("voice_p90", 0),
-                )
-                intl_pct = _percentile_rank(
-                    profile["total_intl_seconds"],
-                    pop_stats.get("intl_p25", 0),
-                    pop_stats.get("intl_p50", 0),
-                    pop_stats.get("intl_p75", 0),
-                    pop_stats.get("intl_p90", 0),
-                )
-                scores: dict[str, float] = {
-                    "DATA_HEAVY": data_pct,
-                    "VOICE_HEAVY": max(voice_pct, intl_pct),
-                }
-                dominant = {cat: pct for cat, pct in scores.items() if pct >= _DOMINANT_THRESHOLD}
-                if not dominant:
-                    return {
-                        "needs_clarification": True,
-                        "question": "What matters most to you — more data, more calling minutes, or a lower cost?",
-                    }
-                category = max(dominant, key=dominant.get)
-
-        last = await get_last_recharge_amount(conn, UUID(subscriber_id))
         current_plan = await get_current_plan_details(conn, UUID(subscriber_id))
+
+    baseline = _current_baseline(profile, current_plan)
 
     data_gb = profile["total_data_mb"] / 1024
     voice_min = profile["total_voice_seconds"] // 60
-    intl_min = profile["total_intl_seconds"] // 60
-    query_text = f"data {profile['total_data_mb']:.0f}MB voice {voice_min}min intl {intl_min}min"
+    query_text = f"data {profile['total_data_mb']:.0f}MB voice {voice_min}min sms {profile['total_sms_count']}"
 
-    filter_expr = f"usage_category == '{category}'" if category != "VALUE" else None
+    filter_expr = _build_plan_filter(baseline, directions)
     chunks = await _search_plans(query_text, top_k=10, filter_expr=filter_expr)
+    if not chunks and filter_expr is not None:
+        # The subscriber is already at (or past) the requested end of that axis for
+        # every candidate plan — fall back to an unfiltered search so they still
+        # see real options instead of an empty result.
+        chunks = await _search_plans(query_text, top_k=10)
 
-    if last is not None:
-        low, high = last * 0.8, last * 1.2
-        chunks = [c for c in chunks if low <= c.metadata.get("price", 0) <= high]
-
-    if category == "VALUE":
-        chunks = sorted(chunks, key=lambda c: c.metadata.get("price", 0))
-
+    summary = _preference_summary(directions)
     plans = []
-    for c in chunks[:2]:
+    for c in chunks[:3]:
         price_paise = c.metadata.get("price", 0)
         plans.append(
             {
@@ -608,8 +641,8 @@ async def _run_recommend_plan(preference: str | None) -> dict:
                 "price_paise": price_paise,
                 "price_inr": f"₹{price_paise // 100}",
                 "rationale": (
-                    f"Based on your {data_gb:.1f}GB data usage this month, "
-                    f"{c.text} gives you more data at ₹{price_paise // 100}."
+                    f"Based on your {data_gb:.1f}GB data usage this month and wanting {summary}, "
+                    f"{c.text} at ₹{price_paise // 100}."
                 ),
                 "recharge_url": f"/subscriber/recharge?plan_id={c.metadata['plan_id']}",
                 "comparison": _build_plan_comparison(current_plan, c.metadata),
@@ -620,19 +653,31 @@ async def _run_recommend_plan(preference: str | None) -> dict:
 
 
 @tool
-async def recommend_plan(preference: str | None = None) -> dict:
-    """Recommend the best plans for the subscriber based on their usage profile.
+async def recommend_plan(
+    data_preference: str | None = None,
+    voice_preference: str | None = None,
+    sms_preference: str | None = None,
+) -> dict:
+    """Recommend up to 3 plans matching what the subscriber wants more or less of.
 
-    preference: 'data' | 'voice' | 'value' | None. When None, classifies
-    automatically using 30-day CDR usage percentiles. Returns
-    ``{"needs_clarification": True, "question": "..."}`` when the usage profile
-    is ambiguous and the subscriber must specify a preference.
+    data_preference, voice_preference, sms_preference: each is 'more', 'less', or
+    omitted. Provide at least one — set only the axes the subscriber actually
+    stated a preference for; leave the rest as None. Preferences are compared
+    against the subscriber's current plan limits (or their last 30 days of usage
+    if they have no active plan on file). Returns
+    ``{"needs_clarification": True, "question": "..."}`` when none of the three
+    are given.
     """
     actual_subscriber_id = current_subscriber_id()
     return await _traced_tool(
         "recommend_plan",
-        {"subscriber_id": actual_subscriber_id, "preference": preference},
-        lambda: _run_recommend_plan(preference),
+        {
+            "subscriber_id": actual_subscriber_id,
+            "data_preference": data_preference,
+            "voice_preference": voice_preference,
+            "sms_preference": sms_preference,
+        },
+        lambda: _run_recommend_plan(data_preference, voice_preference, sms_preference),
     )
 
 

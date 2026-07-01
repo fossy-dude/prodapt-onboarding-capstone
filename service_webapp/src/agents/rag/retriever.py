@@ -337,7 +337,16 @@ class HybridRetriever:
     ) -> list[RagChunk]:
         """Dense search on plan_vectors with optional metadata filter for plan recommendation."""
         query_vector = await self.embed(query_text)
-        output_fields = ["text", "plan_type", "price", "validity", "usage_category", "data_limit_mb", "voice_minutes"]
+        output_fields = [
+            "text",
+            "plan_type",
+            "price",
+            "validity",
+            "usage_category",
+            "data_limit_mb",
+            "voice_minutes",
+            "sms_count",
+        ]
         results = await asyncio.to_thread(
             self._milvus.search,
             collection_name="plan_vectors",
@@ -369,6 +378,7 @@ class HybridRetriever:
                         "usage_category": entity.get("usage_category", ""),
                         "data_limit_mb": entity.get("data_limit_mb", 0),
                         "voice_minutes": entity.get("voice_minutes", 0),
+                        "sms_count": entity.get("sms_count", 0),
                     },
                 )
             )

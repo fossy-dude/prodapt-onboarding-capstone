@@ -696,7 +696,7 @@ async def get_current_plan_details(
     """Return the plan details from the last completed recharge, or None (Story 5.9 AC #4)."""
     cur = await conn.execute(
         """
-        SELECT p.plan_name, p.data_limit_mb, p.voice_minutes, p.price_paise
+        SELECT p.plan_name, p.data_limit_mb, p.voice_minutes, p.sms_count, p.price_paise
           FROM recharge_orders r
           JOIN plans_plans p ON r.plan_id = p.id
          WHERE r.subscriber_id = %s::uuid
@@ -713,7 +713,8 @@ async def get_current_plan_details(
         "plan_name": row[0],
         "data_limit_mb": row[1],
         "voice_minutes": row[2],
-        "price_paise": int(row[3]),
+        "sms_count": row[3],
+        "price_paise": int(row[4]),
     }
 
 

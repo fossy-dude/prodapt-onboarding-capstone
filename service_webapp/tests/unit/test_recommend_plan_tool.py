@@ -4,18 +4,12 @@ import uuid
 from typing import TYPE_CHECKING
 
 import pytest
-from langchain_core.messages import AIMessage, ToolMessage
 
 if TYPE_CHECKING:
     from contextvars import Token
 
 from agents.rag.retriever import RagChunk
-from agents.support.tools import (
-    _DOMINANT_THRESHOLD,
-    _PREF_MAP,
-    _build_plan_comparison,
-    _run_recommend_plan,
-)
+from agents.support.tools import _run_recommend_plan
 
 
 @pytest.fixture
@@ -51,41 +45,61 @@ def mock_db():
 
 
 @pytest.fixture
-def mock_retriever():
-    """Mock retriever that returns plan chunks."""
+def mock_retriever(monkeypatch):
+    """Patch _search_plans (as imported into tools.py) to return canned plan chunks."""
+    calls = []
 
-    class MockHybridRetriever:
-        async def search_plans(self, query_text, top_k=10, filter_expr=None):
-            return [
-                RagChunk(
-                    collection="plan_vectors",
-                    chunk_id="plan-1",
-                    text="Premium Plan 50GB data unlimited calls ₹299",
-                    score=0.95,
-                    metadata={
-                        "plan_id": "plan-1",
-                        "price": 29900,
-                        "data_limit_mb": 51200,
-                        "voice_minutes": 0,
-                        "usage_category": "DATA_HEAVY",
-                    },
-                ),
-                RagChunk(
-                    collection="plan_vectors",
-                    chunk_id="plan-2",
-                    text="Standard Plan 30GB data 500min ₹199",
-                    score=0.85,
-                    metadata={
-                        "plan_id": "plan-2",
-                        "price": 19900,
-                        "data_limit_mb": 30720,
-                        "voice_minutes": 500,
-                        "usage_category": "BALANCED",
-                    },
-                ),
-            ]
+    async def fake_search_plans(query_text, top_k=10, filter_expr=None):
+        calls.append({"query_text": query_text, "top_k": top_k, "filter_expr": filter_expr})
+        return [
+            RagChunk(
+                collection="plan_vectors",
+                chunk_id="plan-1",
+                text="Premium Plan 50GB data unlimited calls unlimited SMS ₹299",
+                score=0.95,
+                metadata={
+                    "plan_id": "plan-1",
+                    "price": 29900,
+                    "data_limit_mb": 51200,
+                    "voice_minutes": 0,
+                    "sms_count": 0,
+                    "usage_category": "DATA_HEAVY",
+                },
+            ),
+            RagChunk(
+                collection="plan_vectors",
+                chunk_id="plan-2",
+                text="Standard Plan 30GB data 500min 100SMS ₹199",
+                score=0.85,
+                metadata={
+                    "plan_id": "plan-2",
+                    "price": 19900,
+                    "data_limit_mb": 30720,
+                    "voice_minutes": 500,
+                    "sms_count": 100,
+                    "usage_category": "BALANCED",
+                },
+            ),
+            RagChunk(
+                collection="plan_vectors",
+                chunk_id="plan-3",
+                text="Value Plan 10GB data 200min 50SMS ₹99",
+                score=0.75,
+                metadata={
+                    "plan_id": "plan-3",
+                    "price": 9900,
+                    "data_limit_mb": 10240,
+                    "voice_minutes": 200,
+                    "sms_count": 50,
+                    "usage_category": "VALUE",
+                },
+            ),
+        ]
 
-    return MockHybridRetriever()
+    import agents.support.tools as tools_module
+
+    monkeypatch.setattr(tools_module, "_search_plans", fake_search_plans)
+    return calls
 
 
 @pytest.fixture
@@ -99,18 +113,11 @@ def mock_identity(monkeypatch):
     identity_module._subscriber_id.reset(token)
 
 
-@pytest.mark.asyncio
-async def test_recommend_plan_with_preference_data(mock_db, mock_retriever, mock_identity, monkeypatch):
-    """Test that preference='data' maps to DATA_HEAVY category."""
-    import agents.rag.retriever as retriever_module
+@pytest.fixture
+def stub_profile_and_plan(monkeypatch):
+    """Stub the DB helper functions recommend_plan calls, with sane defaults."""
     import agents.support.tools as tools_module
 
-    monkeypatch.setattr(tools_module, "_require_db", lambda: mock_db)
-
-    # Set the retriever singleton
-    monkeypatch.setattr(retriever_module, "_retriever", mock_retriever)
-
-    # Mock DB queries
     async def mock_get_profile(conn, subscriber_id, days=30):
         return {
             "total_data_mb": 5000,
@@ -120,72 +127,95 @@ async def test_recommend_plan_with_preference_data(mock_db, mock_retriever, mock
             "total_spend_paise": 10000,
         }
 
-    async def mock_get_last(conn, subscriber_id):
-        return None
-
     async def mock_get_current(conn, subscriber_id):
         return None
 
-    async def mock_get_pop(conn):
-        return {}
-
     monkeypatch.setattr(tools_module, "get_subscriber_usage_profile", mock_get_profile)
-    monkeypatch.setattr(tools_module, "get_last_recharge_amount", mock_get_last)
     monkeypatch.setattr(tools_module, "get_current_plan_details", mock_get_current)
-    monkeypatch.setattr(tools_module, "get_population_usage_stats", mock_get_pop)
-
-    result = await _run_recommend_plan(preference="data")
-    assert "plans" in result
-    assert len(result["plans"]) == 2
+    return tools_module
 
 
 @pytest.mark.asyncio
-async def test_recommend_plan_ambiguous_profile(mock_db, mock_identity, monkeypatch):
-    """Test that ambiguous usage returns needs_clarification."""
+async def test_recommend_plan_with_data_preference_returns_up_to_three_plans(
+    mock_db, mock_retriever, mock_identity, stub_profile_and_plan, monkeypatch
+):
+    monkeypatch.setattr(stub_profile_and_plan, "_require_db", lambda: mock_db)
+
+    result = await _run_recommend_plan(data_preference="more", voice_preference=None, sms_preference=None)
+
+    assert "plans" in result
+    assert len(result["plans"]) == 3
+    assert mock_retriever[0]["filter_expr"] == "data_limit_mb > 5000"
+
+
+@pytest.mark.asyncio
+async def test_recommend_plan_combines_multiple_axes_into_one_filter(
+    mock_db, mock_retriever, mock_identity, stub_profile_and_plan, monkeypatch
+):
+    monkeypatch.setattr(stub_profile_and_plan, "_require_db", lambda: mock_db)
+
+    await _run_recommend_plan(data_preference="more", voice_preference="less", sms_preference=None)
+
+    assert mock_retriever[0]["filter_expr"] == "data_limit_mb > 5000 and voice_minutes < 100"
+
+
+@pytest.mark.asyncio
+async def test_recommend_plan_no_preference_needs_clarification(mock_db, mock_identity, monkeypatch):
     import agents.support.tools as tools_module
 
     monkeypatch.setattr(tools_module, "_require_db", lambda: mock_db)
 
-    # Mock low usage profile (below 70th percentile on all dimensions)
-    async def mock_get_profile(conn, subscriber_id, days=30):
-        return {
-            "total_data_mb": 100,
-            "total_voice_seconds": 60,
-            "total_intl_seconds": 0,
-            "total_sms_count": 10,
-            "total_spend_paise": 500,
-        }
+    result = await _run_recommend_plan(data_preference=None, voice_preference=None, sms_preference=None)
 
-    async def mock_get_pop(conn):
-        return {
-            "data_p25": 1000,
-            "data_p50": 5000,
-            "data_p75": 15000,
-            "data_p90": 30000,
-            "voice_p25": 500,
-            "voice_p50": 2000,
-            "voice_p75": 5000,
-            "voice_p90": 10000,
-            "intl_p25": 0,
-            "intl_p50": 100,
-            "intl_p75": 500,
-            "intl_p90": 2000,
-        }
-
-    monkeypatch.setattr(tools_module, "get_subscriber_usage_profile", mock_get_profile)
-    monkeypatch.setattr(tools_module, "get_population_usage_stats", mock_get_pop)
-
-    result = await _run_recommend_plan(preference=None)
     assert result.get("needs_clarification") is True
     assert "question" in result
 
 
-def test_pref_map():
-    assert _PREF_MAP["data"] == "DATA_HEAVY"
-    assert _PREF_MAP["voice"] == "VOICE_HEAVY"
-    assert _PREF_MAP["value"] == "VALUE"
-    assert _PREF_MAP["balanced"] == "BALANCED"
+@pytest.mark.asyncio
+async def test_recommend_plan_falls_back_when_filter_yields_nothing(
+    mock_db, mock_identity, stub_profile_and_plan, monkeypatch
+):
+    """If the filtered search comes back empty, retry unfiltered instead of returning nothing."""
+    import agents.support.tools as tools_module
+
+    monkeypatch.setattr(stub_profile_and_plan, "_require_db", lambda: mock_db)
+
+    calls = []
+
+    async def fake_search_plans(query_text, top_k=10, filter_expr=None):
+        calls.append(filter_expr)
+        if filter_expr is not None:
+            return []
+        return [
+            RagChunk(
+                collection="plan_vectors",
+                chunk_id="plan-1",
+                text="Premium Plan 50GB data ₹299",
+                score=0.95,
+                metadata={
+                    "plan_id": "plan-1",
+                    "price": 29900,
+                    "data_limit_mb": 51200,
+                    "voice_minutes": 0,
+                    "sms_count": 0,
+                },
+            )
+        ]
+
+    monkeypatch.setattr(tools_module, "_search_plans", fake_search_plans)
+
+    result = await _run_recommend_plan(data_preference="more", voice_preference=None, sms_preference=None)
+
+    assert calls == ["data_limit_mb > 5000", None]
+    assert len(result["plans"]) == 1
 
 
-def test_dominant_threshold():
-    assert _DOMINANT_THRESHOLD == 70.0
+@pytest.mark.asyncio
+async def test_recommend_plan_invalid_direction_treated_as_no_preference(mock_db, mock_identity, monkeypatch):
+    import agents.support.tools as tools_module
+
+    monkeypatch.setattr(tools_module, "_require_db", lambda: mock_db)
+
+    result = await _run_recommend_plan(data_preference="banana", voice_preference=None, sms_preference=None)
+
+    assert result.get("needs_clarification") is True

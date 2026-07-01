@@ -294,12 +294,48 @@ class BalanceEngine:
         self._msisdn_to_subscriber = dict(state.msisdn_to_subscriber)
         self._warmup_count = state.count
 
+    async def _resolve_subscriber_from_db(self, sub_id_str: str) -> str | None:
+        """Fall back to DB when subscriber is absent from the warm-up index.
+
+        Fetches msisdn + balance_paise from billing_wallet_balances, updates
+        both in-memory indices, and seeds balance:{msisdn} in Valkey if the
+        key is absent (INCRBY on a missing key starts from 0, corrupting the
+        balance). Returns the msisdn, or None if no wallet row exists yet.
+        """
+        async with self._db.transaction() as conn:
+            cur = await conn.execute(
+                "SELECT msisdn, balance_paise FROM billing_wallet_balances WHERE subscriber_id = %s",
+                (sub_id_str,),
+            )
+            row = await cur.fetchone()
+
+        if row is None:
+            return None
+
+        msisdn, balance_paise = row
+        msisdn_str = str(msisdn)
+
+        self._subscriber_to_msisdn[sub_id_str] = msisdn_str
+        self._msisdn_to_subscriber[msisdn_str] = sub_id_str
+
+        key = f"balance:{msisdn_str}"
+        if await self._cache.get_str(key) is None:
+            await self._cache.set_many({key: balance_paise})
+
+        logger.info(
+            "deduct: subscriber_id=%s resolved from DB (post-warmup registration), msisdn[-4:]=%s; added to index",
+            sub_id_str,
+            msisdn_str[-4:],
+        )
+        return msisdn_str
+
     async def deduct(self, cdr: CdrEvent) -> None:
         """Hot-path balance deduction (BalanceHook called by BatchProcessor).
 
         Resolves msisdn from the CDR's subscriber_id, atomically ``INCRBY
         balance:{msisdn} -cost_paise``, marks msisdn dirty, and enqueues a ledger
-        row. Emits an OTEL span. Operates in O(1) with no blocking I/O.
+        row. Emits an OTEL span. O(1) for known subscribers; falls back to a
+        single DB lookup for subscribers registered after warm-up (one-time cost).
 
         Idempotency: the caller (Story 2.2 BatchProcessor) guarantees this is
         invoked only on first-sight events; this engine does NOT add a dedup guard.
@@ -320,11 +356,13 @@ class BalanceEngine:
         msisdn = self._subscriber_to_msisdn.get(sub_id_str)
 
         if msisdn is None:
-            # Subscriber not in warm-up index (new subscriber, no wallet row).
-            # Log warning (PII-safe: subscriber_id only) and skip deduction.
-            # The CDR still forwards to enriched — this is a degradation, not a crash.
+            # Subscriber absent from warm-up index — registered after startup.
+            # One-time DB lookup; result is cached in-process for subsequent CDRs.
+            msisdn = await self._resolve_subscriber_from_db(sub_id_str)
+
+        if msisdn is None:
             logger.warning(
-                "deduct: subscriber_id=%s not in warm-up index (no msisdn), skipping deduction",
+                "deduct: subscriber_id=%s not found in index or DB (no wallet row), skipping deduction",
                 sub_id_str,
             )
             return

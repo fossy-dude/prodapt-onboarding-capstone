@@ -27,9 +27,18 @@ logger = logging.getLogger(__name__)
 _BATCH_SIZE = 100
 _EMBEDDING_DIM = 1536
 _MAX_VARCHAR = 65_535
+# plans_plans.{data_limit_mb,voice_minutes,sms_count} are NULL for "unlimited".
+# Milvus scalar filters need a real number, so unlimited is stored as this
+# sentinel — larger than any real plan value, so "more than X" filters still
+# correctly favor unlimited plans and "less than X" filters correctly exclude them.
+_UNLIMITED_SENTINEL = 2_000_000_000
 
 _COLLECTIONS = ["faq_chunks", "plan_vectors", "sop_chunks"]
-_PK: dict[str, str] = {"faq_chunks": "chunk_id", "plan_vectors": "plan_id", "sop_chunks": "chunk_id"}
+_PK: dict[str, str] = {
+    "faq_chunks": "chunk_id",
+    "plan_vectors": "plan_id",
+    "sop_chunks": "chunk_id",
+}
 
 _EXTRA_FIELDS: dict[str, list[dict]] = {
     "faq_chunks": [
@@ -41,9 +50,14 @@ _EXTRA_FIELDS: dict[str, list[dict]] = {
         {"field_name": "plan_type", "datatype": DataType.VARCHAR, "max_length": 128},
         {"field_name": "price", "datatype": DataType.INT64},
         {"field_name": "validity", "datatype": DataType.INT64},
-        {"field_name": "usage_category", "datatype": DataType.VARCHAR, "max_length": 16},
+        {
+            "field_name": "usage_category",
+            "datatype": DataType.VARCHAR,
+            "max_length": 16,
+        },
         {"field_name": "data_limit_mb", "datatype": DataType.INT64},
         {"field_name": "voice_minutes", "datatype": DataType.INT64},
+        {"field_name": "sms_count", "datatype": DataType.INT64},
     ],
     "sop_chunks": [
         {"field_name": "rule_id", "datatype": DataType.VARCHAR, "max_length": 512},
@@ -58,10 +72,21 @@ _EXTRA_FIELDS: dict[str, list[dict]] = {
 
 def _build_schema(name: str) -> object:
     schema = MilvusClient.create_schema(auto_id=False, enable_dynamic_field=False)
-    schema.add_field(field_name=_PK[name], datatype=DataType.VARCHAR, is_primary=True, max_length=64)
-    schema.add_field(field_name="text", datatype=DataType.VARCHAR, max_length=_MAX_VARCHAR, enable_analyzer=True)
-    schema.add_field(field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=_EMBEDDING_DIM)
-    schema.add_field(field_name="sparse_embedding", datatype=DataType.SPARSE_FLOAT_VECTOR)
+    schema.add_field(
+        field_name=_PK[name], datatype=DataType.VARCHAR, is_primary=True, max_length=64
+    )
+    schema.add_field(
+        field_name="text",
+        datatype=DataType.VARCHAR,
+        max_length=_MAX_VARCHAR,
+        enable_analyzer=True,
+    )
+    schema.add_field(
+        field_name="embedding", datatype=DataType.FLOAT_VECTOR, dim=_EMBEDDING_DIM
+    )
+    schema.add_field(
+        field_name="sparse_embedding", datatype=DataType.SPARSE_FLOAT_VECTOR
+    )
     for field in _EXTRA_FIELDS[name]:
         schema.add_field(**field)
     bm25 = Function(
@@ -77,9 +102,16 @@ def _build_schema(name: str) -> object:
 def _build_index_params() -> object:
     ip = MilvusClient.prepare_index_params()
     ip.add_index(
-        field_name="embedding", index_type="HNSW", metric_type="COSINE", params={"M": 16, "efConstruction": 256}
+        field_name="embedding",
+        index_type="HNSW",
+        metric_type="COSINE",
+        params={"M": 16, "efConstruction": 256},
     )
-    ip.add_index(field_name="sparse_embedding", index_type="SPARSE_INVERTED_INDEX", metric_type="BM25")
+    ip.add_index(
+        field_name="sparse_embedding",
+        index_type="SPARSE_INVERTED_INDEX",
+        metric_type="BM25",
+    )
     return ip
 
 
@@ -104,7 +136,11 @@ def drop_and_create(client: MilvusClient, name: str) -> None:
     if client.has_collection(name):
         client.drop_collection(name)
         logger.info("Dropped existing collection %r", name)
-    client.create_collection(collection_name=name, schema=_build_schema(name), index_params=_build_index_params())
+    client.create_collection(
+        collection_name=name,
+        schema=_build_schema(name),
+        index_params=_build_index_params(),
+    )
     logger.info("Created collection %r", name)
 
 
@@ -133,7 +169,9 @@ def _plan_type_from_code(plan_code: str) -> str:
     return (str(plan_code).split("_", 1)[0]).upper()[:128]
 
 
-def _usage_category(data_mb: float | None, voice_min: float | None, price_paise: int | None) -> str:
+def _usage_category(
+    data_mb: float | None, voice_min: float | None, price_paise: int | None
+) -> str:
     data = data_mb or 0
     is_unlimited_voice = voice_min is None
     voice = voice_min if voice_min is not None else 99999
@@ -146,10 +184,12 @@ def _usage_category(data_mb: float | None, voice_min: float | None, price_paise:
     return "BALANCED"
 
 
-def seed_plan_vectors(client: MilvusClient, model: AzureOpenAIEmbeddings, conn: psycopg.Connection) -> int:
+def seed_plan_vectors(
+    client: MilvusClient, model: AzureOpenAIEmbeddings, conn: psycopg.Connection
+) -> int:
     logger.info("=== Seeding plan_vectors ===")
     rows = conn.execute(
-        "SELECT id, plan_name, plan_code, price_paise, validity_days, data_limit_mb, voice_minutes"
+        "SELECT id, plan_name, plan_code, price_paise, validity_days, data_limit_mb, voice_minutes, sms_count"
         " FROM plans_plans WHERE is_active = TRUE"
     ).fetchall()
     if not rows:
@@ -165,8 +205,9 @@ def seed_plan_vectors(client: MilvusClient, model: AzureOpenAIEmbeddings, conn: 
             "price": int(r[3]),
             "validity": int(r[4]),
             "usage_category": _usage_category(r[5], r[6], int(r[3])),
-            "data_limit_mb": int(r[5]) if r[5] is not None else 0,
-            "voice_minutes": int(r[6]) if r[6] is not None else 0,
+            "data_limit_mb": int(r[5]) if r[5] is not None else _UNLIMITED_SENTINEL,
+            "voice_minutes": int(r[6]) if r[6] is not None else _UNLIMITED_SENTINEL,
+            "sms_count": int(r[7]) if r[7] is not None else _UNLIMITED_SENTINEL,
         }
         for i, r in enumerate(rows)
     ]
@@ -178,7 +219,9 @@ def seed_plan_vectors(client: MilvusClient, model: AzureOpenAIEmbeddings, conn: 
 
 def seed_faq_chunks(client: MilvusClient, model: AzureOpenAIEmbeddings) -> int:
     logger.info("=== Seeding faq_chunks ===")
-    faq_path = Path(__file__).resolve().parents[1] / "service_webapp" / "data" / "faq.yaml"
+    faq_path = (
+        Path(__file__).resolve().parents[1] / "service_webapp" / "data" / "faq.yaml"
+    )
     with faq_path.open() as f:
         data_yaml = yaml.safe_load(f)
     entries = data_yaml["faqs"]
@@ -201,9 +244,13 @@ def seed_faq_chunks(client: MilvusClient, model: AzureOpenAIEmbeddings) -> int:
     return count
 
 
-def seed_sop_chunks(client: MilvusClient, model: AzureOpenAIEmbeddings, conn: psycopg.Connection) -> int:
+def seed_sop_chunks(
+    client: MilvusClient, model: AzureOpenAIEmbeddings, conn: psycopg.Connection
+) -> int:
     logger.info("=== Seeding sop_chunks ===")
-    rows = conn.execute("SELECT id, chunk_text, source_document, domain FROM sop_knowledge_chunks").fetchall()
+    rows = conn.execute(
+        "SELECT id, chunk_text, source_document, domain FROM sop_knowledge_chunks"
+    ).fetchall()
     if not rows:
         logger.warning("sop_knowledge_chunks is empty — skipping sop_chunks seeding")
         return 0
@@ -275,10 +322,18 @@ def main() -> None:
         sop_count = seed_sop_chunks(client, model, conn)
 
     logger.info("=== Seeding complete ===")
-    logger.info("plan_vectors=%d  faq_chunks=%d  sop_chunks=%d", plan_count, faq_count, sop_count)
+    logger.info(
+        "plan_vectors=%d  faq_chunks=%d  sop_chunks=%d",
+        plan_count,
+        faq_count,
+        sop_count,
+    )
     # "~1000" is the expected plan count, not a hard requirement; the count varies
     # with how many plans are active. We only assert the collection is non-empty.
-    logger.info("plan_vectors count vs ~1000 expectation is informational only (saw %d)", plan_count)
+    logger.info(
+        "plan_vectors count vs ~1000 expectation is informational only (saw %d)",
+        plan_count,
+    )
 
     assert plan_count > 0, f"plan_vectors expected >0, got {plan_count}"
     assert faq_count >= 50, f"faq_chunks expected >=50, got {faq_count}"

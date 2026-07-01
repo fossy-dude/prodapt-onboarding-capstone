@@ -179,15 +179,59 @@ def test_deduct_zero_cost_unlimited_still_logged():
     assert row.balance_after == 10000
 
 
-def test_deduct_unknown_subscriber_skips():
-    """Subscriber not in warm-up index → log + skip deduction (no INCRBY)."""
-    engine, cache, _ = _engine()
+def test_deduct_unknown_subscriber_skips_when_not_in_db():
+    """Subscriber absent from index and DB → skip deduction (no INCRBY)."""
+    engine, cache, _ = _engine()  # FakeDB has no rows → fetchone returns None
 
     asyncio.run(engine.deduct(_sms(cost=250, sub="0192a4d0-9999-7000-8000-000000000def")))
 
     assert cache.incr_by_calls == []
     assert len(engine._dirty_msisdns) == 0
     assert len(engine._ledger_queue) == 0
+
+
+def test_deduct_falls_back_to_db_for_new_subscriber():
+    """Subscriber absent from warm-up index but present in DB → deduction proceeds."""
+    new_sub = "0192a4d0-9999-7000-8000-000000000def"
+    new_msisdn = "9999999999"
+    cache = FakeCache()
+    db = FakeDB(fetch_rows=[(new_msisdn, 5000)])
+    engine = BalanceEngine(cache, db)
+    engine._subscriber_to_msisdn = {_SUB: _MSISDN}
+    engine._msisdn_to_subscriber = {_MSISDN: _SUB}
+    cache.store[f"balance:{_MSISDN}"] = "10000"
+
+    asyncio.run(engine.deduct(_sms(cost=250, sub=new_sub)))
+
+    assert cache.incr_by_calls == [(f"balance:{new_msisdn}", -250)]
+    assert new_msisdn in engine._dirty_msisdns
+    assert len(engine._ledger_queue) == 1
+    assert engine._ledger_queue[0].subscriber_id == new_sub
+    assert engine._ledger_queue[0].amount_paise == -250
+    assert engine._subscriber_to_msisdn[new_sub] == new_msisdn
+    assert engine._msisdn_to_subscriber[new_msisdn] == new_sub
+    assert cache.store[f"balance:{new_msisdn}"] == str(5000 - 250)
+
+
+def test_deduct_db_fallback_skips_cache_seed_if_key_exists():
+    """DB fallback does not overwrite an already-live balance key in Valkey."""
+    new_sub = "0192a4d0-9999-7000-8000-000000000def"
+    new_msisdn = "9999999999"
+    cache = FakeCache()
+    db = FakeDB(fetch_rows=[(new_msisdn, 5000)])
+    engine = BalanceEngine(cache, db)
+    engine._subscriber_to_msisdn = {}
+    engine._msisdn_to_subscriber = {}
+    # Key already exists in cache with a live (different) value
+    cache.store[f"balance:{new_msisdn}"] = "4000"
+
+    asyncio.run(engine.deduct(_sms(cost=100, sub=new_sub)))
+
+    # INCRBY applied to the existing live value, not reset to DB snapshot
+    assert cache.incr_by_calls == [(f"balance:{new_msisdn}", -100)]
+    assert cache.store[f"balance:{new_msisdn}"] == "3900"
+    # set_many was NOT called (key already existed)
+    assert cache.set_many_calls == []
 
 
 def test_flush_upsert_uses_on_conflict_and_keeps_key():
