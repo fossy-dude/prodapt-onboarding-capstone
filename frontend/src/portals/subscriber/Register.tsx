@@ -195,7 +195,7 @@ function Register() {
           <CardSection title="Verify your mobile">
             <p className="mb-3 text-sm text-neutral-600">
               An OTP was sent to your alternate mobile number. Enter it to
-              verify (verification completes the login flow in Story 1.8).
+              verify your registration request.
             </p>
             <input
               aria-label="One-time passcode"

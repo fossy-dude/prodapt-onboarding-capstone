@@ -5,6 +5,7 @@ import { useBalance, useRefreshBalance } from "../../hooks/useBalance";
 import { useUsage } from "../../hooks/useUsage";
 import { useActivePlan } from "../../hooks/useActivePlan";
 import { PlanDetailsCard } from "./PlanDetailsCard";
+import { NoActivePlanNotice } from "./NoActivePlanNotice";
 
 function BalanceCard() {
   const { data, isLoading, isError } = useBalance();
@@ -161,7 +162,7 @@ function Dashboard() {
   // Combine loading states from all child components to prevent race conditions
   const { isLoading: balanceLoading } = useBalance();
   const { isLoading: usageLoading } = useUsage();
-  const { isLoading: planLoading } = useActivePlan();
+  const { data: activePlan, isLoading: planLoading } = useActivePlan();
 
   const isGlobalLoading = balanceLoading || usageLoading || planLoading;
 
@@ -178,9 +179,15 @@ function Dashboard() {
   return (
     <main className="max-w-2xl mx-auto px-4 py-8 flex flex-col gap-6">
       <h1 className="text-2xl font-bold text-neutral-900">Dashboard</h1>
-      <BalanceCard />
-      <PlanDetailsCard />
-      <UsageSection />
+      {activePlan === null ? (
+        <NoActivePlanNotice />
+      ) : (
+        <>
+          <BalanceCard />
+          <PlanDetailsCard />
+          <UsageSection />
+        </>
+      )}
     </main>
   );
 }

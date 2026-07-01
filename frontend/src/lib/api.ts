@@ -591,10 +591,22 @@ interface ActivePlanResponse {
   readonly meta: { readonly trace_id: string; readonly timestamp: string };
 }
 
-/** GET /subscriber/plan — active plan name, validity expiry, and quotas. */
-export async function getActivePlan(): Promise<ActivePlanData> {
-  const { data } = await apiClient.get<ActivePlanResponse>("/subscriber/plan");
-  return data.data;
+/**
+ * GET /subscriber/plan — active plan name, validity expiry, and quotas.
+ * Resolves to `null` (not an error) when the subscriber has no active plan
+ * yet, since that's an expected state for a newly registered subscriber.
+ */
+export async function getActivePlan(): Promise<ActivePlanData | null> {
+  try {
+    const { data } =
+      await apiClient.get<ActivePlanResponse>("/subscriber/plan");
+    return data.data;
+  } catch (error) {
+    if (error instanceof AxiosError && error.response?.status === 404) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 /** One browsable plan in the catalogue (GET /plans). */

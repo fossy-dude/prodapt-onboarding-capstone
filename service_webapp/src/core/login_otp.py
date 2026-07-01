@@ -59,12 +59,18 @@ class LoginOtpService:
     def _key(self, identifier: str) -> str:
         return f"{_LOGIN_OTP_PREFIX}{identifier}"
 
-    async def issue(self, identifier: str, trace_id: str) -> str:
-        """Mint a 6-digit OTP, store it in Valkey, publish to notification.events, return it."""
+    async def issue(self, identifier: str, trace_id: str, notify_target: str | None = None) -> str:
+        """Mint a 6-digit OTP, store it in Valkey, publish to notification.events, return it.
+
+        ``identifier`` is the lookup key (stored in Valkey and used by ``verify``).
+        ``notify_target`` overrides the MSISDN shown in the notification payload — use
+        this when the Valkey identifier (e.g. a Registration ID) differs from the
+        delivery target (e.g. the subscriber's alternate mobile).
+        """
         code = "".join(secrets.choice("0123456789") for _ in range(_OTP_LENGTH))
         await self._cache.set_str(self._key(identifier), code, ex=self._ttl)
         logger.info("Login OTP issued for identifier=***%s (ttl=%ds)", identifier[-4:], self._ttl)
-        await self._publish(identifier, code, trace_id)
+        await self._publish(notify_target or identifier, code, trace_id)
         return code
 
     async def verify(self, identifier: str, entered_code: str) -> bool:
@@ -123,12 +129,14 @@ class FakeLoginOtpService:
         self.issued: list[str] = []
         self.published_login_otps: list[dict[str, Any]] = []
 
-    async def issue(self, identifier: str, trace_id: str) -> str:
+    async def issue(self, identifier: str, trace_id: str, notify_target: str | None = None) -> str:
         """Generate and store an OTP for ``identifier`` (in-memory)."""
         code = "".join(secrets.choice("0123456789") for _ in range(_OTP_LENGTH))
         self._store[identifier] = code
         self.issued.append(code)
-        self.published_login_otps.append({"identifier": identifier, "code": code, "trace_id": trace_id})
+        self.published_login_otps.append(
+            {"identifier": identifier, "notify_target": notify_target, "code": code, "trace_id": trace_id}
+        )
         return code
 
     async def verify(self, identifier: str, entered_code: str) -> bool:

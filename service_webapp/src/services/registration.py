@@ -219,7 +219,11 @@ class RegistrationService:
             await self._cognito.provision_user(persisted.registration_id, cmd.alternate_mobile)
             # Publish OTP to notification.events via LoginOtpService (if available).
             if self._otp_service is not None:
-                otp = await self._otp_service.issue(cmd.alternate_mobile, "0" * 32)
+                otp = await self._otp_service.issue(
+                    persisted.registration_id,
+                    "0" * 32,
+                    notify_target=cmd.alternate_mobile,
+                )
             else:
                 # Fallback: generate locally for tests that don't wire otp_service.
                 otp = await self._cognito.start_verification(cmd.alternate_mobile)

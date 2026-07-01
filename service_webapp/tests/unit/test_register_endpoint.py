@@ -195,6 +195,8 @@ async def test_registration_otp_published_via_login_otp_service() -> None:
     # OTP should be issued via the LoginOtpService, not via cognito.start_verification.
     assert len(otp_service.issued) == 1  # OTP was issued
     assert result.otp == otp_service.issued[0]  # returned OTP matches issued
-    # Registration OTP is published with the alternate mobile as the identifier.
+    # OTP Valkey key uses the registration_id; notification delivery uses alternate_mobile.
     assert len(otp_service.published_login_otps) == 1
-    assert otp_service.published_login_otps[0]["identifier"] == "9123456780"
+    pub = otp_service.published_login_otps[0]
+    assert pub["identifier"] == result.registration_id
+    assert pub["notify_target"] == "9123456780"
