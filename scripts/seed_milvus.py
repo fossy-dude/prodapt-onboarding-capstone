@@ -3,11 +3,13 @@
 Run via: scripts/seed_milvus.sh (which sets PYTHONPATH and env vars).
 
 Idempotent: drops and recreates all three collections on every run (AC #7).
+Pass --skip-if-seeded to skip entirely when all collections already contain data.
 Fails loudly if plans_plans is empty — run `just seed` first.
 """
 
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 import sys
@@ -104,6 +106,16 @@ def drop_and_create(client: MilvusClient, name: str) -> None:
         logger.info("Dropped existing collection %r", name)
     client.create_collection(collection_name=name, schema=_build_schema(name), index_params=_build_index_params())
     logger.info("Created collection %r", name)
+
+
+def all_collections_seeded(client: MilvusClient) -> bool:
+    """True if every collection in _COLLECTIONS exists and holds at least one row."""
+    for name in _COLLECTIONS:
+        if not client.has_collection(name):
+            return False
+        if client.get_collection_stats(name)["row_count"] == 0:
+            return False
+    return True
 
 
 # ── Seeder logic ──────────────────────────────────────────────────────────────
@@ -222,9 +234,22 @@ def seed_sop_chunks(client: MilvusClient, model: AzureOpenAIEmbeddings, conn: ps
 def main() -> None:
     from core.config import settings  # noqa: PLC0415
 
+    parser = argparse.ArgumentParser(description="Milvus Lite seeder for SkyLink.")
+    parser.add_argument(
+        "--skip-if-seeded",
+        action="store_true",
+        help="Skip seeding if all collections already exist and contain data",
+    )
+    args = parser.parse_args()
+
     milvus_uri = os.environ.get("MILVUS_DB_URI", settings.milvus_db_uri)
     logger.info("Connecting to Milvus Lite at %r", milvus_uri)
     client = MilvusClient(uri=milvus_uri)
+
+    if args.skip_if_seeded and all_collections_seeded(client):
+        logger.info("All collections already seeded — skipping (--skip-if-seeded)")
+        client.close()
+        return
 
     logger.info("Building embedding model (Azure OpenAI %s)", settings.embedding_model)
     model = AzureOpenAIEmbeddings(

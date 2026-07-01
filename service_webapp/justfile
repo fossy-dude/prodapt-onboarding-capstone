@@ -62,6 +62,8 @@ format:
 # All required vars (AZURE_OPENAI_*, DB__*, VALKEY_URL, KAFKA_BROKERS) are sourced from
 # service_webapp/.env via dotenv-load. MILVUS_DB_URI is computed from justfile_directory()
 # to override the container path stored in .env.
+# Skips seeding if all collections already exist and contain data (--skip-if-seeded),
+# mirroring generate_synthetic_data.py's --skip-truncate-if-pre-seeded behavior.
 seed-milvus:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -80,5 +82,5 @@ seed-milvus:
         --with "pymilvus[milvus-lite]>=2.5" \
         --with "langchain-openai>=0.2" \
         --with "pyyaml>=6" \
-        python3 "${SCRIPTS}/seed_milvus.py"
+        python3 "${SCRIPTS}/seed_milvus.py" --skip-if-seeded
     echo "[seed-milvus] Done."
