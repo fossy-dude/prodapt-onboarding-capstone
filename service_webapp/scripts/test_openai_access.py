@@ -5,8 +5,7 @@ Run with: uv run scripts/test_openai_access.py
 
 from __future__ import annotations
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import AzureChatOpenAI
+from openai import AzureOpenAI
 from pydantic import BaseModel, Field
 
 from core.config import settings
@@ -22,32 +21,33 @@ class ComplaintExtraction(BaseModel):
 
 
 def main() -> None:
-    config = dict(
+    client = AzureOpenAI(
+        api_version=settings.azure_openai_api_version,
         azure_endpoint=settings.azure_openai_endpoint,
         api_key=settings.azure_openai_api_key,
-        api_version=settings.azure_openai_api_version,
-        azure_deployment=settings.chat_deployment,
     )
-    print(config)
-    llm = AzureChatOpenAI(
-        **config,
-        temperature=0,
+
+    response = client.chat.completions.parse(
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a telecom support assistant. Extract structured details from the subscriber's message."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "I've been charged twice for my data pack this month and my internet "
+                    "has been down for three days. This is unacceptable, I want a refund now."
+                ),
+            },
+        ],
+        model=settings.chat_deployment_mini,
+        response_format=ComplaintExtraction,
     )
-    structured_llm = llm.with_structured_output(ComplaintExtraction)
 
-    messages = [
-        SystemMessage(
-            content=("You are a telecom support assistant. Extract structured details from the subscriber's message.")
-        ),
-        HumanMessage(
-            content=(
-                "I've been charged twice for my data pack this month and my internet "
-                "has been down for three days. This is unacceptable, I want a refund now."
-            )
-        ),
-    ]
-
-    result = structured_llm.invoke(messages)
+    result = response.choices[0].message.parsed
     print(result.model_dump_json(indent=2))
 
 
